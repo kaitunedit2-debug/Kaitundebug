@@ -1,7 +1,7 @@
 --========================================================================--
 -- Hyko by Huy - WindUI Edition (Optimized)
 -- UI: WindUI by Footagesus
--- White Theme | User Info | Lucide Icons
+-- White Theme | Custom Background & Icon | Lucide Icons
 --========================================================================--
 
 local Players         = game:GetService("Players")
@@ -135,7 +135,7 @@ local espList  = {}
 local espLoop  = nil
 
 --========================================================================--
--- [4] DRIVE SYSTEM (Anti-Ragdoll + Anti-Knockback via LinearVelocity)
+-- [4] DRIVE SYSTEM (Anti-Ragdoll + Anti-Knockback)
 --========================================================================--
 local driveActive         = false
 local driveConn           = nil
@@ -1542,14 +1542,14 @@ WindUI:AddTheme({
 })
 
 --========================================================================--
--- [14] WINDUI WINDOW (Đã thêm Icon & BackgroundImage)
+-- [14] WINDUI WINDOW (Icon + Background theo đúng docs)
 --========================================================================--
 print("[Hyko] Step 5: creating WindUI window")
 
 local Window = WindUI:CreateWindow({
     Title = "Hyko by Huy",
     Author = "by Huy",
-    Icon = "rbxassetid://133251082112509", -- Icon từ ID 13325...
+    Icon = "rbxassetid://133251082112509", -- Icon (alien cầm hoa)
     Theme = "Hyko White",
     Folder = "HykoConfig",
     Size = UDim2.fromOffset(620, 480),
@@ -1561,10 +1561,11 @@ local Window = WindUI:CreateWindow({
     SideBarWidth = 200,
     HideSearchBar = false,
     ScrollBarEnabled = true,
-    
-    -- Thêm nền từ ID 1614...
-    BackgroundImage = "rbxassetid://16149300225",
-    BackgroundImageTransparency = 0.75, -- Độ mờ (0 = rõ nhất, 1 = trong suốt)
+
+    -- Background theo tài liệu chính thức WindUI:
+    -- Nhận "rbxassetid://..." hoặc link .webm
+    Background = "rbxassetid://16149300225",
+    BackgroundImageTransparency = 0.75, -- 0 = rõ, 1 = mờ hẳn
 
     User = {
         Enabled = true,
@@ -1585,32 +1586,6 @@ local Window = WindUI:CreateWindow({
         Key = { "OP" },
     },
 })
-
--- Fallback: Tự động chèn ảnh nền nếu WindUI không hỗ trợ BackgroundImage trong config
-task.spawn(function()
-    task.wait(0.5)
-    local ok, mainFrame = pcall(function()
-        -- Cố gắng lấy frame chính của WindUI
-        if Window.Window then return Window.Window end
-        if Window.MainFrame then return Window.MainFrame end
-        if Window.Root then return Window.Root end
-        return nil
-    end)
-    if ok and mainFrame and mainFrame:IsA("GuiObject") then
-        -- Kiểm tra xem đã có ảnh nền chưa
-        if not mainFrame:FindFirstChild("HykoCustomBackground") then
-            local bg = Instance.new("ImageLabel")
-            bg.Name = "HykoCustomBackground"
-            bg.Size = UDim2.new(1, 0, 1, 0)
-            bg.Position = UDim2.new(0, 0, 0, 0)
-            bg.BackgroundTransparency = 1
-            bg.Image = "rbxassetid://16149300225"
-            bg.ImageTransparency = 0.75
-            bg.ZIndex = 0
-            bg.Parent = mainFrame
-        end
-    end
-end)
 
 print("[Hyko] Step 6: window created")
 
