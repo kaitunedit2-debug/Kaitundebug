@@ -1546,17 +1546,15 @@ WindUI:AddTheme({
 --========================================================================--
 print("[Hyko] Step 5: creating WindUI window")
 
--- Cấu hình ID ảnh mặc định
 local DEFAULT_BG_ID = 16390378968
 local DEFAULT_ICON_ID = 71999030813587
 
--- Danh sách các ID ảnh khác để đưa vào Theme
 local THEME_IMAGE_IDS = {
-    "16390378968", "16390374415", "16390370650", "16390287533", "16390276131",
-    "16149300225", "14780540796", "18218895340", "18218912026", "16992985181",
-    "16992999181", "138174781911258", "76881226512385", "18287051021",
-    "18287017762", "94766951507843", "16751151478", "16751045189", "115744147858434",
-    "133251082112509", "127176659817333", "18218963907", "16992991374", "16992994321"
+    16390378968, 16390374415, 16390370650, 16390287533, 16390276131,
+    16149300225, 14780540796, 18218895340, 18218912026, 16992985181,
+    16992999181, 138174781911258, 76881226512385, 18287051021,
+    18287017762, 94766951507843, 16751151478, 16751045189, 115744147858434,
+    133251082112509, 127176659817333, 18218963907, 16992991374, 16992994321
 }
 
 local Window = WindUI:CreateWindow({
@@ -1595,7 +1593,7 @@ local Window = WindUI:CreateWindow({
 })
 
 --========================================================================--
--- HÀM ÁP DỤNG ICON + BACKGROUND
+-- HÀM ÁP DỤNG ICON + BACKGROUND (Re-usable function)
 --========================================================================--
 local function applyThemeToWindUI(bgId, iconId)
     task.spawn(function()
@@ -2123,48 +2121,33 @@ print("[Hyko] Step 10: server hop tab built")
 ThemeTab:Section({ Title = "Background Images", Box = true })
 
 ThemeTab:Paragraph({
-    Title = "Chọn nền cho UI",
-    Desc = "Chọn một ID ảnh từ danh sách để thay đổi nền của WindUI. "
-        .. "Bạn có thể tìm thấy các ID này trong ảnh bạn đã cung cấp.\n"
-        .. "Mặc định đang dùng: 16390378968",
+    Title = "Select Background Image ID",
+    Desc = "Use the slider below to cycle through available background IDs. "
+        .. "Default is 16390378968.",
     Icon = "image",
 })
 
-ThemeTab:Dropdown({
-    Title = "Select Background ID",
-    Desc = "Chọn ID ảnh nền",
+ThemeTab:Slider({
+    Title = "Background ID Selector",
+    Desc = "Slide to change background image",
     Icon = "layout",
-    Values = THEME_IMAGE_IDS,
-    Value = tostring(DEFAULT_BG_ID),
-    Callback = function(selectedId)
+    Step = 1,
+    Value = { Min = 1, Max = #THEME_IMAGE_IDS, Default = 1 },
+    Callback = function(value)
+        local selectedId = THEME_IMAGE_IDS[value]
         if selectedId then
-            applyThemeToWindUI(tonumber(selectedId), DEFAULT_ICON_ID)
-            notify("Hyko by Huy", "Đã đổi nền UI thành ID: " .. selectedId, "image")
+            applyThemeToWindUI(selectedId, DEFAULT_ICON_ID)
+            notify("Hyko by Huy", "Changed Background ID to: " .. tostring(selectedId), "image")
         end
     end,
 })
 
-ThemeTab:Section({ Title = "Icon", Box = true })
+ThemeTab:Section({ Title = "Current ID", Box = true })
 
 ThemeTab:Paragraph({
-    Title = "Icon ID",
-    Desc = "Icon mặc định đang dùng: 71999030813587 (mèo cầm hoa).",
-    Icon = "star",
-})
-
-ThemeTab:Input({
-    Title = "Custom Icon ID",
-    Desc = "Nhập ID ảnh để thay đổi Icon của WindUI",
-    Placeholder = "Ví dụ: 71999030813587",
-    Icon = "edit",
-    Value = tostring(DEFAULT_ICON_ID),
-    Callback = function(text)
-        local id = tonumber(text)
-        if id then
-            applyThemeToWindUI(DEFAULT_BG_ID, id)
-            notify("Hyko by Huy", "Đã đổi Icon UI thành ID: " .. id, "star")
-        end
-    end,
+    Title = "Selected ID",
+    Desc = "Current Background ID: 16390378968",
+    Icon = "info",
 })
 
 print("[Hyko] Step 11: theme tab built")
