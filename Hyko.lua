@@ -1,7 +1,7 @@
 --========================================================================--
 -- Hyko by Huy - WindUI Edition (Optimized)
--- UI: WindUI by Footagesus
--- White Theme | Custom Background & Icon | Lucide Icons
+-- UI: WindUI by Footagesus (v1.666)
+-- White Theme | Custom Background & Icon
 --========================================================================--
 
 local Players         = game:GetService("Players")
@@ -1542,14 +1542,17 @@ WindUI:AddTheme({
 })
 
 --========================================================================--
--- [14] WINDUI WINDOW (Icon + Background theo đúng docs)
+-- [14] WINDUI WINDOW - Custom Background & Icon
 --========================================================================--
 print("[Hyko] Step 5: creating WindUI window")
+
+-- ID cho Icon và Background
+local ICON_ID       = 133251082112509  -- Alien cầm hoa
+local BACKGROUND_ID = 16149300225      -- Anime tóc xanh
 
 local Window = WindUI:CreateWindow({
     Title = "Hyko by Huy",
     Author = "by Huy",
-    Icon = "rbxassetid://133251082112509", -- Icon (alien cầm hoa)
     Theme = "Hyko White",
     Folder = "HykoConfig",
     Size = UDim2.fromOffset(620, 480),
@@ -1561,11 +1564,6 @@ local Window = WindUI:CreateWindow({
     SideBarWidth = 200,
     HideSearchBar = false,
     ScrollBarEnabled = true,
-
-    -- Background theo tài liệu chính thức WindUI:
-    -- Nhận "rbxassetid://..." hoặc link .webm
-    Background = "rbxassetid://16149300225",
-    BackgroundImageTransparency = 0.75, -- 0 = rõ, 1 = mờ hẳn
 
     User = {
         Enabled = true,
@@ -1586,6 +1584,120 @@ local Window = WindUI:CreateWindow({
         Key = { "OP" },
     },
 })
+
+--========================================================================--
+-- Áp dụng Icon + Background SAU khi tạo Window
+-- Dùng nhiều phương thức để đảm bảo hoạt động trên mọi version WindUI
+--========================================================================--
+task.spawn(function()
+    task.wait(0.3)
+
+    -- Định dạng ảnh (thử nhiều định dạng để chắc chắn)
+    local iconFormats = {
+        "rbxassetid://" .. tostring(ICON_ID),
+        "rbxthumb://type=Asset&id=" .. tostring(ICON_ID) .. "&w=150&h=150",
+    }
+    local bgFormats = {
+        "rbxassetid://" .. tostring(BACKGROUND_ID),
+        "rbxthumb://type=Asset&id=" .. tostring(BACKGROUND_ID) .. "&w=420&h=420",
+    }
+
+    -- ----- ICON -----
+    local iconSet = false
+
+    -- Method 1: Window:SetIcon
+    if not iconSet and type(Window.SetIcon) == "function" then
+        for _, fmt in ipairs(iconFormats) do
+            local ok = pcall(function() Window:SetIcon(fmt) end)
+            if ok then iconSet = true break end
+        end
+    end
+
+    -- Method 2: Window.Icon (property)
+    if not iconSet and Window.Icon ~= nil then
+        for _, fmt in ipairs(iconFormats) do
+            local ok = pcall(function() Window.Icon = fmt end)
+            if ok then iconSet = true break end
+        end
+    end
+
+    -- ----- BACKGROUND -----
+    local bgSet = false
+
+    -- Method 1: Window:SetBackgroundImage
+    if not bgSet and type(Window.SetBackgroundImage) == "function" then
+        for _, fmt in ipairs(bgFormats) do
+            local ok = pcall(function() Window:SetBackgroundImage(fmt) end)
+            if ok then bgSet = true break end
+        end
+    end
+
+    -- Method 2: Window.Background (property)
+    if not bgSet and Window.Background ~= nil then
+        for _, fmt in ipairs(bgFormats) do
+            local ok = pcall(function() Window.Background = fmt end)
+            if ok then bgSet = true break end
+        end
+    end
+
+    -- Method 3: Tìm ImageLabel bên trong Window và gán trực tiếp
+    if not bgSet then
+        local function findMainFrame(root)
+            if not root then return nil end
+            -- WindUI thường lưu frame chính ở MainFrame, Root, Window, Hoặc Frame
+            local candidates = {
+                root.MainFrame, root.Root, root.Window, root.Frame,
+                root.UI, root.Main, root.Holder,
+            }
+            for _, c in ipairs(candidates) do
+                if c and c:IsA("GuiObject") then return c end
+            end
+            -- Fallback: tìm Frame đầu tiên có size lớn
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
+                    return d
+                end
+            end
+            return nil
+        end
+
+        local mainFrame = findMainFrame(Window)
+        if mainFrame then
+            local existing = mainFrame:FindFirstChild("HykoBg")
+            if not existing then
+                local bg = Instance.new("ImageLabel")
+                bg.Name = "HykoBg"
+                bg.Size = UDim2.new(1, 0, 1, 0)
+                bg.Position = UDim2.new(0, 0, 0, 0)
+                bg.BackgroundTransparency = 1
+                bg.Image = bgFormats[1]
+                bg.ImageTransparency = 0.75
+                bg.ScaleType = Enum.ScaleType.Crop
+                bg.ZIndex = 0
+                bg.Parent = mainFrame
+                existing = bg
+            end
+            -- Đảm bảo các element khác nằm trên
+            for _, d in ipairs(mainFrame:GetDescendants()) do
+                if d ~= existing and d:IsA("GuiObject") and d.ZIndex == 0 then
+                    d.ZIndex = 1
+                end
+            end
+            bgSet = true
+        end
+    end
+
+    if iconSet then
+        print("[Hyko] Icon applied successfully")
+    else
+        warn("[Hyko] Icon could not be applied - check WindUI API")
+    end
+    if bgSet then
+        print("[Hyko] Background applied successfully")
+    else
+        warn("[Hyko] Background could not be applied - check WindUI API")
+    end
+end)
 
 print("[Hyko] Step 6: window created")
 
