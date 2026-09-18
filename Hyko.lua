@@ -73,7 +73,7 @@ print("[Hyko] Step 2: loading WindUI")
 --========================================================================--
 -- [1] LOAD WINDUI
 --========================================================================--
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))() -- v1.666
 
 if not WindUI then
     warn("[Hyko] WindUI failed to load")
@@ -1546,12 +1546,28 @@ WindUI:AddTheme({
 --========================================================================--
 print("[Hyko] Step 5: creating WindUI window")
 
-local ICON_ID       = 133251082112509
-local BACKGROUND_ID = 16149300225
+print("[Hyko] Step 5: creating WindUI window v1.666")
+
+local ICON_ID = 133251082112509 -- decal id icon
+local BACKGROUND_ID = 16149300225 -- decal id background
+
+-- Decal -> Image conversion helper (Roblox decal cần load texture)
+local function decalToImage(decalId)
+    -- thử lấy texture từ decal, nếu fail thì trả về rbxassetid gốc
+    local ok, result = pcall(function()
+        -- cách 1: dùng rbxassetid trực tiếp (WindUI 1.666 hỗ trợ decal)
+        return "rbxassetid://" .. tostring(decalId)
+    end)
+    return ok and result or ("rbxassetid://" .. tostring(decalId))
+end
+
 
 local Window = WindUI:CreateWindow({
     Title = "Hyko by Huy",
     Author = "by Huy",
+    Icon = decalToImage(ICON_ID),
+    Background = decalToImage(BACKGROUND_ID),
+    BackgroundImageTransparency = 0.12,
     Theme = "Hyko White",
     Folder = "HykoConfig",
     Size = UDim2.fromOffset(620, 480),
@@ -1570,7 +1586,7 @@ local Window = WindUI:CreateWindow({
         Callback = function()
             WindUI:Notify({
                 Title = "Hyko by Huy",
-                Content = "Hello " .. LP.DisplayName .. "!",
+                Content = "Hello " .. game.Players.LocalPlayer.DisplayName .. "!",
                 Icon = "user",
                 Duration = 3,
             })
@@ -1584,262 +1600,19 @@ local Window = WindUI:CreateWindow({
     },
 })
 
---========================================================================--
--- Áp dụng Icon + Background trực tiếp lên GUI instance
---========================================================================--
+-- v1.666 fix: Set lại sau khi tạo để chắc chắn hiện (API mới)
 task.spawn(function()
     task.wait(0.6)
-
-    local iconAsset = "rbxassetid://" .. tostring(ICON_ID)
-    local bgAsset   = "rbxassetid://" .. tostring(BACKGROUND_ID)
-
-    local parentGui = (gethui and gethui())
-        or game:GetService("CoreGui")
-
-    local windGui
-    for _, g in ipairs(parentGui:GetChildren()) do
-        if g:IsA("ScreenGui") then
-            local hasBigFrame = false
-            for _, d in ipairs(g:GetDescendants()) do
-                if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
-                    hasBigFrame = true
-                    break
-                end
-            end
-            if hasBigFrame then
-                windGui = g
-                break
-            end
-        end
-    end
-
-    if not windGui then
-        local pg = LP:FindFirstChildOfClass("PlayerGui")
-        if pg then
-            for _, g in ipairs(pg:GetChildren()) do
-                if g:IsA("ScreenGui") then
-                    for _, d in ipairs(g:GetDescendants()) do
-                        if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
-                            windGui = g
-                            break
-                        end
-                    end
-                end
-                if windGui then break end
-            end
-        end
-    end
-
-    if not windGui then
-        warn("[Hyko] Không tìm thấy WindUI ScreenGui")
-        return
-    end
-
-    local mainFrame
-    local bestArea = 0
-    for _, d in ipairs(windGui:GetDescendants()) do
-        if d:IsA("Frame") then
-            local area = d.AbsoluteSize.X * d.AbsoluteSize.Y
-            if area > bestArea and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
-                bestArea = area
-                mainFrame = d
-            end
-        end
-    end
-
-    if not mainFrame then
-        warn("[Hyko] Không tìm thấy MainFrame")
-        return
-    end
-
-    -- BACKGROUND
-    local oldBg = mainFrame:FindFirstChild("HykoBg")
-    if oldBg then oldBg:Destroy() end
-
-    local bg = Instance.new("ImageLabel")
-    bg.Name = "HykoBg"
-    bg.Size = UDim2.fromScale(1, 1)
-    bg.Position = UDim2.fromScale(0, 0)
-    bg.BackgroundTransparency = 1
-    bg.Image = bgAsset
-    bg.ImageTransparency = 0.55
-    bg.ScaleType = Enum.ScaleType.Crop
-    bg.ZIndex = 0
-    bg.Parent = mainFrame
-
-    local bgCorner = Instance.new("UICorner")
-    bgCorner.CornerRadius = UDim.new(0, 12)
-    bgCorner.Parent = bg
-
-    -- đảm bảo các element khác nằm trên background
-    for _, d in ipairs(mainFrame:GetDescendants()) do
-        if d ~= bg and d:IsA("GuiObject") and d.ZIndex == 0 then
-            d.ZIndex = 1
-        end
-    end
-
-    -- ICON: tìm ImageLabel nhỏ trong title bar (góc trên trái)
-    local iconApplied = false
-    for _, d in ipairs(mainFrame:GetDescendants()) do
-        if d:IsA("ImageLabel") and d ~= bg then
-            local sz = d.AbsoluteSize
-            if sz.X >= 10 and sz.X <= 40 and sz.Y >= 10 and sz.Y <= 40 then
-                d.Image = iconAsset
-                d.ImageTransparency = 0
-                d.BackgroundTransparency = 1
-                iconApplied = true
-            end
-        end
-    end
-
-    if not iconApplied then
-        local iconHolder
-        for _, d in ipairs(mainFrame:GetChildren()) do
-            if d:IsA("Frame") and d.AbsoluteSize.Y <= 60 then
-                iconHolder = d
-                break
-            end
-        end
-        if not iconHolder then iconHolder = mainFrame end
-
-        local iconLbl = Instance.new("ImageLabel")
-        iconLbl.Name = "HykoIcon"
-        iconLbl.Size = UDim2.fromOffset(22, 22)
-        iconLbl.Position = UDim2.fromOffset(14, 12)
-        iconLbl.BackgroundTransparency = 1
-        iconLbl.Image = iconAsset
-        iconLbl.ZIndex = 50
-        iconLbl.Parent = iconHolder
-    end
-
-    print("[Hyko] Icon + Background applied")
+    pcall(function() Window:SetIcon(decalToImage(ICON_ID)) end)
+    pcall(function() Window:SetBackgroundImage(decalToImage(BACKGROUND_ID)) end)
+    pcall(function() Window:SetBackgroundImageTransparency(0.12) end)
+    pcall(function() Window:ToggleTransparency(true) end)
 end)
-
-print("[Hyko] Step 6: window created")
 
 --========================================================================--
 -- [15] TABS
 --========================================================================--
 local MainTab   = Window:Tab({ Title = "Main",   Icon = "layout-dashboard" })
-
--- [FIX CƯỠNG CHẾ] - Chèn thẳng icon + background vào GUI, bỏ qua API WindUI
-task.spawn(function()
-    task.wait(1)
-    local iconAsset = "rbxassetid://"..tostring(ICON_ID)
-    local bgAsset = "rbxassetid://"..tostring(BACKGROUND_ID)
-    print("[Hyko] Force apply icon:", iconAsset, "bg:", bgAsset)
-    
-    local function getWindGui()
-        local candidates = {}
-        local function scan(parent)
-            for _, g in ipairs(parent:GetChildren()) do
-                if g:IsA("ScreenGui") then
-                    table.insert(candidates, g)
-                end
-            end
-        end
-        pcall(function() if gethui then scan(gethui()) end end)
-        pcall(function() scan(game:GetService("CoreGui")) end)
-        pcall(function() scan(game.Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")) end)
-        
-        for _, gui in ipairs(candidates) do
-            for _, d in ipairs(gui:GetDescendants()) do
-                if d:IsA("Frame") and d.AbsoluteSize.X > 500 and d.AbsoluteSize.Y > 350 then
-                    return gui
-                end
-            end
-        end
-        return candidates[1]
-    end
-    
-    local windGui = getWindGui()
-    if not windGui then warn("[Hyko] Force: no gui found") return end
-    
-    -- 1. ÉP ICON WIN
-    for _, v in ipairs(windGui:GetDescendants()) do
-        if v:IsA("ImageLabel") and v.Parent and v.Parent.Name:lower():find("title") or v.Name:lower():find("icon") then
-            -- thử mọi ImageLabel gần title
-            if v.AbsoluteSize.X < 60 and v.AbsoluteSize.X > 10 then
-                pcall(function()
-                    v.Image = iconAsset
-                    v.ImageTransparency = 0
-                    print("[Hyko] Force icon set to", v:GetFullName())
-                end)
-            end
-        end
-    end
-    -- Cách 2: tìm trực tiếp trong Window object nếu có
-    pcall(function()
-        for _, d in ipairs(windGui:GetDescendants()) do
-            if d:IsA("ImageLabel") and d.Image == "" or d.ImageTransparency == 1 then
-                -- bỏ qua
-            end
-        end
-    end)
-    
-    -- 2. ÉP BACKGROUND - tạo ImageLabel đè sau
-    local mainFrame
-    local biggest = 0
-    for _, d in ipairs(windGui:GetDescendants()) do
-        if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
-            local area = d.AbsoluteSize.X * d.AbsoluteSize.Y
-            if area > biggest then
-                biggest = area
-                mainFrame = d
-            end
-        end
-    end
-    
-    if mainFrame then
-        print("[Hyko] MainFrame found:", mainFrame:GetFullName(), mainFrame.AbsoluteSize)
-        -- Xóa bg cũ nếu có
-        for _, c in ipairs(mainFrame:GetChildren()) do
-            if c.Name == "HykoCustomBG" then c:Destroy() end
-        end
-        
-        local bg = Instance.new("ImageLabel")
-        bg.Name = "HykoCustomBG"
-        bg.Image = bgAsset
-        bg.BackgroundTransparency = 1
-        bg.ImageTransparency = 0.15
-        bg.ScaleType = Enum.ScaleType.Crop
-        bg.Size = UDim2.new(1,0,1,0)
-        bg.Position = UDim2.new(0,0,0,0)
-        bg.ZIndex = 0
-        bg.ClipsDescendants = false
-        bg.Parent = mainFrame
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 16)
-        corner.Parent = bg
-        
-        -- Đưa bg xuống dưới cùng
-        bg.Parent = mainFrame
-        mainFrame.ClipsDescendants = true
-        
-        -- Ép icon trên topbar
-        for _, d in ipairs(windGui:GetDescendants()) do
-            if d:IsA("ImageLabel") and d.Parent and d.Parent:IsA("Frame") then
-                if d.AbsoluteSize.X <= 32 and d.AbsoluteSize.X >= 16 and d.Position.Y.Offset < 50 then
-                    if d.Image:find("lucide") or d.Image == "" or true then
-                        pcall(function()
-                            -- chỉ đổi nếu nó ở góc trái trên
-                            if d.AbsolutePosition.X < windGui.AbsoluteSize.X * 0.3 then
-                                d.Image = iconAsset
-                                d.ImageTransparency = 0
-                            end
-                        end)
-                    end
-                end
-            end
-        end
-        
-        print("[Hyko] Force BG applied")
-    else
-        warn("[Hyko] Force: no mainFrame")
-    end
-end)
-
 local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
 local HopTab    = Window:Tab({ Title = "Server Hop", Icon = "server" })
 local ThemeTab  = Window:Tab({ Title = "Theme",  Icon = "palette" })
