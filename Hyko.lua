@@ -1,7 +1,7 @@
 --========================================================================--
 -- Hyko by Huy - WindUI Edition (Optimized)
--- UI: WindUI by Footagesus (v1.666)
--- White Theme | Custom Background & Icon
+-- UI Engine: WindUI by Footagesus
+-- Theme: Hyko White | Custom Background & Icon System
 --========================================================================--
 
 local Players         = game:GetService("Players")
@@ -14,7 +14,7 @@ local TweenService    = game:GetService("TweenService")
 local LP              = Players.LocalPlayer
 local PlaceId         = game.PlaceId
 
-print("[Hyko] Step 1: helpers")
+print("[Hyko] Step 1: Initializing helpers")
 
 --========================================================================--
 -- [0] HELPERS
@@ -68,7 +68,7 @@ local function applyWhiteGlow(target, cornerRadius, layers, intensity)
     end
 end
 
-print("[Hyko] Step 2: loading WindUI")
+print("[Hyko] Step 2: Loading WindUI engine")
 
 --========================================================================--
 -- [1] LOAD WINDUI
@@ -76,11 +76,11 @@ print("[Hyko] Step 2: loading WindUI")
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
 if not WindUI then
-    warn("[Hyko] WindUI failed to load")
+    warn("[Hyko] Failed to load WindUI library")
     return
 end
 
-print("[Hyko] Step 3: WindUI loaded")
+print("[Hyko] Step 3: WindUI engine loaded successfully")
 
 --========================================================================--
 -- [2] MOVEMENT INPUT
@@ -107,7 +107,7 @@ local function readMove()
 end
 
 --========================================================================--
--- [3] STATE
+-- [3] STATE MANAGEMENT
 --========================================================================--
 local homePos       = nil
 local returningHome = false
@@ -262,7 +262,7 @@ local function forceHumanoidHealthy()
 end
 
 --========================================================================--
--- DRIVE HEARTBEAT (PreSimulation)
+-- DRIVE HEARTBEAT
 --========================================================================--
 local function driveHeartbeat()
     local ch = LP.Character
@@ -391,7 +391,7 @@ local function driveHeartbeat()
 end
 
 --========================================================================--
--- POST-SIMULATION: hard reset horizontal if game tried to push us
+-- POST-SIMULATION
 --========================================================================--
 local function drivePostSim()
     if not antiRagdollOn then return end
@@ -605,7 +605,7 @@ local function disableLoot()
 end
 
 --========================================================================--
--- [6] HITBOX
+-- [6] HITBOX EXPANDER
 --========================================================================--
 local function expandHitbox(pl)
     if pl == LP then return end
@@ -668,7 +668,7 @@ end
 local function stopHitboxLoop() hitboxOn = false end
 
 --========================================================================--
--- [7] ESP
+-- [7] ESP SYSTEM
 --========================================================================--
 local function removeESP(pl)
     local e = espList[pl]
@@ -1388,17 +1388,24 @@ local function notify(title, content, icon)
     end)
 end
 
+local function stopHomeLoop()
+    if homeConn then
+        homeConn:Disconnect()
+        homeConn = nil
+    end
+end
+
 local function setHome()
     local c = LP.Character
     local hrp = c and c:FindFirstChild("HumanoidRootPart")
     if not hrp then
-        notify("Hyko by Huy", "Character not found", "alert-triangle")
+        notify("Hyko", "Character not found", "alert-triangle")
         return
     end
     homeCFrame = hrp.CFrame
     homePos = homeCFrame.Position
     updateHomeStatus()
-    notify("Hyko by Huy", string.format("Home set at %.1f, %.1f, %.1f",
+    notify("Hyko", string.format("Home set at %.1f, %.1f, %.1f",
         homePos.X, homePos.Y, homePos.Z), "check-circle")
 end
 
@@ -1408,30 +1415,23 @@ local function clearHome()
     returningHome = false
     stopHomeLoop()
     updateHomeStatus()
-    notify("Hyko by Huy", "Home cleared", "check-circle")
-end
-
-local function stopHomeLoop()
-    if homeConn then
-        homeConn:Disconnect()
-        homeConn = nil
-    end
+    notify("Hyko", "Home position cleared", "check-circle")
 end
 
 local function beginReturnHome()
     if not homeCFrame then
-        notify("Hyko by Huy", "No home position set", "alert-triangle")
+        notify("Hyko", "No home position set", "alert-triangle")
         return
     end
     if returningHome then
-        notify("Hyko by Huy", "Already returning home", "info")
+        notify("Hyko", "Already returning home", "info")
         return
     end
 
     local c = LP.Character
     local hrp = c and c:FindFirstChild("HumanoidRootPart")
     if not hrp then
-        notify("Hyko by Huy", "Character not found", "alert-triangle")
+        notify("Hyko", "Character not found", "alert-triangle")
         return
     end
 
@@ -1446,9 +1446,9 @@ local function beginReturnHome()
 
     returningHome = false
     if ok then
-        notify("Hyko by Huy", "Arrived at home", "check-circle")
+        notify("Hyko", "Arrived at home position", "check-circle")
     else
-        notify("Hyko by Huy", "Return Home failed", "alert-triangle")
+        notify("Hyko", "Teleport to home failed", "alert-triangle")
     end
 end
 
@@ -1461,7 +1461,7 @@ local function cancelReturnHome()
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
     end
-    notify("Hyko by Huy", "Return Home stopped", "stop-circle")
+    notify("Hyko", "Return Home cancelled", "stop-circle")
 end
 
 --========================================================================--
@@ -1496,7 +1496,7 @@ local function getRandomServerId()
 end
 
 local function teleportToServer(serverId)
-    if not serverId then return false, "No server id" end
+    if not serverId then return false, "No valid server ID" end
     local ok, err = pcall(function()
         TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
     end)
@@ -1527,7 +1527,7 @@ end
 --========================================================================--
 -- [13] WHITE THEME
 --========================================================================--
-print("[Hyko] Step 4: adding white theme")
+print("[Hyko] Step 4: Registering custom white theme")
 
 WindUI:AddTheme({
     Name = "Hyko White",
@@ -1544,7 +1544,7 @@ WindUI:AddTheme({
 --========================================================================--
 -- [14] WINDUI WINDOW
 --========================================================================--
-print("[Hyko] Step 5: creating WindUI window")
+print("[Hyko] Step 5: Constructing WindUI main window")
 
 local DEFAULT_BG_ID = 16390378968
 local DEFAULT_ICON_ID = 71999030813587
@@ -1571,38 +1571,32 @@ local Window = WindUI:CreateWindow({
     SideBarWidth = 200,
     HideSearchBar = false,
     ScrollBarEnabled = true,
-    -- Đã TẮT KeySystem để UI hiện ra ngay lập tức
-    -- KeySystem = {
-    --     Note = "Enter the key to continue (key: OP)",
-    --     SaveKey = false,
-    --     Key = { "OP" },
-    -- },
 })
 
 --========================================================================--
--- HÀM ÁP DỤNG ICON + BACKGROUND (Dùng trực tiếp Window.Gui)
+-- APPLY CUSTOM BACKGROUND & ICON (ImageTransparency = 0.75)
 --========================================================================--
 local function applyThemeToWindUI(bgId, iconId)
     task.spawn(function()
-        task.wait(0.5) -- Đợi WindUI render xong
+        task.wait(1) -- Wait for WindUI rendering lifecycle
         local iconAsset = "rbxassetid://" .. tostring(iconId)
         local bgAsset   = "rbxassetid://" .. tostring(bgId)
 
-        -- Lấy trực tiếp ScreenGui từ đối tượng Window của WindUI
-        local windGui = Window.Gui
+        local windGui = Window.Gui or (gethui and gethui():FindFirstChildOfClass("ScreenGui")) 
+            or game:GetService("CoreGui"):FindFirstChildOfClass("ScreenGui")
+
         if not windGui then
-            warn("[Hyko] Không tìm thấy Window.Gui")
+            warn("[Hyko] WindUI ScreenGui reference not found")
             return
         end
 
-        -- Tìm Main Frame bên trong Window.Gui
-        local mainFrame = windGui:FindFirstChild("Main") 
-            or windGui:FindFirstChild("Root")
-            or windGui:FindFirstChild("MainFrame")
+        local mainFrame = windGui:FindFirstChild("Main", true) 
+            or windGui:FindFirstChild("Root", true)
+            or windGui:FindFirstChild("MainFrame", true)
 
         if not mainFrame then
             for _, d in ipairs(windGui:GetDescendants()) do
-                if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
+                if d:IsA("Frame") and d.Parent == windGui then
                     mainFrame = d
                     break
                 end
@@ -1610,11 +1604,11 @@ local function applyThemeToWindUI(bgId, iconId)
         end
 
         if not mainFrame then
-            warn("[Hyko] Không tìm thấy MainFrame")
+            warn("[Hyko] Main container frame not found")
             return
         end
 
-        -- BACKGROUND
+        -- BACKGROUND IMAGE
         local oldBg = mainFrame:FindFirstChild("HykoBg")
         if oldBg then oldBg:Destroy() end
 
@@ -1624,46 +1618,41 @@ local function applyThemeToWindUI(bgId, iconId)
         bg.Position = UDim2.fromScale(0, 0)
         bg.BackgroundTransparency = 1
         bg.Image = bgAsset
-        bg.ImageTransparency = 0.55
+        bg.ImageTransparency = 0.75 -- Background transparency set to 0.75
         bg.ScaleType = Enum.ScaleType.Crop
-        bg.ZIndex = 0
+        bg.ZIndex = 1
         bg.Parent = mainFrame
 
         local bgCorner = Instance.new("UICorner")
         bgCorner.CornerRadius = UDim.new(0, 12)
         bgCorner.Parent = bg
 
+        -- ADJUST CHILD ELEMENTS TRANSPARENCY & ZINDEX
         for _, d in ipairs(mainFrame:GetDescendants()) do
-            if d ~= bg and d:IsA("GuiObject") and d.ZIndex == 0 then
-                d.ZIndex = 1
+            if d ~= bg and d:IsA("GuiObject") then
+                if d.ZIndex <= bg.ZIndex then
+                    d.ZIndex = bg.ZIndex + 1
+                end
+                if (d:IsA("Frame") or d:IsA("ScrollingFrame")) and d ~= mainFrame then
+                    if d.BackgroundTransparency < 0.5 then
+                        d.BackgroundTransparency = 0.45
+                    end
+                end
             end
         end
 
-        -- ICON
+        -- ICON APPLY
         local iconApplied = false
         for _, d in ipairs(mainFrame:GetDescendants()) do
             if d:IsA("ImageLabel") and d ~= bg then
-                local sz = d.AbsoluteSize
-                if sz.X >= 10 and sz.X <= 40 and sz.Y >= 10 and sz.Y <= 40 then
-                    d.Image = iconAsset
-                    d.ImageTransparency = 0
-                    d.BackgroundTransparency = 1
-                    iconApplied = true
-                end
+                d.Image = iconAsset
+                d.ImageTransparency = 0
+                iconApplied = true
             end
         end
 
         if not iconApplied then
-            local iconHolder
-            for _, d in ipairs(mainFrame:GetChildren()) do
-                if d:IsA("Frame") and d.AbsoluteSize.Y <= 60 then
-                    iconHolder = d
-                    break
-                end
-            end
-            if not iconHolder then iconHolder = mainFrame end
-
-            local oldIcon = iconHolder:FindFirstChild("HykoIcon")
+            local oldIcon = mainFrame:FindFirstChild("HykoIcon", true)
             if oldIcon then oldIcon:Destroy() end
 
             local iconLbl = Instance.new("ImageLabel")
@@ -1672,29 +1661,29 @@ local function applyThemeToWindUI(bgId, iconId)
             iconLbl.Position = UDim2.fromOffset(14, 12)
             iconLbl.BackgroundTransparency = 1
             iconLbl.Image = iconAsset
-            iconLbl.ZIndex = 50
-            iconLbl.Parent = iconHolder
+            iconLbl.ZIndex = 100
+            iconLbl.Parent = mainFrame
         end
-        print("[Hyko] Đã áp dụng Background và Icon thành công!")
+        print("[Hyko] Background (Transparency 0.75) and Icon applied successfully!")
     end)
 end
 
--- Khởi tạo Icon + Background mặc định
+-- Initialize default Icon + Background
 task.spawn(function()
     task.wait(1)
     applyThemeToWindUI(DEFAULT_BG_ID, DEFAULT_ICON_ID)
 end)
 
-print("[Hyko] Step 6: window created")
+print("[Hyko] Step 6: Window created successfully")
 
 --========================================================================--
 -- [15] TABS
 --========================================================================--
-local MainTab   = Window:Tab({ Title = "Main",   Icon = "layout-dashboard" })
-local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
+local MainTab   = Window:Tab({ Title = "Main",       Icon = "layout-dashboard" })
+local VisualTab = Window:Tab({ Title = "Visual",     Icon = "eye" })
 local HopTab    = Window:Tab({ Title = "Server Hop", Icon = "server" })
-local ThemeTab  = Window:Tab({ Title = "Theme",  Icon = "palette" })
-local ConfigTab = Window:Tab({ Title = "Config", Icon = "settings" })
+local ThemeTab  = Window:Tab({ Title = "Theme",      Icon = "palette" })
+local ConfigTab = Window:Tab({ Title = "Config",     Icon = "settings" })
 
 if ThemeTab and ThemeTab.BuildThemeSection then
     ThemeTab:BuildThemeSection()
@@ -1703,12 +1692,12 @@ if ConfigTab and ConfigTab.BuildConfigSection then
     ConfigTab:BuildConfigSection()
 end
 
-print("[Hyko] Step 7: tabs created")
+print("[Hyko] Step 7: Navigation tabs registered")
 
 --========================================================================--
 -- [16] MAIN TAB
 --========================================================================--
-MainTab:Section({ Title = "Speed", Box = true })
+MainTab:Section({ Title = "Speed Controls", Box = true })
 
 MainTab:Slider({
     Title = "Speed Value",
@@ -1735,23 +1724,23 @@ MainTab:Slider({
 
 MainTab:Toggle({
     Title = "Enable Speed",
-    Desc = "Enable the high-speed drive system",
+    Desc = "Enable high-speed movement engine",
     Icon = "zap",
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
         speedOn = state
         refreshDrive()
-        notify("Hyko by Huy", state and "Speed enabled" or "Speed disabled",
+        notify("Hyko", state and "Speed enabled" or "Speed disabled",
             state and "play" or "pause")
     end,
 })
 
-MainTab:Section({ Title = "Anti-Ragdoll (Anti-Knockback)", Box = true })
+MainTab:Section({ Title = "Anti-Ragdoll & Anti-Knockback", Box = true })
 
 MainTab:Slider({
     Title = "Anti-Ragdoll Speed",
-    Desc = "Speed while anti-ragdoll is active",
+    Desc = "Movement speed while Anti-Ragdoll is active",
     Icon = "shield",
     Step = 1,
     Value = { Min = 10, Max = 800, Default = 60 },
@@ -1760,24 +1749,24 @@ MainTab:Slider({
 
 MainTab:Toggle({
     Title = "Enable Anti-Ragdoll (Hard Lock)",
-    Desc = "Destroy body + LinearVelocity constraint chống bị đẩy lùi",
+    Desc = "Destroys character body parts + applies velocity constraint against knockback",
     Icon = "shield-check",
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
         antiRagdollOn = state
         refreshDrive()
-        notify("Hyko by Huy",
-            state and "Anti-Ragdoll enabled (hard lock)" or "Anti-Ragdoll disabled",
+        notify("Hyko",
+            state and "Anti-Ragdoll enabled" or "Anti-Ragdoll disabled",
             state and "shield-check" or "shield-off")
     end,
 })
 
-MainTab:Section({ Title = "Loot", Box = true })
+MainTab:Section({ Title = "Loot System", Box = true })
 
 MainTab:Toggle({
     Title = "Enable Fast Loot (Key E)",
-    Desc = "Sets HoldDuration to 0 and auto-fires the nearest prompt",
+    Desc = "Sets prompt HoldDuration to 0 and auto-fires nearest interaction",
     Icon = "package",
     Type = "Checkbox",
     Value = false,
@@ -1787,11 +1776,11 @@ MainTab:Toggle({
     end,
 })
 
-MainTab:Section({ Title = "Hitbox Expand", Box = true })
+MainTab:Section({ Title = "Hitbox Expander", Box = true })
 
 MainTab:Slider({
     Title = "Hitbox Size",
-    Desc = "Size of other players' hitboxes",
+    Desc = "Target size for other players' hitboxes",
     Icon = "target",
     Step = 1,
     Value = { Min = 1, Max = 50, Default = 15 },
@@ -1799,8 +1788,8 @@ MainTab:Slider({
 })
 
 MainTab:Toggle({
-    Title = "Enable Hitbox Expand (Players)",
-    Desc = "Enlarges all other players' hitboxes",
+    Title = "Enable Player Hitbox Expander",
+    Desc = "Enlarges character hitboxes for all other players",
     Icon = "crosshair",
     Type = "Checkbox",
     Value = false,
@@ -1819,14 +1808,14 @@ MainTab:Toggle({
 MainTab:Section({ Title = "Return Home", Box = true })
 
 homeStatusPara = MainTab:Paragraph({
-    Title = "Home Position",
+    Title = "Home Location",
     Desc = "Not set",
     Icon = "map-pin",
 })
 
 MainTab:Slider({
     Title = "Return Speed",
-    Desc = "Speed when returning home",
+    Desc = "Teleportation velocity when returning home",
     Icon = "navigation",
     Step = 1,
     Value = { Min = 10, Max = 800, Default = 120 },
@@ -1834,8 +1823,8 @@ MainTab:Slider({
 })
 
 MainTab:Toggle({
-    Title = "Show Return Home Button",
-    Desc = "Floating draggable button on screen",
+    Title = "Show Floating Return Button",
+    Desc = "On-screen quick access button for home teleportation",
     Icon = "home",
     Type = "Checkbox",
     Value = false,
@@ -1849,55 +1838,53 @@ MainTab:Toggle({
 })
 
 MainTab:Button({
-    Title = "Set Home (current position)",
-    Desc = "Save your current position as home",
+    Title = "Set Home (Current Location)",
+    Desc = "Saves your character's current coordinates",
     Icon = "map-pin",
     Callback = function() setHome() end,
 })
 
 MainTab:Button({
     Title = "Return Home",
-    Desc = "Teleport back to the saved home position",
+    Desc = "Teleport back to saved home coordinates",
     Icon = "home",
     Callback = function() beginReturnHome() end,
 })
 
 MainTab:Button({
-    Title = "Stop Return Home",
-    Desc = "Cancel the return home process",
+    Title = "Cancel Return",
+    Desc = "Stop the return home teleportation",
     Icon = "stop-circle",
     Callback = function() cancelReturnHome() end,
 })
 
 MainTab:Button({
     Title = "Clear Home",
-    Desc = "Remove the saved home position",
+    Desc = "Remove saved home position",
     Icon = "trash-2",
     Callback = function() clearHome() end,
 })
 
-MainTab:Section({ Title = "Info", Box = true })
+MainTab:Section({ Title = "System Information", Box = true })
 MainTab:Paragraph({
     Title = "Notes",
-    Desc = "Speed & Anti-Ragdoll share a single drive system using a local fake Humanoid.\n"
-        .. "Anti-Ragdoll: destroy body parts + destroy game body movers.\n"
-        .. "Anti-Knockback: LinearVelocity constraint khóa cứng vận tốc ngang.\n"
-        .. "Fast Loot: HoldDuration = 0, phím E kích prompt gần nhất.\n"
-        .. "Hitbox Expand: phóng to hitbox người chơi khác.\n"
-        .. "Return Home: dùng nút nổi hoặc nút trong tab.",
+    Desc = "• Speed & Anti-Ragdoll operate on a unified local humanoid engine.\n"
+        .. "• Anti-Ragdoll neutralizes body physics and fling attempts.\n"
+        .. "• Fast Loot bypasses interaction delays instantly.\n"
+        .. "• Hitbox Expander enlarges player body bounds.",
     Icon = "info",
 })
 
-print("[Hyko] Step 8: main tab built")
+print("[Hyko] Step 8: Main tab configured")
 
 --========================================================================--
 -- [17] VISUAL TAB
 --========================================================================--
-VisualTab:Section({ Title = "ESP", Box = true })
+VisualTab:Section({ Title = "Player ESP", Box = true })
 
 VisualTab:Colorpicker({
     Title = "ESP Color",
-    Desc = "Highlight and name color",
+    Desc = "Highlight and billboard tag color",
     Icon = "palette",
     Color = espColor,
     Callback = function(color)
@@ -1916,8 +1903,8 @@ VisualTab:Colorpicker({
 })
 
 VisualTab:Toggle({
-    Title = "Enable ESP Players",
-    Desc = "Highlight and name tag above other players",
+    Title = "Enable Player ESP",
+    Desc = "Highlights and displays name tags above players",
     Icon = "radar",
     Type = "Checkbox",
     Value = false,
@@ -1926,11 +1913,11 @@ VisualTab:Toggle({
     end,
 })
 
-VisualTab:Section({ Title = "FPS Boost", Box = true })
+VisualTab:Section({ Title = "FPS Optimization", Box = true })
 
 VisualTab:Toggle({
-    Title = "Enable FPS Boost (Ultra++)",
-    Desc = "Aggressive graphics reduction + background blur",
+    Title = "Enable FPS Boost Ultra++",
+    Desc = "Reduces rendering settings and suppresses heavy visual effects",
     Icon = "rocket",
     Type = "Checkbox",
     Value = false,
@@ -1938,64 +1925,63 @@ VisualTab:Toggle({
         if state then
             local ok, err = pcall(enableFPSBoost)
             if not ok then
-                notify("Hyko by Huy", "FPS Boost error: " .. tostring(err):sub(1, 60), "alert-triangle")
+                notify("Hyko", "FPS Boost error: " .. tostring(err):sub(1, 60), "alert-triangle")
             else
-                notify("Hyko by Huy", "FPS Boost Ultra++ enabled", "rocket")
+                notify("Hyko", "FPS Boost Ultra++ enabled", "rocket")
             end
         else
             pcall(disableFPSBoost)
-            notify("Hyko by Huy", "FPS Boost disabled", "stop-circle")
+            notify("Hyko", "FPS Boost disabled", "stop-circle")
         end
     end,
 })
 
 VisualTab:Button({
-    Title = "Clean Effects Now",
-    Desc = "Manually removes particles, lights, shadows",
+    Title = "Purge World Effects",
+    Desc = "Manually removes particles, lights, and dynamic shadows",
     Icon = "sparkles",
     Callback = function()
         task.spawn(function()
             pcall(scanAndRemoveEffects)
         end)
-        notify("Hyko by Huy", "Effects cleared", "sparkles")
+        notify("Hyko", "World visual effects cleared", "sparkles")
     end,
 })
 
-VisualTab:Section({ Title = "FPS Display", Box = true })
+VisualTab:Section({ Title = "Performance Overlay", Box = true })
 
 VisualTab:Toggle({
-    Title = "Show FPS Display",
-    Desc = "Draggable FPS/ping overlay with white glow",
+    Title = "Show Performance Display",
+    Desc = "Draggable FPS and Ping monitoring overlay",
     Icon = "activity",
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
         if state then
             startFPSDisplay()
-            notify("Hyko by Huy", "FPS Display on", "activity")
+            notify("Hyko", "Performance Display activated", "activity")
         else
             stopFPSDisplay()
-            notify("Hyko by Huy", "FPS Display off", "stop-circle")
+            notify("Hyko", "Performance Display deactivated", "stop-circle")
         end
     end,
 })
 
-VisualTab:Section({ Title = "Info", Box = true })
+VisualTab:Section({ Title = "Optimization Overview", Box = true })
 VisualTab:Paragraph({
     Title = "FPS Boost Ultra++ Details",
-    Desc = "Sets QualityLevel to minimum, FramerateCap 240.\n"
-        .. "Removes all lighting effects, shadows, post-processing, skybox children.\n"
-        .. "White fog (FogStart 55 / FogEnd 210) hides distant objects.\n"
-        .. "Adds BlurEffect size 24 + ColorCorrection to soften background.",
+    Desc = "• Forces minimum rendering quality level & unlocks 240 FPS cap.\n"
+        .. "• Disables global dynamic shadows, atmospheric effects & sky items.\n"
+        .. "• Applies customized soft fog and blur filters for performance gain.",
     Icon = "info",
 })
 
-print("[Hyko] Step 9: visual tab built")
+print("[Hyko] Step 9: Visual tab configured")
 
 --========================================================================--
 -- [18] SERVER HOP TAB
 --========================================================================--
-HopTab:Section({ Title = "Status", Box = true })
+HopTab:Section({ Title = "Server Status", Box = true })
 
 local statusPara = HopTab:Paragraph({
     Title = "Server Information",
@@ -2014,11 +2000,11 @@ task.spawn(function()
     end
 end)
 
-HopTab:Section({ Title = "Configuration", Box = true })
+HopTab:Section({ Title = "Hop Configuration", Box = true })
 
 HopTab:Input({
-    Title = "Hop Threshold (players)",
-    Desc = "Minimum player count to trigger hop",
+    Title = "Hop Player Threshold",
+    Desc = "Minimum player count before triggering server hop",
     Placeholder = "Enter number",
     Icon = "users",
     Value = "1",
@@ -2031,15 +2017,15 @@ HopTab:Input({
 HopTab:Section({ Title = "Actions", Box = true })
 
 HopTab:Button({
-    Title = "Hop Once",
-    Desc = "Teleport to a random public server",
+    Title = "Hop Server Once",
+    Desc = "Teleports to a random public game server",
     Icon = "refresh-cw",
     Callback = function() task.spawn(function() hopOnce() end) end,
 })
 
 HopTab:Toggle({
-    Title = "Auto Hop",
-    Desc = "Repeats hop every few seconds",
+    Title = "Enable Auto Server Hop",
+    Desc = "Automatically searches and teleports to new servers periodically",
     Icon = "repeat",
     Type = "Checkbox",
     Value = false,
@@ -2066,31 +2052,31 @@ HopTab:Toggle({
     end,
 })
 
-HopTab:Section({ Title = "Info", Box = true })
+HopTab:Section({ Title = "Server Hop Overview", Box = true })
 HopTab:Paragraph({
-    Title = "Notes",
-    Desc = "Hop Once: teleports to a random public server if player count is above threshold.\n"
-        .. "Auto Hop: repeats the hop every few seconds.",
+    Title = "Usage Guide",
+    Desc = "• Hop Once: Instantly finds and connects to an active public instance.\n"
+        .. "• Auto Hop: Continuously monitors player counts and hops when necessary.",
     Icon = "info",
 })
 
-print("[Hyko] Step 10: server hop tab built")
+print("[Hyko] Step 10: Server Hop tab configured")
 
 --========================================================================--
 -- [19] THEME TAB (CUSTOM BACKGROUNDS)
 --========================================================================--
-ThemeTab:Section({ Title = "Background Images", Box = true })
+ThemeTab:Section({ Title = "Background Preset Selector", Box = true })
 
 ThemeTab:Paragraph({
-    Title = "Select Background Image ID",
-    Desc = "Use the slider below to cycle through available background IDs. "
-        .. "Default is 16390378968.",
+    Title = "Custom Background Library",
+    Desc = "Use the slider to browse through curated background images.\n"
+        .. "Applied background transparency is locked at 0.75.",
     Icon = "image",
 })
 
 ThemeTab:Slider({
-    Title = "Background ID Selector",
-    Desc = "Slide to change background image",
+    Title = "Background Selector",
+    Desc = "Slide to apply a different background preset",
     Icon = "layout",
     Step = 1,
     Value = { Min = 1, Max = #THEME_IMAGE_IDS, Default = 1 },
@@ -2098,23 +2084,23 @@ ThemeTab:Slider({
         local selectedId = THEME_IMAGE_IDS[value]
         if selectedId then
             applyThemeToWindUI(selectedId, DEFAULT_ICON_ID)
-            notify("Hyko by Huy", "Changed Background ID to: " .. tostring(selectedId), "image")
+            notify("Hyko", "Background updated to ID: " .. tostring(selectedId), "image")
         end
     end,
 })
 
-ThemeTab:Section({ Title = "Current ID", Box = true })
+ThemeTab:Section({ Title = "Active Settings", Box = true })
 
 ThemeTab:Paragraph({
-    Title = "Selected ID",
-    Desc = "Current Background ID: 16390378968",
+    Title = "Preset Status",
+    Desc = "Default Background Asset ID: 16390378968\nImage Transparency: 0.75",
     Icon = "info",
 })
 
-print("[Hyko] Step 11: theme tab built")
+print("[Hyko] Step 11: Theme tab configured")
 
 --========================================================================--
--- [20] RESPAWN + PLAYER EVENTS
+-- [20] EVENTS & CONNECTIONS
 --========================================================================--
 LP.CharacterAdded:Connect(function()
     task.wait(0.5)
@@ -2151,6 +2137,7 @@ Players.PlayerAdded:Connect(function(pl)
         if espOn then task.wait(0.5) pcall(createESP, pl) end
     end)
 end)
+
 for _, pl in ipairs(Players:GetPlayers()) do
     if pl ~= LP then
         pl.CharacterAdded:Connect(function()
@@ -2159,4 +2146,4 @@ for _, pl in ipairs(Players:GetPlayers()) do
     end
 end
 
-print("[Hyko] All loaded successfully - WindUI Edition (Optimized)")
+print("[Hyko] All modules loaded and initialized successfully - WindUI Edition")
