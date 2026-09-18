@@ -1578,37 +1578,68 @@ local Window = WindUI:CreateWindow({
 --========================================================================--
 local function applyThemeToWindUI(bgId, iconId)
     task.spawn(function()
-        task.wait(1) -- Wait for WindUI rendering lifecycle
+        -- Wait longer for WindUI to fully render
+        task.wait(1.5)
         local iconAsset = "rbxassetid://" .. tostring(iconId)
         local bgAsset   = "rbxassetid://" .. tostring(bgId)
-
-        local windGui = Window.Gui or (gethui and gethui():FindFirstChildOfClass("ScreenGui")) 
-            or game:GetService("CoreGui"):FindFirstChildOfClass("ScreenGui")
-
+        
+        -- Find WindUI ScreenGui reliably
+        local windGui = Window.Gui
+        if not windGui then
+            -- Search helper function
+            local function findWindGuiIn(container)
+                if not container then return nil end
+                for _, gui in ipairs(container:GetChildren()) do
+                    if gui:IsA("ScreenGui") then
+                        -- Check for typical WindUI structure
+                        local hasMain = gui:FindFirstChild("Main", true) 
+                            or gui:FindFirstChild("Root", true)
+                            or gui:FindFirstChild("Window", true)
+                        if hasMain then return gui end
+                        -- Check by name patterns
+                        local guiName = gui.Name:lower()
+                        if string.find(guiName, "wind") or string.find(guiName, "ui") then
+                            return gui
+                        end
+                    end
+                end
+                return nil
+            end
+            windGui = findWindGuiIn(gethui and gethui())
+                or findWindGuiIn(game:GetService("CoreGui"))
+                or findWindGuiIn(LP:FindFirstChildOfClass("PlayerGui"))
+        end
         if not windGui then
             warn("[Hyko] WindUI ScreenGui reference not found")
             return
         end
-
+        
+        -- Find main container frame reliably
         local mainFrame = windGui:FindFirstChild("Main", true) 
             or windGui:FindFirstChild("Root", true)
             or windGui:FindFirstChild("MainFrame", true)
-
+            or windGui:FindFirstChild("Window", true)
         if not mainFrame then
-            for _, d in ipairs(windGui:GetDescendants()) do
-                if d:IsA("Frame") and d.Parent == windGui then
-                    mainFrame = d
-                    break
+            -- Find the largest Frame that is a direct child
+            local largestFrame = nil
+            local largestSize = 0
+            for _, d in ipairs(windGui:GetChildren()) do
+                if d:IsA("Frame") then
+                    local size = d.AbsoluteSize.X * d.AbsoluteSize.Y
+                    if size > largestSize then
+                        largestSize = size
+                        largestFrame = d
+                    end
                 end
             end
+            mainFrame = largestFrame
         end
-
         if not mainFrame then
             warn("[Hyko] Main container frame not found")
             return
         end
 
-        -- BACKGROUND IMAGE
+        -- BACKGROUND IMAGE - ensure it's behind everything
         local oldBg = mainFrame:FindFirstChild("HykoBg")
         if oldBg then oldBg:Destroy() end
 
@@ -1618,59 +1649,105 @@ local function applyThemeToWindUI(bgId, iconId)
         bg.Position = UDim2.fromScale(0, 0)
         bg.BackgroundTransparency = 1
         bg.Image = bgAsset
-        bg.ImageTransparency = 0.75 -- Background transparency set to 0.75
+        bg.ImageTransparency = 0.75 -- Keep original transparency
         bg.ScaleType = Enum.ScaleType.Crop
-        bg.ZIndex = 1
+        bg.ZIndex = 0 -- Place at absolute bottom layer
         bg.Parent = mainFrame
 
         local bgCorner = Instance.new("UICorner")
         bgCorner.CornerRadius = UDim.new(0, 12)
         bgCorner.Parent = bg
 
-        -- ADJUST CHILD ELEMENTS TRANSPARENCY & ZINDEX
+        -- Ensure all other elements are above background
         for _, d in ipairs(mainFrame:GetDescendants()) do
             if d ~= bg and d:IsA("GuiObject") then
                 if d.ZIndex <= bg.ZIndex then
-                    d.ZIndex = bg.ZIndex + 1
+                    d.ZIndex = bg.ZIndex + 2
                 end
-                if (d:IsA("Frame") or d:IsA("ScrollingFrame")) and d ~= mainFrame then
-                    if d.BackgroundTransparency < 0.5 then
-                        d.BackgroundTransparency = 0.45
+            end
+        end
+
+        -- ICON APPLY - only target the title bar icon, not all ImageLabels
+        local iconApplied = false
+        local targetIcon = nil
+        
+        -- Strategy 1: Find icon in title bar area (small ImageLabel near top-left)
+        local mainAbsPos = mainFrame.AbsolutePosition
+        for _, d in ipairs(mainFrame:GetDescendants()) do
+            if d:IsA("ImageLabel") and d ~= bg then
+                local absPos = d.AbsolutePosition
+                local relY = absPos.Y - mainAbsPos.Y
+                local relX = absPos.X - mainAbsPos.X
+                -- Title bar icons are typically small and near top-left corner
+                if relY >= 0 and relY < 50 and relX >= 0 and relX < 50 
+                    and d.AbsoluteSize.X <= 32 and d.AbsoluteSize.Y <= 32 then
+                    targetIcon = d
+                    break
+                end
+            end
+        end
+        
+        -- Strategy 2: Look for ImageLabel with icon/logo/title in name
+        if not targetIcon then
+            for _, d in ipairs(mainFrame:GetDescendants()) do
+                if d:IsA("ImageLabel") and d ~= bg then
+                    local name = d.Name:lower()
+                    if string.find(name, "icon") or string.find(name, "logo") 
+                        or string.find(name, "title") or string.find(name, "image") then
+                        targetIcon = d
+                        break
                     end
                 end
             end
         end
-
-        -- ICON APPLY
-        local iconApplied = false
-        for _, d in ipairs(mainFrame:GetDescendants()) do
-            if d:IsA("ImageLabel") and d ~= bg then
-                d.Image = iconAsset
-                d.ImageTransparency = 0
-                iconApplied = true
+        
+        -- Strategy 3: Find first small ImageLabel that looks like an icon
+        if not targetIcon then
+            for _, d in ipairs(mainFrame:GetDescendants()) do
+                if d:IsA("ImageLabel") and d ~= bg 
+                    and d.AbsoluteSize.X <= 40 and d.AbsoluteSize.Y <= 40 then
+                    targetIcon = d
+                    break
+                end
             end
         end
-
+        
+        if targetIcon then
+            targetIcon.Image = iconAsset
+            targetIcon.ImageTransparency = 0
+            targetIcon.Visible = true
+            iconApplied = true
+        end
+        
+        -- Fallback: Create custom icon in title bar area if no suitable icon found
         if not iconApplied then
-            local oldIcon = mainFrame:FindFirstChild("HykoIcon", true)
+            local oldIcon = mainFrame:FindFirstChild("HykoIcon")
             if oldIcon then oldIcon:Destroy() end
-
+            
             local iconLbl = Instance.new("ImageLabel")
             iconLbl.Name = "HykoIcon"
-            iconLbl.Size = UDim2.fromOffset(22, 22)
-            iconLbl.Position = UDim2.fromOffset(14, 12)
+            iconLbl.Size = UDim2.fromOffset(24, 24)
+            iconLbl.Position = UDim2.fromOffset(16, 14)
             iconLbl.BackgroundTransparency = 1
             iconLbl.Image = iconAsset
-            iconLbl.ZIndex = 100
+            iconLbl.ImageTransparency = 0
+            iconLbl.Visible = true
+            iconLbl.ZIndex = 500 -- High enough to be visible above all
             iconLbl.Parent = mainFrame
+            iconApplied = true
         end
-        print("[Hyko] Background (Transparency 0.75) and Icon applied successfully!")
+        
+        if iconApplied then
+            print("[Hyko] Background (Transparency 0.75) and Icon applied successfully!")
+        else
+            warn("[Hyko] Background applied, but icon could not be placed")
+        end
     end)
 end
 
 -- Initialize default Icon + Background
 task.spawn(function()
-    task.wait(1)
+    task.wait(1.5)
     applyThemeToWindUI(DEFAULT_BG_ID, DEFAULT_ICON_ID)
 end)
 
