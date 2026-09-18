@@ -1571,87 +1571,48 @@ local Window = WindUI:CreateWindow({
     SideBarWidth = 200,
     HideSearchBar = false,
     ScrollBarEnabled = true,
-
-    User = {
-        Enabled = true,
-        Anonymous = false,
-        Callback = function()
-            WindUI:Notify({
-                Title = "Hyko by Huy",
-                Content = "Hello " .. LP.DisplayName .. "!",
-                Icon = "user",
-                Duration = 3,
-            })
-        end,
-    },
-
-    KeySystem = {
-        Note = "Enter the key to continue (key: OP)",
-        SaveKey = false,
-        Key = { "OP" },
-    },
+    -- Đã TẮT KeySystem để UI hiện ra ngay lập tức
+    -- KeySystem = {
+    --     Note = "Enter the key to continue (key: OP)",
+    --     SaveKey = false,
+    --     Key = { "OP" },
+    -- },
 })
 
 --========================================================================--
--- HÀM ÁP DỤNG ICON + BACKGROUND (Re-usable function)
+-- HÀM ÁP DỤNG ICON + BACKGROUND (Dùng trực tiếp Window.Gui)
 --========================================================================--
 local function applyThemeToWindUI(bgId, iconId)
     task.spawn(function()
+        task.wait(0.5) -- Đợi WindUI render xong
         local iconAsset = "rbxassetid://" .. tostring(iconId)
         local bgAsset   = "rbxassetid://" .. tostring(bgId)
 
-        local parentGui = (gethui and gethui())
-            or game:GetService("CoreGui")
+        -- Lấy trực tiếp ScreenGui từ đối tượng Window của WindUI
+        local windGui = Window.Gui
+        if not windGui then
+            warn("[Hyko] Không tìm thấy Window.Gui")
+            return
+        end
 
-        local windGui
-        for _, g in ipairs(parentGui:GetChildren()) do
-            if g:IsA("ScreenGui") then
-                local hasBigFrame = false
-                for _, d in ipairs(g:GetDescendants()) do
-                    if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
-                        hasBigFrame = true
-                        break
-                    end
-                end
-                if hasBigFrame then
-                    windGui = g
+        -- Tìm Main Frame bên trong Window.Gui
+        local mainFrame = windGui:FindFirstChild("Main") 
+            or windGui:FindFirstChild("Root")
+            or windGui:FindFirstChild("MainFrame")
+
+        if not mainFrame then
+            for _, d in ipairs(windGui:GetDescendants()) do
+                if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
+                    mainFrame = d
                     break
                 end
             end
         end
 
-        if not windGui then
-            local pg = LP:FindFirstChildOfClass("PlayerGui")
-            if pg then
-                for _, g in ipairs(pg:GetChildren()) do
-                    if g:IsA("ScreenGui") then
-                        for _, d in ipairs(g:GetDescendants()) do
-                            if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
-                                windGui = g
-                                break
-                            end
-                        end
-                    end
-                    if windGui then break end
-                end
-            end
+        if not mainFrame then
+            warn("[Hyko] Không tìm thấy MainFrame")
+            return
         end
-
-        if not windGui then return end
-
-        local mainFrame
-        local bestArea = 0
-        for _, d in ipairs(windGui:GetDescendants()) do
-            if d:IsA("Frame") then
-                local area = d.AbsoluteSize.X * d.AbsoluteSize.Y
-                if area > bestArea and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
-                    bestArea = area
-                    mainFrame = d
-                end
-            end
-        end
-
-        if not mainFrame then return end
 
         -- BACKGROUND
         local oldBg = mainFrame:FindFirstChild("HykoBg")
@@ -1714,14 +1675,14 @@ local function applyThemeToWindUI(bgId, iconId)
             iconLbl.ZIndex = 50
             iconLbl.Parent = iconHolder
         end
+        print("[Hyko] Đã áp dụng Background và Icon thành công!")
     end)
 end
 
--- Khởi tạo Icon + Background mặc định sau khi WindUI load xong
+-- Khởi tạo Icon + Background mặc định
 task.spawn(function()
-    task.wait(0.6)
+    task.wait(1)
     applyThemeToWindUI(DEFAULT_BG_ID, DEFAULT_ICON_ID)
-    print("[Hyko] Default Icon + Background applied")
 end)
 
 print("[Hyko] Step 6: window created")
