@@ -73,7 +73,7 @@ print("[Hyko] Step 2: loading WindUI")
 --========================================================================--
 -- [1] LOAD WINDUI
 --========================================================================--
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))() -- v1.666
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
 if not WindUI then
     warn("[Hyko] WindUI failed to load")
@@ -1546,17 +1546,22 @@ WindUI:AddTheme({
 --========================================================================--
 print("[Hyko] Step 5: creating WindUI window")
 
-print("[Hyko] Step 5: creating WindUI window v1.666")
+-- Cấu hình ID ảnh mặc định
+local DEFAULT_BG_ID = 16390378968
+local DEFAULT_ICON_ID = 71999030813587
 
-local ICON_ID = 133251082112509
-local BACKGROUND_ID = 16149300225
+-- Danh sách các ID ảnh khác để đưa vào Theme
+local THEME_IMAGE_IDS = {
+    "16390378968", "16390374415", "16390370650", "16390287533", "16390276131",
+    "16149300225", "14780540796", "18218895340", "18218912026", "16992985181",
+    "16992999181", "138174781911258", "76881226512385", "18287051021",
+    "18287017762", "94766951507843", "16751151478", "16751045189", "115744147858434",
+    "133251082112509", "127176659817333", "18218963907", "16992991374", "16992994321"
+}
 
 local Window = WindUI:CreateWindow({
     Title = "Hyko by Huy",
     Author = "by Huy",
-    Icon = "rbxassetid://" .. tostring(ICON_ID),
-    Background = "rbxassetid://" .. tostring(BACKGROUND_ID),
-    BackgroundImageTransparency = 0.12,
     Theme = "Hyko White",
     Folder = "HykoConfig",
     Size = UDim2.fromOffset(620, 480),
@@ -1575,7 +1580,7 @@ local Window = WindUI:CreateWindow({
         Callback = function()
             WindUI:Notify({
                 Title = "Hyko by Huy",
-                Content = "Hello " .. game.Players.LocalPlayer.DisplayName .. "!",
+                Content = "Hello " .. LP.DisplayName .. "!",
                 Icon = "user",
                 Duration = 3,
             })
@@ -1589,98 +1594,139 @@ local Window = WindUI:CreateWindow({
     },
 })
 
+--========================================================================--
+-- HÀM ÁP DỤNG ICON + BACKGROUND
+--========================================================================--
+local function applyThemeToWindUI(bgId, iconId)
+    task.spawn(function()
+        local iconAsset = "rbxassetid://" .. tostring(iconId)
+        local bgAsset   = "rbxassetid://" .. tostring(bgId)
 
--- ULTIMATE FIX 1.666 - Ép background + icon win bằng ImageLabel trực tiếp, không qua API WindUI
-task.spawn(function()
-    task.wait(1.2)
-    local ICON_ID = 133251082112509
-    local BG_ID = 6675147490 -- dùng ID public mới tìm, ông đổi lại 16149300225 nếu muốn
-    
-    local function getAllGuis()
-        local list = {}
-        pcall(function() if gethui then for _,v in ipairs(gethui():GetChildren()) do table.insert(list, v) end end end)
-        pcall(function() for _,v in ipairs(game.CoreGui:GetChildren()) do table.insert(list, v) end end)
-        pcall(function() local pg = game.Players.LocalPlayer:FindFirstChildOfClass("PlayerGui") if pg then for _,v in ipairs(pg:GetChildren()) do table.insert(list, v) end end end)
-        return list
-    end
-    
-    local guis = getAllGuis()
-    local mainFrame = nil
-    local biggest = 0
-    local windGui = nil
-    
-    for _, gui in ipairs(guis) do
-        if gui:IsA("ScreenGui") then
-            for _, d in ipairs(gui:GetDescendants()) do
-                if d:IsA("Frame") and d.AbsoluteSize.X >= 500 and d.AbsoluteSize.X <= 900 and d.AbsoluteSize.Y >= 350 and d.AbsoluteSize.Y <= 600 then
-                    -- Frame chính của WindUI thường có UICorner và không có Text
-                    local area = d.AbsoluteSize.X * d.AbsoluteSize.Y
-                    if area > biggest then
-                        biggest = area
-                        mainFrame = d
-                        windGui = gui
+        local parentGui = (gethui and gethui())
+            or game:GetService("CoreGui")
+
+        local windGui
+        for _, g in ipairs(parentGui:GetChildren()) do
+            if g:IsA("ScreenGui") then
+                local hasBigFrame = false
+                for _, d in ipairs(g:GetDescendants()) do
+                    if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
+                        hasBigFrame = true
+                        break
                     end
                 end
-            end
-        end
-    end
-    
-    if not mainFrame then
-        warn("[Hyko] Ultimate: không tìm thấy mainFrame")
-        return
-    end
-    
-    print("[Hyko] Ultimate: mainFrame", mainFrame:GetFullName(), mainFrame.AbsoluteSize, "in", windGui.Name)
-    
-    -- Xóa BG cũ
-    for _, c in ipairs(mainFrame:GetChildren()) do
-        if c.Name:find("Hyko") then c:Destroy() end
-    end
-    
-    -- Tạo nền mới
-    local bg = Instance.new("ImageLabel")
-    bg.Name = "Hyko_BG_Ultimate"
-    bg.Image = "rbxassetid://"..tostring(BG_ID)
-    bg.BackgroundTransparency = 1
-    bg.ImageTransparency = 0.12
-    bg.ScaleType = Enum.ScaleType.Crop
-    bg.Size = UDim2.new(1, 0, 1, 0)
-    bg.Position = UDim2.new(0, 0, 0, 0)
-    bg.ZIndex = 1
-    bg.Parent = mainFrame
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 12)
-    corner.Parent = bg
-    
-    -- Đưa bg xuống đáy
-    bg.Parent = mainFrame
-    -- Đảm bảo mainFrame clip
-    mainFrame.ClipsDescendants = true
-    
-    -- Ép icon win - tìm ImageLabel ở top-left
-    local iconSet = 0
-    for _, d in ipairs(windGui:GetDescendants()) do
-        if d:IsA("ImageLabel") and d.AbsoluteSize.X >= 16 and d.AbsoluteSize.X <= 36 then
-            if d.AbsolutePosition.Y < 150 and d.AbsolutePosition.X < 400 then
-                -- Check nếu gần title
-                if d.Parent and d.Parent:IsA("Frame") then
-                    local ok = pcall(function()
-                        if d.Image ~= "" then
-                            d.Image = "rbxassetid://"..tostring(ICON_ID)
-                            d.ImageTransparency = 0
-                            d.BackgroundTransparency = 1
-                            iconSet = iconSet + 1
-                            print("[Hyko] Icon set:", d:GetFullName())
-                        end
-                    end)
+                if hasBigFrame then
+                    windGui = g
+                    break
                 end
             end
         end
-    end
-    print("[Hyko] Ultimate done, icons set:", iconSet)
+
+        if not windGui then
+            local pg = LP:FindFirstChildOfClass("PlayerGui")
+            if pg then
+                for _, g in ipairs(pg:GetChildren()) do
+                    if g:IsA("ScreenGui") then
+                        for _, d in ipairs(g:GetDescendants()) do
+                            if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
+                                windGui = g
+                                break
+                            end
+                        end
+                    end
+                    if windGui then break end
+                end
+            end
+        end
+
+        if not windGui then return end
+
+        local mainFrame
+        local bestArea = 0
+        for _, d in ipairs(windGui:GetDescendants()) do
+            if d:IsA("Frame") then
+                local area = d.AbsoluteSize.X * d.AbsoluteSize.Y
+                if area > bestArea and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
+                    bestArea = area
+                    mainFrame = d
+                end
+            end
+        end
+
+        if not mainFrame then return end
+
+        -- BACKGROUND
+        local oldBg = mainFrame:FindFirstChild("HykoBg")
+        if oldBg then oldBg:Destroy() end
+
+        local bg = Instance.new("ImageLabel")
+        bg.Name = "HykoBg"
+        bg.Size = UDim2.fromScale(1, 1)
+        bg.Position = UDim2.fromScale(0, 0)
+        bg.BackgroundTransparency = 1
+        bg.Image = bgAsset
+        bg.ImageTransparency = 0.55
+        bg.ScaleType = Enum.ScaleType.Crop
+        bg.ZIndex = 0
+        bg.Parent = mainFrame
+
+        local bgCorner = Instance.new("UICorner")
+        bgCorner.CornerRadius = UDim.new(0, 12)
+        bgCorner.Parent = bg
+
+        for _, d in ipairs(mainFrame:GetDescendants()) do
+            if d ~= bg and d:IsA("GuiObject") and d.ZIndex == 0 then
+                d.ZIndex = 1
+            end
+        end
+
+        -- ICON
+        local iconApplied = false
+        for _, d in ipairs(mainFrame:GetDescendants()) do
+            if d:IsA("ImageLabel") and d ~= bg then
+                local sz = d.AbsoluteSize
+                if sz.X >= 10 and sz.X <= 40 and sz.Y >= 10 and sz.Y <= 40 then
+                    d.Image = iconAsset
+                    d.ImageTransparency = 0
+                    d.BackgroundTransparency = 1
+                    iconApplied = true
+                end
+            end
+        end
+
+        if not iconApplied then
+            local iconHolder
+            for _, d in ipairs(mainFrame:GetChildren()) do
+                if d:IsA("Frame") and d.AbsoluteSize.Y <= 60 then
+                    iconHolder = d
+                    break
+                end
+            end
+            if not iconHolder then iconHolder = mainFrame end
+
+            local oldIcon = iconHolder:FindFirstChild("HykoIcon")
+            if oldIcon then oldIcon:Destroy() end
+
+            local iconLbl = Instance.new("ImageLabel")
+            iconLbl.Name = "HykoIcon"
+            iconLbl.Size = UDim2.fromOffset(22, 22)
+            iconLbl.Position = UDim2.fromOffset(14, 12)
+            iconLbl.BackgroundTransparency = 1
+            iconLbl.Image = iconAsset
+            iconLbl.ZIndex = 50
+            iconLbl.Parent = iconHolder
+        end
+    end)
+end
+
+-- Khởi tạo Icon + Background mặc định sau khi WindUI load xong
+task.spawn(function()
+    task.wait(0.6)
+    applyThemeToWindUI(DEFAULT_BG_ID, DEFAULT_ICON_ID)
+    print("[Hyko] Default Icon + Background applied")
 end)
 
+print("[Hyko] Step 6: window created")
 
 --========================================================================--
 -- [15] TABS
@@ -2072,7 +2118,59 @@ HopTab:Paragraph({
 print("[Hyko] Step 10: server hop tab built")
 
 --========================================================================--
--- [19] RESPAWN + PLAYER EVENTS
+-- [19] THEME TAB (CUSTOM BACKGROUNDS)
+--========================================================================--
+ThemeTab:Section({ Title = "Background Images", Box = true })
+
+ThemeTab:Paragraph({
+    Title = "Chọn nền cho UI",
+    Desc = "Chọn một ID ảnh từ danh sách để thay đổi nền của WindUI. "
+        .. "Bạn có thể tìm thấy các ID này trong ảnh bạn đã cung cấp.\n"
+        .. "Mặc định đang dùng: 16390378968",
+    Icon = "image",
+})
+
+ThemeTab:Dropdown({
+    Title = "Select Background ID",
+    Desc = "Chọn ID ảnh nền",
+    Icon = "layout",
+    Values = THEME_IMAGE_IDS,
+    Value = tostring(DEFAULT_BG_ID),
+    Callback = function(selectedId)
+        if selectedId then
+            applyThemeToWindUI(tonumber(selectedId), DEFAULT_ICON_ID)
+            notify("Hyko by Huy", "Đã đổi nền UI thành ID: " .. selectedId, "image")
+        end
+    end,
+})
+
+ThemeTab:Section({ Title = "Icon", Box = true })
+
+ThemeTab:Paragraph({
+    Title = "Icon ID",
+    Desc = "Icon mặc định đang dùng: 71999030813587 (mèo cầm hoa).",
+    Icon = "star",
+})
+
+ThemeTab:Input({
+    Title = "Custom Icon ID",
+    Desc = "Nhập ID ảnh để thay đổi Icon của WindUI",
+    Placeholder = "Ví dụ: 71999030813587",
+    Icon = "edit",
+    Value = tostring(DEFAULT_ICON_ID),
+    Callback = function(text)
+        local id = tonumber(text)
+        if id then
+            applyThemeToWindUI(DEFAULT_BG_ID, id)
+            notify("Hyko by Huy", "Đã đổi Icon UI thành ID: " .. id, "star")
+        end
+    end,
+})
+
+print("[Hyko] Step 11: theme tab built")
+
+--========================================================================--
+-- [20] RESPAWN + PLAYER EVENTS
 --========================================================================--
 LP.CharacterAdded:Connect(function()
     task.wait(0.5)
