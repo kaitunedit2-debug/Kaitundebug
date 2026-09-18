@@ -1548,25 +1548,19 @@ print("[Hyko] Step 5: creating WindUI window")
 
 print("[Hyko] Step 5: creating WindUI window v1.666")
 
-local ICON_ID = 133251082112509 -- decal id icon
-local BACKGROUND_ID = 16149300225 -- decal id background
 
--- Decal -> Image conversion helper (Roblox decal cần load texture)
-local function decalToImage(decalId)
-    -- thử lấy texture từ decal, nếu fail thì trả về rbxassetid gốc
-    local ok, result = pcall(function()
-        -- cách 1: dùng rbxassetid trực tiếp (WindUI 1.666 hỗ trợ decal)
-        return "rbxassetid://" .. tostring(decalId)
-    end)
-    return ok and result or ("rbxassetid://" .. tostring(decalId))
-end
+local ICON_ID = 9242918232 -- Gojo Satoru public - trắng đẹp
+local BACKGROUND_ID = 6675147490 -- Anime Aesthetic white/blue public
 
+-- Backup IDs nếu muốn đổi:
+-- ICON: 10590477450 GigaChad, 7734068321 Crown, 6031071053 Default, 8227110001 Cute anime
+-- BG: 8678122759 Sailor Moon, 8227110001 Cute anime, 5252447904 Another Anime Aesthetic, 11902680347 Makima
 
 local Window = WindUI:CreateWindow({
     Title = "Hyko by Huy",
     Author = "by Huy",
-    Icon = decalToImage(ICON_ID),
-    Background = decalToImage(BACKGROUND_ID),
+    Icon = "rbxassetid://" .. tostring(ICON_ID),
+    Background = "rbxassetid://" .. tostring(BACKGROUND_ID),
     BackgroundImageTransparency = 0.12,
     Theme = "Hyko White",
     Folder = "HykoConfig",
@@ -1603,8 +1597,8 @@ local Window = WindUI:CreateWindow({
 -- v1.666 fix: Set lại sau khi tạo để chắc chắn hiện (API mới)
 task.spawn(function()
     task.wait(0.6)
-    pcall(function() Window:SetIcon(decalToImage(ICON_ID)) end)
-    pcall(function() Window:SetBackgroundImage(decalToImage(BACKGROUND_ID)) end)
+    pcall(function() Window:SetIcon("rbxassetid://" .. tostring(ICON_ID)) end)
+    pcall(function() Window:SetBackgroundImage("rbxassetid://" .. tostring(BACKGROUND_ID)) end)
     pcall(function() Window:SetBackgroundImageTransparency(0.12) end)
     pcall(function() Window:ToggleTransparency(true) end)
 end)
