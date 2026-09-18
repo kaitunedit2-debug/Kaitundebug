@@ -1548,13 +1548,8 @@ print("[Hyko] Step 5: creating WindUI window")
 
 print("[Hyko] Step 5: creating WindUI window v1.666")
 
-
-local ICON_ID = 9242918232 -- Gojo Satoru public - trắng đẹp
-local BACKGROUND_ID = 6675147490 -- Anime Aesthetic white/blue public
-
--- Backup IDs nếu muốn đổi:
--- ICON: 10590477450 GigaChad, 7734068321 Crown, 6031071053 Default, 8227110001 Cute anime
--- BG: 8678122759 Sailor Moon, 8227110001 Cute anime, 5252447904 Another Anime Aesthetic, 11902680347 Makima
+local ICON_ID = 133251082112509
+local BACKGROUND_ID = 16149300225
 
 local Window = WindUI:CreateWindow({
     Title = "Hyko by Huy",
@@ -1594,14 +1589,98 @@ local Window = WindUI:CreateWindow({
     },
 })
 
--- v1.666 fix: Set lại sau khi tạo để chắc chắn hiện (API mới)
+
+-- ULTIMATE FIX 1.666 - Ép background + icon win bằng ImageLabel trực tiếp, không qua API WindUI
 task.spawn(function()
-    task.wait(0.6)
-    pcall(function() Window:SetIcon("rbxassetid://" .. tostring(ICON_ID)) end)
-    pcall(function() Window:SetBackgroundImage("rbxassetid://" .. tostring(BACKGROUND_ID)) end)
-    pcall(function() Window:SetBackgroundImageTransparency(0.12) end)
-    pcall(function() Window:ToggleTransparency(true) end)
+    task.wait(1.2)
+    local ICON_ID = 133251082112509
+    local BG_ID = 6675147490 -- dùng ID public mới tìm, ông đổi lại 16149300225 nếu muốn
+    
+    local function getAllGuis()
+        local list = {}
+        pcall(function() if gethui then for _,v in ipairs(gethui():GetChildren()) do table.insert(list, v) end end end)
+        pcall(function() for _,v in ipairs(game.CoreGui:GetChildren()) do table.insert(list, v) end end)
+        pcall(function() local pg = game.Players.LocalPlayer:FindFirstChildOfClass("PlayerGui") if pg then for _,v in ipairs(pg:GetChildren()) do table.insert(list, v) end end end)
+        return list
+    end
+    
+    local guis = getAllGuis()
+    local mainFrame = nil
+    local biggest = 0
+    local windGui = nil
+    
+    for _, gui in ipairs(guis) do
+        if gui:IsA("ScreenGui") then
+            for _, d in ipairs(gui:GetDescendants()) do
+                if d:IsA("Frame") and d.AbsoluteSize.X >= 500 and d.AbsoluteSize.X <= 900 and d.AbsoluteSize.Y >= 350 and d.AbsoluteSize.Y <= 600 then
+                    -- Frame chính của WindUI thường có UICorner và không có Text
+                    local area = d.AbsoluteSize.X * d.AbsoluteSize.Y
+                    if area > biggest then
+                        biggest = area
+                        mainFrame = d
+                        windGui = gui
+                    end
+                end
+            end
+        end
+    end
+    
+    if not mainFrame then
+        warn("[Hyko] Ultimate: không tìm thấy mainFrame")
+        return
+    end
+    
+    print("[Hyko] Ultimate: mainFrame", mainFrame:GetFullName(), mainFrame.AbsoluteSize, "in", windGui.Name)
+    
+    -- Xóa BG cũ
+    for _, c in ipairs(mainFrame:GetChildren()) do
+        if c.Name:find("Hyko") then c:Destroy() end
+    end
+    
+    -- Tạo nền mới
+    local bg = Instance.new("ImageLabel")
+    bg.Name = "Hyko_BG_Ultimate"
+    bg.Image = "rbxassetid://"..tostring(BG_ID)
+    bg.BackgroundTransparency = 1
+    bg.ImageTransparency = 0.12
+    bg.ScaleType = Enum.ScaleType.Crop
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.Position = UDim2.new(0, 0, 0, 0)
+    bg.ZIndex = 1
+    bg.Parent = mainFrame
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = bg
+    
+    -- Đưa bg xuống đáy
+    bg.Parent = mainFrame
+    -- Đảm bảo mainFrame clip
+    mainFrame.ClipsDescendants = true
+    
+    -- Ép icon win - tìm ImageLabel ở top-left
+    local iconSet = 0
+    for _, d in ipairs(windGui:GetDescendants()) do
+        if d:IsA("ImageLabel") and d.AbsoluteSize.X >= 16 and d.AbsoluteSize.X <= 36 then
+            if d.AbsolutePosition.Y < 150 and d.AbsolutePosition.X < 400 then
+                -- Check nếu gần title
+                if d.Parent and d.Parent:IsA("Frame") then
+                    local ok = pcall(function()
+                        if d.Image ~= "" then
+                            d.Image = "rbxassetid://"..tostring(ICON_ID)
+                            d.ImageTransparency = 0
+                            d.BackgroundTransparency = 1
+                            iconSet = iconSet + 1
+                            print("[Hyko] Icon set:", d:GetFullName())
+                        end
+                    end)
+                end
+            end
+        end
+    end
+    print("[Hyko] Ultimate done, icons set:", iconSet)
 end)
+
 
 --========================================================================--
 -- [15] TABS
