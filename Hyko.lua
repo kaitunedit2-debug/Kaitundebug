@@ -1587,6 +1587,24 @@ local Window = WindUI:CreateWindow({
     },
 })
 
+-- Fix nền + icon win sau khi tạo (WindUI 1.6xx đôi khi không nhận trong CreateWindow)
+task.spawn(function()
+    task.wait(0.5)
+    pcall(function()
+        Window:SetIcon("rbxassetid://" .. tostring(ICON_ID))
+    end)
+    pcall(function()
+        Window:SetBackgroundImage("rbxassetid://" .. tostring(BACKGROUND_ID))
+        Window:SetBackgroundImageTransparency(0.15)
+    end)
+    -- Nếu vẫn không hiện, thử dùng SetBackground (gradient/image)
+    pcall(function()
+        if Window.SetBackground then
+            Window:SetBackground("rbxassetid://" .. tostring(BACKGROUND_ID))
+        end
+    end)
+end)
+
 --========================================================================--
 -- [15] TABS
 --========================================================================--
