@@ -1542,13 +1542,12 @@ WindUI:AddTheme({
 })
 
 --========================================================================--
--- [14] WINDUI WINDOW - Custom Background & Icon
+-- [14] WINDUI WINDOW
 --========================================================================--
 print("[Hyko] Step 5: creating WindUI window")
 
--- ID cho Icon và Background
-local ICON_ID       = 133251082112509  -- Alien cầm hoa
-local BACKGROUND_ID = 16149300225      -- Anime tóc xanh
+local ICON_ID       = 133251082112509
+local BACKGROUND_ID = 16149300225
 
 local Window = WindUI:CreateWindow({
     Title = "Hyko by Huy",
@@ -1586,117 +1585,134 @@ local Window = WindUI:CreateWindow({
 })
 
 --========================================================================--
--- Áp dụng Icon + Background SAU khi tạo Window
--- Dùng nhiều phương thức để đảm bảo hoạt động trên mọi version WindUI
+-- Áp dụng Icon + Background trực tiếp lên GUI instance
 --========================================================================--
 task.spawn(function()
-    task.wait(0.3)
+    task.wait(0.6)
 
-    -- Định dạng ảnh (thử nhiều định dạng để chắc chắn)
-    local iconFormats = {
-        "rbxassetid://" .. tostring(ICON_ID),
-        "rbxthumb://type=Asset&id=" .. tostring(ICON_ID) .. "&w=150&h=150",
-    }
-    local bgFormats = {
-        "rbxassetid://" .. tostring(BACKGROUND_ID),
-        "rbxthumb://type=Asset&id=" .. tostring(BACKGROUND_ID) .. "&w=420&h=420",
-    }
+    local iconAsset = "rbxassetid://" .. tostring(ICON_ID)
+    local bgAsset   = "rbxassetid://" .. tostring(BACKGROUND_ID)
 
-    -- ----- ICON -----
-    local iconSet = false
+    local parentGui = (gethui and gethui())
+        or game:GetService("CoreGui")
 
-    -- Method 1: Window:SetIcon
-    if not iconSet and type(Window.SetIcon) == "function" then
-        for _, fmt in ipairs(iconFormats) do
-            local ok = pcall(function() Window:SetIcon(fmt) end)
-            if ok then iconSet = true break end
-        end
-    end
-
-    -- Method 2: Window.Icon (property)
-    if not iconSet and Window.Icon ~= nil then
-        for _, fmt in ipairs(iconFormats) do
-            local ok = pcall(function() Window.Icon = fmt end)
-            if ok then iconSet = true break end
-        end
-    end
-
-    -- ----- BACKGROUND -----
-    local bgSet = false
-
-    -- Method 1: Window:SetBackgroundImage
-    if not bgSet and type(Window.SetBackgroundImage) == "function" then
-        for _, fmt in ipairs(bgFormats) do
-            local ok = pcall(function() Window:SetBackgroundImage(fmt) end)
-            if ok then bgSet = true break end
-        end
-    end
-
-    -- Method 2: Window.Background (property)
-    if not bgSet and Window.Background ~= nil then
-        for _, fmt in ipairs(bgFormats) do
-            local ok = pcall(function() Window.Background = fmt end)
-            if ok then bgSet = true break end
-        end
-    end
-
-    -- Method 3: Tìm ImageLabel bên trong Window và gán trực tiếp
-    if not bgSet then
-        local function findMainFrame(root)
-            if not root then return nil end
-            -- WindUI thường lưu frame chính ở MainFrame, Root, Window, Hoặc Frame
-            local candidates = {
-                root.MainFrame, root.Root, root.Window, root.Frame,
-                root.UI, root.Main, root.Holder,
-            }
-            for _, c in ipairs(candidates) do
-                if c and c:IsA("GuiObject") then return c end
-            end
-            -- Fallback: tìm Frame đầu tiên có size lớn
-            for _, d in ipairs(root:GetDescendants()) do
+    local windGui
+    for _, g in ipairs(parentGui:GetChildren()) do
+        if g:IsA("ScreenGui") then
+            local hasBigFrame = false
+            for _, d in ipairs(g:GetDescendants()) do
                 if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
-                    return d
+                    hasBigFrame = true
+                    break
                 end
             end
-            return nil
-        end
-
-        local mainFrame = findMainFrame(Window)
-        if mainFrame then
-            local existing = mainFrame:FindFirstChild("HykoBg")
-            if not existing then
-                local bg = Instance.new("ImageLabel")
-                bg.Name = "HykoBg"
-                bg.Size = UDim2.new(1, 0, 1, 0)
-                bg.Position = UDim2.new(0, 0, 0, 0)
-                bg.BackgroundTransparency = 1
-                bg.Image = bgFormats[1]
-                bg.ImageTransparency = 0.75
-                bg.ScaleType = Enum.ScaleType.Crop
-                bg.ZIndex = 0
-                bg.Parent = mainFrame
-                existing = bg
+            if hasBigFrame then
+                windGui = g
+                break
             end
-            -- Đảm bảo các element khác nằm trên
-            for _, d in ipairs(mainFrame:GetDescendants()) do
-                if d ~= existing and d:IsA("GuiObject") and d.ZIndex == 0 then
-                    d.ZIndex = 1
-                end
-            end
-            bgSet = true
         end
     end
 
-    if iconSet then
-        print("[Hyko] Icon applied successfully")
-    else
-        warn("[Hyko] Icon could not be applied - check WindUI API")
+    if not windGui then
+        local pg = LP:FindFirstChildOfClass("PlayerGui")
+        if pg then
+            for _, g in ipairs(pg:GetChildren()) do
+                if g:IsA("ScreenGui") then
+                    for _, d in ipairs(g:GetDescendants()) do
+                        if d:IsA("Frame") and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
+                            windGui = g
+                            break
+                        end
+                    end
+                end
+                if windGui then break end
+            end
+        end
     end
-    if bgSet then
-        print("[Hyko] Background applied successfully")
-    else
-        warn("[Hyko] Background could not be applied - check WindUI API")
+
+    if not windGui then
+        warn("[Hyko] Không tìm thấy WindUI ScreenGui")
+        return
     end
+
+    local mainFrame
+    local bestArea = 0
+    for _, d in ipairs(windGui:GetDescendants()) do
+        if d:IsA("Frame") then
+            local area = d.AbsoluteSize.X * d.AbsoluteSize.Y
+            if area > bestArea and d.AbsoluteSize.X > 400 and d.AbsoluteSize.Y > 300 then
+                bestArea = area
+                mainFrame = d
+            end
+        end
+    end
+
+    if not mainFrame then
+        warn("[Hyko] Không tìm thấy MainFrame")
+        return
+    end
+
+    -- BACKGROUND
+    local oldBg = mainFrame:FindFirstChild("HykoBg")
+    if oldBg then oldBg:Destroy() end
+
+    local bg = Instance.new("ImageLabel")
+    bg.Name = "HykoBg"
+    bg.Size = UDim2.fromScale(1, 1)
+    bg.Position = UDim2.fromScale(0, 0)
+    bg.BackgroundTransparency = 1
+    bg.Image = bgAsset
+    bg.ImageTransparency = 0.55
+    bg.ScaleType = Enum.ScaleType.Crop
+    bg.ZIndex = 0
+    bg.Parent = mainFrame
+
+    local bgCorner = Instance.new("UICorner")
+    bgCorner.CornerRadius = UDim.new(0, 12)
+    bgCorner.Parent = bg
+
+    -- đảm bảo các element khác nằm trên background
+    for _, d in ipairs(mainFrame:GetDescendants()) do
+        if d ~= bg and d:IsA("GuiObject") and d.ZIndex == 0 then
+            d.ZIndex = 1
+        end
+    end
+
+    -- ICON: tìm ImageLabel nhỏ trong title bar (góc trên trái)
+    local iconApplied = false
+    for _, d in ipairs(mainFrame:GetDescendants()) do
+        if d:IsA("ImageLabel") and d ~= bg then
+            local sz = d.AbsoluteSize
+            if sz.X >= 10 and sz.X <= 40 and sz.Y >= 10 and sz.Y <= 40 then
+                d.Image = iconAsset
+                d.ImageTransparency = 0
+                d.BackgroundTransparency = 1
+                iconApplied = true
+            end
+        end
+    end
+
+    if not iconApplied then
+        local iconHolder
+        for _, d in ipairs(mainFrame:GetChildren()) do
+            if d:IsA("Frame") and d.AbsoluteSize.Y <= 60 then
+                iconHolder = d
+                break
+            end
+        end
+        if not iconHolder then iconHolder = mainFrame end
+
+        local iconLbl = Instance.new("ImageLabel")
+        iconLbl.Name = "HykoIcon"
+        iconLbl.Size = UDim2.fromOffset(22, 22)
+        iconLbl.Position = UDim2.fromOffset(14, 12)
+        iconLbl.BackgroundTransparency = 1
+        iconLbl.Image = iconAsset
+        iconLbl.ZIndex = 50
+        iconLbl.Parent = iconHolder
+    end
+
+    print("[Hyko] Icon + Background applied")
 end)
 
 print("[Hyko] Step 6: window created")
