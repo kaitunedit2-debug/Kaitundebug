@@ -1,90 +1,53 @@
---========================================================================--
--- Hyko by Huy - WindUI Edition (Optimized)
--- UI: WindUI by Footagesus (v1.666)
--- White Theme | Custom Background & Icon
---========================================================================--
+--============================================================--
+--  Hyko · iOS UI  v10 FINAL
+--  · Lucide icons (bag / shield)
+--  · Bottom-right notifications (progress bar, no side bar)
+--============================================================--
 
-local Players         = game:GetService("Players")
-local UIS             = game:GetService("UserInputService")
-local RunService      = game:GetService("RunService")
-local Lighting        = game:GetService("Lighting")
-local TeleportService = game:GetService("TeleportService")
-local HttpService     = game:GetService("HttpService")
-local TweenService    = game:GetService("TweenService")
-local LP              = Players.LocalPlayer
-local PlaceId         = game.PlaceId
+local Players      = game:GetService("Players")
+local UIS          = game:GetService("UserInputService")
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Lighting     = game:GetService("Lighting")
+local LP           = Players.LocalPlayer
 
-print("[Hyko] Step 1: helpers")
-
---========================================================================--
--- [0] HELPERS
---========================================================================--
-local function mountGui(gui)
-    gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local function mountGui(g)
+    g.ResetOnSpawn = false
+    g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     local ok = pcall(function()
-        if gethui then gui.Parent = gethui()
+        if gethui then g.Parent = gethui()
         elseif syn and syn.protect_gui then
-            syn.protect_gui(gui)
-            gui.Parent = game:GetService("CoreGui")
+            syn.protect_gui(g); g.Parent = game:GetService("CoreGui")
         else
-            gui.Parent = LP:FindFirstChildOfClass("PlayerGui") or game:GetService("CoreGui")
+            g.Parent = LP:FindFirstChildOfClass("PlayerGui")
+                or game:GetService("CoreGui")
         end
     end)
     if not ok then
         pcall(function()
-            gui.Parent = LP:FindFirstChildOfClass("PlayerGui")
+            g.Parent = LP:FindFirstChildOfClass("PlayerGui")
                 or game:GetService("CoreGui")
         end)
     end
 end
 
-local function applyWhiteGlow(target, cornerRadius, layers, intensity)
-    if not target or not target.Parent then return end
-    layers = layers or 3
-    intensity = intensity or 1
-    target.ClipsDescendants = false
-    for i = 1, layers do
-        local glow = Instance.new("Frame")
-        glow.Name = "HykoGlowLayer"
-        glow.BackgroundTransparency = 1
-        glow.BorderSizePixel = 0
-        glow.Size = UDim2.new(1, i * 6, 1, i * 6)
-        glow.Position = UDim2.new(0, -i * 3, 0, -i * 3)
-        glow.ZIndex = (target.ZIndex or 1) - i
-        glow.Active = false
-        glow.Parent = target
+--============================================================--
+-- ICON REGISTRY  (Lucide style)
+--============================================================--
+local ICONS = {
+    info    = "rbxassetid://6031075931",
+    check   = "rbxassetid://6031094678",
+    gear    = "rbxassetid://6031280882",
+    back    = "rbxassetid://6031091004",
+    shield  = "rbxassetid://10709810948",   -- Lucide Shield (Anti-Ragdoll)
+    loot    = "rbxassetid://10709811110",   -- Lucide Bag    (Fast Loot)
+    sparkle = "rbxassetid://6031094678",
+    users   = "rbxassetid://10709799842",
+}
 
-        local c = Instance.new("UICorner")
-        c.CornerRadius = UDim.new(0, cornerRadius + i * 3)
-        c.Parent = glow
-
-        local s = Instance.new("UIStroke")
-        s.Color = Color3.fromRGB(255, 255, 255)
-        s.Thickness = 1.6
-        s.Transparency = math.clamp(0.25 + (i - 1) * 0.22 + (1 - intensity) * 0.3, 0, 1)
-        s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-        s.Parent = glow
-    end
-end
-
-print("[Hyko] Step 2: loading WindUI")
-
---========================================================================--
--- [1] LOAD WINDUI
---========================================================================--
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))() -- v1.666
-
-if not WindUI then
-    warn("[Hyko] WindUI failed to load")
-    return
-end
-
-print("[Hyko] Step 3: WindUI loaded")
-
---========================================================================--
--- [2] MOVEMENT INPUT
---========================================================================--
+--============================================================--
+-- MOVE INPUT
+--============================================================--
 local Controls
 pcall(function()
     local PM = require(LP.PlayerScripts:WaitForChild("PlayerModule", 5))
@@ -99,395 +62,310 @@ local function readMove()
         end
     end
     local d = Vector3.zero
-    if UIS:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0, 0, -1) end
-    if UIS:IsKeyDown(Enum.KeyCode.S) then d += Vector3.new(0, 0, 1)  end
-    if UIS:IsKeyDown(Enum.KeyCode.A) then d += Vector3.new(-1, 0, 0) end
-    if UIS:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1, 0, 0)  end
+    if UIS:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0,0,-1) end
+    if UIS:IsKeyDown(Enum.KeyCode.S) then d += Vector3.new(0,0,1) end
+    if UIS:IsKeyDown(Enum.KeyCode.A) then d += Vector3.new(-1,0,0) end
+    if UIS:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1,0,0) end
     return d
 end
 
---========================================================================--
--- [3] STATE
---========================================================================--
-local homePos       = nil
-local returningHome = false
-local returnSpeed   = 120
-local homeConn      = nil
+--============================================================--
+-- ANTI-RAGDOLL
+--============================================================--
+local antiOn, antiSpeed = false, 60
+local antiConn, antiPost, antiAdded, antiJumpConn, antiStateConn
+local realHum, fakeHum
+local moveAtt, moveVel, faceAtt, faceAlign
+local lastSafeY, housekeeping = nil, 0
+local bodySnap = {}
 
-local speedOn          = false
-local antiRagdollOn    = false
-local curSpeed          = 60
-local antiRagdollSpeed  = 60
-local fakeWalkSpeed     = 600
+local rayP = RaycastParams.new()
+rayP.FilterType = Enum.RaycastFilterType.Exclude
+rayP.IgnoreWater = true
 
-local lootOn       = false
-local lootConn     = nil
-local promptAdded  = nil
-local savedPrompts = {}
+local KILL_UP, ABOVE_GROUND, UPRIGHT_THRESHOLD = 40, 12, 0.85
 
-local hitboxOn    = false
-local hitboxSize  = 15
-local hitboxData  = {}
+local BAD_STATES = {
+    [Enum.HumanoidStateType.Ragdoll]          = true,
+    [Enum.HumanoidStateType.FallingDown]      = true,
+    [Enum.HumanoidStateType.Physics]          = true,
+    [Enum.HumanoidStateType.PlatformStanding] = true,
+    [Enum.HumanoidStateType.GettingUp]        = true,
+}
 
-local espOn    = false
-local espColor = Color3.fromRGB(70, 130, 230)
-local espList  = {}
-local espLoop  = nil
-
---========================================================================--
--- [4] DRIVE SYSTEM (Anti-Ragdoll + Anti-Knockback)
---========================================================================--
-local driveActive         = false
-local driveConn           = nil
-local drivePostConn       = nil
-local driveRealHum        = nil
-local driveFakeHum        = nil
-local driveSavedCollide   = {}
-local driveYLock          = true
-
-local driveVelConstraint  = nil
-local driveVelAttachment  = nil
-
-local lastSafeY         = nil
-local KILL_UP_VELOCITY  = 40
-local MAX_ABOVE_GROUND  = 12
-local MAX_ABOVE_SAFE    = 25
-
-local function anyDriveRequested() return speedOn or antiRagdollOn end
-
-local function activeMoveSpeed()
-    if antiRagdollOn then return antiRagdollSpeed end
-    if speedOn then return curSpeed end
-    return 16
-end
-
-local function isBodyMover(d)
-    return d:IsA("BodyVelocity") or d:IsA("BodyAngularVelocity") or d:IsA("BodyForce")
-        or d:IsA("BodyThrust") or d:IsA("BodyPosition") or d:IsA("BodyGyro")
-        or d:IsA("LinearVelocity") or d:IsA("AngularVelocity") or d:IsA("VectorForce")
-        or d:IsA("Torque") or d:IsA("AlignPosition") or d:IsA("AlignOrientation")
+local function isMover(d)
+    return d:IsA("BodyVelocity") or d:IsA("BodyAngularVelocity")
+        or d:IsA("BodyForce") or d:IsA("BodyThrust")
+        or d:IsA("BodyPosition") or d:IsA("BodyGyro")
+        or d:IsA("LinearVelocity") or d:IsA("AngularVelocity")
+        or d:IsA("VectorForce") or d:IsA("Torque")
+        or d:IsA("AlignPosition") or d:IsA("AlignOrientation")
         or d:IsA("RocketPropulsion")
 end
 
-local function buildFakeHumanoid(speed)
-    local hum = Instance.new("Humanoid")
-    hum.Name = "Humanoid"
-    hum.WalkSpeed = speed
-    hum.JumpPower = 50
-    hum.UseJumpPower = true
-    hum.Health = 100
-    hum.MaxHealth = 100
-    hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-    hum.BreakJointsOnDeath = false
-    hum.RequiresNeck = false
-    hum.EvaluateStateMachine = false
+local function buildFakeHum()
+    local h = Instance.new("Humanoid")
+    h.WalkSpeed = 600; h.JumpPower = 50; h.UseJumpPower = true
+    h.Health = 100; h.MaxHealth = 100
+    h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    h.BreakJointsOnDeath = false; h.RequiresNeck = false
+    h.EvaluateStateMachine = false
     pcall(function()
-        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-        hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+        for name, enabled in pairs({
+            Ragdoll = false, FallingDown = false, Physics = false,
+            PlatformStanding = false, GettingUp = false,
+            Climbing = false, Swimming = false,
+        }) do
+            h:SetStateEnabled(Enum.HumanoidStateType[name], enabled)
+        end
     end)
-    return hum
+    return h
 end
 
-local driveRayParams = RaycastParams.new()
-driveRayParams.FilterType = Enum.RaycastFilterType.Exclude
-driveRayParams.IgnoreWater = true
+local function snapPart(p)
+    if bodySnap[p] then return end
+    bodySnap[p] = { cc = p.CanCollide, m = p.Massless }
+end
 
---========================================================================--
--- ANTIFLING VELOCITY CONSTRAINT
---========================================================================--
-local function createVelConstraint(hrp)
-    if driveVelConstraint and driveVelConstraint.Parent then
-        driveVelConstraint:Destroy()
-    end
-    if driveVelAttachment and driveVelAttachment.Parent then
-        driveVelAttachment:Destroy()
-    end
+local function neutralizeBodyPart(p)
+    snapPart(p)
+    pcall(function()
+        if p.CanCollide then p.CanCollide = false end
+        if not p.Massless then p.Massless = true end
+        p.AssemblyLinearVelocity = Vector3.zero
+        p.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
 
-    local att = Instance.new("Attachment")
-    att.Name = "HykoAntiFlingAttach"
-    att.Parent = hrp
-    driveVelAttachment = att
+local function buildBodyCache(char, root)
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") and p ~= root then neutralizeBodyPart(p) end
+    end
+end
+
+local function restore(char)
+    if not char then return end
+    for p, s in pairs(bodySnap) do
+        if p and p.Parent then
+            pcall(function() p.CanCollide = s.cc; p.Massless = s.m end)
+        end
+    end
+    bodySnap = {}
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            pcall(function()
+                p.AssemblyLinearVelocity = Vector3.zero
+                p.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
+    end
+end
+
+local function makeConstraints(root)
+    if moveAtt then pcall(function() moveAtt:Destroy() end) end
+    if moveVel then pcall(function() moveVel:Destroy() end) end
+    if faceAtt then pcall(function() faceAtt:Destroy() end) end
+    if faceAlign then pcall(function() faceAlign:Destroy() end) end
+
+    local mAtt = Instance.new("Attachment")
+    mAtt.Name = "HykoMoveAtt"; mAtt.Parent = root; moveAtt = mAtt
 
     local lv = Instance.new("LinearVelocity")
-    lv.Name = "HykoAntiFlingVel"
-    lv.Attachment0 = att
+    lv.Name = "HykoMoveVel"; lv.Attachment0 = mAtt
     lv.RelativeTo = Enum.ActuatorRelativeTo.World
     lv.VectorVelocity = Vector3.zero
     lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
     lv.MaxAxesForce = Vector3.new(1e6, 0, 1e6)
     pcall(function() lv.ForceLimitsEnabled = true end)
-    lv.Parent = hrp
-    driveVelConstraint = lv
+    lv.Parent = root; moveVel = lv
+
+    local fAtt = Instance.new("Attachment")
+    fAtt.Name = "HykoFaceAtt"; fAtt.Parent = root; faceAtt = fAtt
+
+    local ao = Instance.new("AlignOrientation")
+    ao.Name = "HykoFaceAlign"; ao.Attachment0 = fAtt
+    ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    ao.PrimaryAxisOnly = true; ao.RigidityEnabled = true
+    ao.MaxTorque = 1e7; ao.Responsiveness = 100
+    ao.Parent = root; faceAlign = ao
 end
 
-local function destroyVelConstraint()
-    if driveVelConstraint then
-        pcall(function() driveVelConstraint:Destroy() end)
-        driveVelConstraint = nil
-    end
-    if driveVelAttachment then
-        pcall(function() driveVelAttachment:Destroy() end)
-        driveVelAttachment = nil
-    end
+local function killConstraints()
+    if moveAtt then pcall(function() moveAtt:Destroy() end) end
+    if moveVel then pcall(function() moveVel:Destroy() end) end
+    if faceAtt then pcall(function() faceAtt:Destroy() end) end
+    if faceAlign then pcall(function() faceAlign:Destroy() end) end
+    moveAtt, moveVel, faceAtt, faceAlign = nil, nil, nil, nil
 end
 
---========================================================================--
--- ANTI-RAGDOLL CORE
---========================================================================--
-local function applyAntiRagdollDestroy()
-    local c = LP.Character
-    if not c then return end
-    for _, p in ipairs(c:GetDescendants()) do
-        if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-            pcall(function() p:Destroy() end)
-        end
-    end
-end
-
-local function forceHumanoidHealthy()
-    if not driveFakeHum or not driveFakeHum.Parent then return end
+local function resetState()
+    if not fakeHum or not fakeHum.Parent then return end
     pcall(function()
-        if driveFakeHum.PlatformStand then driveFakeHum.PlatformStand = false end
-        if driveFakeHum.Sit then driveFakeHum.Sit = false end
-        driveFakeHum.AutoRotate = true
-        local st = driveFakeHum:GetState()
-        if st == Enum.HumanoidStateType.Ragdoll
-            or st == Enum.HumanoidStateType.FallingDown
-            or st == Enum.HumanoidStateType.Physics
-            or st == Enum.HumanoidStateType.PlatformStanding then
-            driveFakeHum:ChangeState(Enum.HumanoidStateType.Running)
+        if fakeHum.PlatformStand then fakeHum.PlatformStand = false end
+        if fakeHum.Sit then fakeHum.Sit = false end
+        fakeHum.AutoRotate = false
+        if BAD_STATES[fakeHum:GetState()] then
+            fakeHum:ChangeState(Enum.HumanoidStateType.Running)
         end
     end)
 end
 
---========================================================================--
--- DRIVE HEARTBEAT (PreSimulation)
---========================================================================--
-local function driveHeartbeat()
-    local ch = LP.Character
-    if not ch then return end
-    local root = ch:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    local cam = workspace.CurrentCamera
-    if not cam then return end
-
-    if not driveFakeHum or driveFakeHum.Parent ~= ch then
-        driveFakeHum = buildFakeHumanoid(fakeWalkSpeed)
-        driveFakeHum.Parent = ch
-    end
-    if driveFakeHum.WalkSpeed ~= fakeWalkSpeed then
-        pcall(function() driveFakeHum.WalkSpeed = fakeWalkSpeed end)
-    end
-    if driveRealHum and driveRealHum.Parent == ch then
-        pcall(function() driveRealHum.Parent = nil end)
-    end
-
-    if antiRagdollOn then
-        forceHumanoidHealthy()
-        applyAntiRagdollDestroy()
-
-        if not driveVelConstraint or not driveVelConstraint.Parent then
-            createVelConstraint(root)
+local function forceUpright(root, cam)
+    if root.CFrame.UpVector.Y < UPRIGHT_THRESHOLD then
+        local look = cam.CFrame.LookVector
+        local flat = Vector3.new(look.X, 0, look.Z)
+        if flat.Magnitude > 0.01 then
+            root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
         end
-        pcall(function() root:SetNetworkOwner(LP) end)
-    else
-        if driveVelConstraint then
-            destroyVelConstraint()
-        end
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
+local function heartbeat(dt)
+    local ch = LP.Character; if not ch then return end
+    local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
+    local cam = workspace.CurrentCamera; if not cam then return end
+
+    if not fakeHum or fakeHum.Parent ~= ch then
+        fakeHum = buildFakeHum(); fakeHum.Parent = ch
+    end
+    if realHum and realHum.Parent == ch then
+        pcall(function() realHum.Parent = nil end)
     end
 
-    for _, p in ipairs(ch:GetDescendants()) do
-        if p:IsA("BasePart") then
-            pcall(function() p.AssemblyAngularVelocity = Vector3.zero end)
-            if p ~= root then
-                pcall(function() p.AssemblyLinearVelocity = Vector3.zero end)
-            end
-        elseif isBodyMover(p) then
-            if p.Name ~= "HykoAntiFlingVel" then
-                pcall(function() p:Destroy() end)
-            end
-        end
+    if not moveVel or not moveVel.Parent or not faceAlign or not faceAlign.Parent then
+        makeConstraints(root)
     end
+
+    forceUpright(root, cam)
 
     local look = cam.CFrame.LookVector
     local flat = Vector3.new(look.X, 0, look.Z)
     if flat.Magnitude > 0.01 then
-        root.CFrame = CFrame.new(root.Position, root.Position + flat.Unit)
+        faceAlign.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
     end
-    root.AssemblyAngularVelocity = Vector3.zero
 
-    driveRayParams.FilterDescendantsInstances = {ch}
+    local mv = readMove()
+    local target = Vector3.zero
+    if mv.Magnitude > 0.05 then
+        local wd = cam.CFrame.LookVector * (-mv.Z) + cam.CFrame.RightVector * mv.X
+        wd = Vector3.new(wd.X, 0, wd.Z)
+        if wd.Magnitude > 0.01 then target = wd.Unit * antiSpeed end
+    end
+    moveVel.VectorVelocity = target
+
+    local vel = root.AssemblyLinearVelocity
+    if vel.Y > KILL_UP then
+        root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+    end
+
+    housekeeping = housekeeping + dt
+    if housekeeping >= 0.1 then
+        housekeeping = 0
+        resetState()
+        for _, d in ipairs(ch:GetDescendants()) do
+            if isMover(d) and d ~= moveVel and d ~= faceAlign then
+                pcall(function() d:Destroy() end)
+            end
+        end
+    end
+end
+
+local function postSim()
+    if not antiOn then return end
+    local ch = LP.Character; if not ch then return end
+    local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
+    rayP.FilterDescendantsInstances = {ch}
     local origin = root.Position + Vector3.new(0, 4, 0)
-    local result = workspace:Raycast(origin, Vector3.new(0, -120, 0), driveRayParams)
-    local groundY = nil
-    if result then
-        groundY = result.Position.Y + 3.5
-        lastSafeY = groundY
-    end
-
-    if antiRagdollOn then
-        local vel = root.AssemblyLinearVelocity
-
-        if vel.Y > KILL_UP_VELOCITY then
-            vel = Vector3.new(vel.X, 0, vel.Z)
-            root.AssemblyLinearVelocity = vel
-        end
-
-        if groundY then
-            if root.Position.Y > groundY + MAX_ABOVE_GROUND then
-                root.CFrame = CFrame.new(root.Position.X, groundY, root.Position.Z)
-                    * (root.CFrame - root.Position)
-                root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
-            end
-        elseif lastSafeY and root.Position.Y > lastSafeY + MAX_ABOVE_SAFE then
-            root.CFrame = CFrame.new(root.Position.X, lastSafeY, root.Position.Z)
-                * (root.CFrame - root.Position)
+    local res = workspace:Raycast(origin, Vector3.new(0, -120, 0), rayP)
+    if res then
+        local gy = res.Position.Y + 3.5
+        lastSafeY = gy
+        if root.Position.Y > gy + ABOVE_GROUND then
+            local vel = root.AssemblyLinearVelocity
             root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
-        end
-    end
-
-    local useConstraint = antiRagdollOn
-        and driveVelConstraint and driveVelConstraint.Parent
-
-    if not returningHome then
-        local v = readMove()
-        local camCF = cam.CFrame
-
-        local targetHoriz
-        if v.Magnitude < 0.05 then
-            targetHoriz = Vector3.zero
-        else
-            local worldDir = camCF.LookVector * (-v.Z) + camCF.RightVector * v.X
-            worldDir = Vector3.new(worldDir.X, 0, worldDir.Z)
-            if worldDir.Magnitude > 0.01 then
-                targetHoriz = worldDir.Unit * activeMoveSpeed()
-            else
-                targetHoriz = Vector3.zero
+            if root.Position.Y > gy + ABOVE_GROUND + 20 then
+                root.CFrame = CFrame.new(root.Position.X, gy, root.Position.Z)
+                    * (root.CFrame - root.Position)
             end
         end
-
-        if useConstraint then
-            driveVelConstraint.VectorVelocity = targetHoriz
-        else
-            local curY = root.AssemblyLinearVelocity.Y
-            root.AssemblyLinearVelocity = targetHoriz + Vector3.new(0, curY, 0)
-        end
-    else
-        if useConstraint then
-            driveVelConstraint.VectorVelocity = Vector3.zero
-        end
-    end
-
-    if driveYLock and groundY then
-        local delta = groundY - root.Position.Y
-        if math.abs(delta) < 8 then
-            root.CFrame = CFrame.new(root.Position.X, groundY, root.Position.Z)
-                * (root.CFrame - root.Position)
-            local cv = root.AssemblyLinearVelocity
-            root.AssemblyLinearVelocity = Vector3.new(cv.X, 0, cv.Z)
-        end
+    elseif lastSafeY and root.Position.Y > lastSafeY + 30 then
+        local vel = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
     end
 end
 
---========================================================================--
--- POST-SIMULATION: hard reset horizontal if game tried to push us
---========================================================================--
-local function drivePostSim()
-    if not antiRagdollOn then return end
-    if not driveVelConstraint or not driveVelConstraint.Parent then return end
-    local c = LP.Character
-    if not c then return end
-    local root = c:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-
-    local want = driveVelConstraint.VectorVelocity
-    local cur = root.AssemblyLinearVelocity
-    local dx = cur.X - want.X
-    local dz = cur.Z - want.Z
-    if (dx * dx + dz * dz) > 4 then
-        root.AssemblyLinearVelocity = Vector3.new(want.X, cur.Y, want.Z)
+local function doJump()
+    if not antiOn then return end
+    local ch = LP.Character; if not ch then return end
+    local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
+    rayP.FilterDescendantsInstances = {ch}
+    if workspace:Raycast(root.Position, Vector3.new(0, -4, 0), rayP) then
+        local vel = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.new(vel.X, 55, vel.Z)
     end
 end
 
-local function startDrive()
-    if driveActive then return true end
-    local c = LP.Character
-    if not c then return false end
+local function startAnti()
+    if antiConn then return end
+    local c = LP.Character; if not c then return end
     local hrp = c:FindFirstChild("HumanoidRootPart")
     local hum = c:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return false end
+    if not hrp or not hum then return end
 
-    driveRealHum = hum
-    pcall(function() driveRealHum.Parent = nil end)
+    realHum = hum
+    pcall(function() realHum.Parent = nil end)
+    fakeHum = buildFakeHum(); fakeHum.Parent = c
 
-    driveFakeHum = buildFakeHumanoid(fakeWalkSpeed)
-    driveFakeHum.Parent = c
+    antiStateConn = fakeHum.StateChanged:Connect(function(_, newState)
+        if not antiOn then return end
+        if BAD_STATES[newState] then
+            task.defer(function()
+                if antiOn and fakeHum and fakeHum.Parent then
+                    pcall(function()
+                        fakeHum:ChangeState(Enum.HumanoidStateType.Running)
+                    end)
+                end
+            end)
+        end
+    end)
 
     pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
     pcall(function() hrp:SetNetworkOwner(LP) end)
 
-    lastSafeY = hrp.Position.Y
+    lastSafeY = hrp.Position.Y; housekeeping = 0
+    bodySnap = {}
+    buildBodyCache(c, hrp)
+    makeConstraints(hrp)
 
-    driveSavedCollide = {}
-    for _, p in ipairs(c:GetDescendants()) do
-        if p:IsA("BasePart") and p ~= hrp then
-            if antiRagdollOn then
-                pcall(function() p:Destroy() end)
-            else
-                driveSavedCollide[p] = p.CanCollide
-                pcall(function() p.CanCollide = false end)
-            end
-        end
-    end
-
-    local driveEvent = RunService.PreSimulation or RunService.Heartbeat
-    driveConn = driveEvent:Connect(driveHeartbeat)
-
-    local postEvent = RunService.PostSimulation or RunService.Stepped
-    drivePostConn = postEvent:Connect(drivePostSim)
-
-    c.DescendantAdded:Connect(function(d)
-        if not driveActive then return end
+    antiAdded = c.DescendantAdded:Connect(function(d)
+        if not antiOn then return end
         if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
-            if antiRagdollOn then
-                task.defer(function()
-                    if driveActive and antiRagdollOn then
-                        pcall(function() d:Destroy() end)
-                    end
-                end)
-            else
-                if driveSavedCollide[d] == nil then
-                    driveSavedCollide[d] = d.CanCollide
-                end
-                pcall(function() d.CanCollide = false end)
-            end
-        elseif isBodyMover(d) then
-            if d.Name ~= "HykoAntiFlingVel" then
-                task.defer(function()
-                    if driveActive then
-                        pcall(function() d:Destroy() end)
-                    end
-                end)
-            end
+            task.defer(function()
+                if antiOn and d.Parent then neutralizeBodyPart(d) end
+            end)
+        elseif isMover(d) and d ~= moveVel and d ~= faceAlign then
+            task.defer(function()
+                if antiOn then pcall(function() d:Destroy() end) end
+            end)
         end
     end)
 
-    driveActive = true
-    if antiRagdollOn then
-        applyAntiRagdollDestroy()
-        createVelConstraint(hrp)
-    end
-    return true
+    antiConn = RunService.Heartbeat:Connect(heartbeat)
+    antiPost = RunService.PostSimulation:Connect(postSim)
+    antiJumpConn = UIS.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == Enum.KeyCode.Space then doJump() end
+    end)
 end
 
-local function stopDrive()
-    if not driveActive then return end
-    driveActive = false
-    if driveConn then driveConn:Disconnect() driveConn = nil end
-    if drivePostConn then drivePostConn:Disconnect() drivePostConn = nil end
-
-    destroyVelConstraint()
+local function stopAnti()
+    if antiAdded then antiAdded:Disconnect() antiAdded = nil end
+    if antiConn then antiConn:Disconnect() antiConn = nil end
+    if antiPost then antiPost:Disconnect() antiPost = nil end
+    if antiJumpConn then antiJumpConn:Disconnect() antiJumpConn = nil end
+    if antiStateConn then antiStateConn:Disconnect() antiStateConn = nil end
+    killConstraints()
 
     local c = LP.Character
     if c then
@@ -496,328 +374,298 @@ local function stopDrive()
             hrp.AssemblyLinearVelocity = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
         end
-        if driveFakeHum and driveFakeHum.Parent then
-            pcall(function() driveFakeHum:Destroy() end)
+        restore(c)
+        if fakeHum and fakeHum.Parent then
+            pcall(function() fakeHum:Destroy() end)
         end
-        driveFakeHum = nil
-        if driveRealHum and driveRealHum.Parent == nil then
+        fakeHum = nil
+        if realHum and realHum.Parent == nil then
             pcall(function()
-                driveRealHum.Parent = c
-                driveRealHum.WalkSpeed = 16
-                driveRealHum.JumpPower = 50
+                realHum.Parent = c
+                realHum.WalkSpeed = 16; realHum.JumpPower = 50
+                realHum:ChangeState(Enum.HumanoidStateType.Running)
             end)
         end
-        driveRealHum = nil
-        for part, can in pairs(driveSavedCollide) do
-            if part and part.Parent then
-                pcall(function() part.CanCollide = can end)
-            end
+        realHum = nil
+    end
+    lastSafeY = nil
+end
+
+--============================================================--
+-- PLAYER ESP
+-- Lightweight, event-driven player highlighting + boxed names.
+-- No RenderStepped loop; distance text refreshes at a low rate.
+--============================================================--
+local espOn = false
+local espFolder
+local espEntries = {}
+local espPlayerAdded, espPlayerRemoving, espRefresh
+
+local ESP_COLOR = Color3.fromRGB(10, 132, 255)
+
+local function espDestroyPlayer(plr)
+    local entry = espEntries[plr]
+    if not entry then return end
+    if entry.highlight then pcall(function() entry.highlight:Destroy() end) end
+    if entry.billboard then pcall(function() entry.billboard:Destroy() end) end
+    espEntries[plr] = nil
+end
+
+local function espCreatePlayer(plr)
+    if not espOn or plr == LP then return end
+    espDestroyPlayer(plr)
+
+    local char = plr.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum or hum.Health <= 0 then return end
+
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "HykoPlayerOutline"
+    highlight.Adornee = char
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.FillTransparency = 1
+    highlight.OutlineTransparency = 0.08
+    highlight.OutlineColor = ESP_COLOR
+    highlight.Parent = char
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "HykoPlayerName"
+    billboard.Adornee = root
+    billboard.AlwaysOnTop = true
+    billboard.LightInfluence = 0
+    billboard.MaxDistance = 3000
+    billboard.Size = UDim2.fromOffset(180, 42)
+    billboard.StudsOffset = Vector3.new(0, 3.15, 0)
+    billboard.Parent = root
+
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(0, 150, 0, 26)
+    card.AnchorPoint = Vector2.new(0.5, 0.5)
+    card.Position = UDim2.fromScale(0.5, 0.5)
+    card.BackgroundColor3 = Color3.fromRGB(18, 20, 24)
+    card.BackgroundTransparency = 0.16
+    card.BorderSizePixel = 0
+    card.Parent = billboard
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 7)
+    corner.Parent = card
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = ESP_COLOR
+    stroke.Thickness = 1
+    stroke.Transparency = 0.2
+    stroke.Parent = card
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -12, 1, 0)
+    label.Position = UDim2.fromOffset(6, 0)
+    label.BackgroundTransparency = 1
+    label.Text = plr.DisplayName
+    label.TextColor3 = Color3.fromRGB(245, 247, 250)
+    label.Font = Enum.Font.GothamSemibold
+    label.TextSize = 11
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.Parent = card
+
+    espEntries[plr] = {
+        highlight = highlight,
+        billboard = billboard,
+        label = label,
+        char = char,
+    }
+end
+
+local function espRefreshNames()
+    if not espOn then return end
+    local myChar = LP.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    for plr, entry in pairs(espEntries) do
+        local char = plr.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not char or not root or not hum or hum.Health <= 0 then
+            espDestroyPlayer(plr)
+        elseif entry.char ~= char then
+            espCreatePlayer(plr)
+        else
+            local distance = math.floor((myRoot.Position - root.Position).Magnitude + 0.5)
+            entry.label.Text = string.format("%s  ·  %dm", plr.DisplayName, distance)
         end
     end
-    driveSavedCollide = {}
 end
 
-local function refreshDrive()
-    if anyDriveRequested() and not driveActive then
-        startDrive()
-    elseif not anyDriveRequested() and driveActive then
-        stopDrive()
+local function enableESP()
+    if espOn then return end
+    espOn = true
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP then
+            task.defer(espCreatePlayer, plr)
+        end
     end
+
+    espPlayerAdded = Players.PlayerAdded:Connect(function(plr)
+        if not espOn then return end
+        plr.CharacterAdded:Connect(function()
+            task.wait(0.25)
+            if espOn then espCreatePlayer(plr) end
+        end)
+        task.defer(espCreatePlayer, plr)
+    end)
+
+    espPlayerRemoving = Players.PlayerRemoving:Connect(espDestroyPlayer)
+
+    -- One low-frequency update instead of a per-frame loop.
+    espRefresh = task.spawn(function()
+        while espOn do
+            espRefreshNames()
+            task.wait(0.20)
+        end
+    end)
 end
 
---========================================================================--
--- [5] FAST LOOT
---========================================================================--
-local function applyFastPrompt(p)
+local function disableESP()
+    if not espOn then return end
+    espOn = false
+
+    if espPlayerAdded then espPlayerAdded:Disconnect(); espPlayerAdded = nil end
+    if espPlayerRemoving then espPlayerRemoving:Disconnect(); espPlayerRemoving = nil end
+
+    for plr in pairs(espEntries) do
+        espDestroyPlayer(plr)
+    end
+    espEntries = {}
+end
+
+--============================================================--
+-- FAST LOOT
+--============================================================--
+local lootOn, lootConn, promptAdd
+local savedHold = {}
+
+local function fastPrompt(p)
     if not p:IsA("ProximityPrompt") then return end
-    if savedPrompts[p] == nil then savedPrompts[p] = p.HoldDuration end
+    if savedHold[p] == nil then savedHold[p] = p.HoldDuration end
     pcall(function() p.HoldDuration = 0 end)
 end
 
 local function restorePrompts()
-    for p, hold in pairs(savedPrompts) do
-        if p and p.Parent then pcall(function() p.HoldDuration = hold end) end
+    for p, h in pairs(savedHold) do
+        if p and p.Parent then pcall(function() p.HoldDuration = h end) end
     end
-    savedPrompts = {}
+    savedHold = {}
 end
 
-local lootRadiusParams = OverlapParams.new()
-lootRadiusParams.FilterType = Enum.RaycastFilterType.Exclude
+local lootP = OverlapParams.new()
+lootP.FilterType = Enum.RaycastFilterType.Exclude
 
 local function enableLoot()
     if lootConn then return end
-
     task.spawn(function()
         for _, d in ipairs(workspace:GetDescendants()) do
-            if d:IsA("ProximityPrompt") then applyFastPrompt(d) end
+            if d:IsA("ProximityPrompt") then fastPrompt(d) end
         end
     end)
-
-    promptAdded = workspace.DescendantAdded:Connect(function(d)
-        if lootOn and d:IsA("ProximityPrompt") then
-            applyFastPrompt(d)
-        end
+    promptAdd = workspace.DescendantAdded:Connect(function(d)
+        if lootOn and d:IsA("ProximityPrompt") then fastPrompt(d) end
     end)
-
     lootConn = UIS.InputBegan:Connect(function(input, gpe)
         if not lootOn or gpe then return end
         if input.KeyCode ~= Enum.KeyCode.E then return end
-
         local c = LP.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
-
-        lootRadiusParams.FilterDescendantsInstances = {c}
-        local parts = workspace:GetPartBoundsInRadius(hrp.Position, 32, lootRadiusParams)
-
-        local best, bestDist = nil, math.huge
+        lootP.FilterDescendantsInstances = {c}
+        local parts = workspace:GetPartBoundsInRadius(hrp.Position, 32, lootP)
+        local best, bd = nil, math.huge
         for _, part in ipairs(parts) do
             for _, d in ipairs(part:GetChildren()) do
                 if d:IsA("ProximityPrompt") and d.Enabled then
                     local dist = (part.Position - hrp.Position).Magnitude
-                    if dist <= d.MaxActivationDistance + 4 and dist < bestDist then
-                        best, bestDist = d, dist
+                    if dist <= d.MaxActivationDistance + 4 and dist < bd then
+                        best, bd = d, dist
                     end
                 end
             end
-            for _, attach in ipairs(part:GetChildren()) do
-                if attach:IsA("Attachment") then
-                    for _, d in ipairs(attach:GetChildren()) do
+            for _, att in ipairs(part:GetChildren()) do
+                if att:IsA("Attachment") then
+                    for _, d in ipairs(att:GetChildren()) do
                         if d:IsA("ProximityPrompt") and d.Enabled then
                             local dist = (part.Position - hrp.Position).Magnitude
-                            if dist <= d.MaxActivationDistance + 4 and dist < bestDist then
-                                best, bestDist = d, dist
+                            if dist <= d.MaxActivationDistance + 4 and dist < bd then
+                                best, bd = d, dist
                             end
                         end
                     end
                 end
             end
         end
-
         if best then pcall(function() fireproximityprompt(best) end) end
     end)
 end
 
 local function disableLoot()
     if lootConn then lootConn:Disconnect() lootConn = nil end
-    if promptAdded then promptAdded:Disconnect() promptAdded = nil end
+    if promptAdd then promptAdd:Disconnect() promptAdd = nil end
     restorePrompts()
 end
 
---========================================================================--
--- [6] HITBOX
---========================================================================--
-local function expandHitbox(pl)
-    if pl == LP then return end
-    local c = pl.Character
-    if not c then return end
-    local data = hitboxData[pl]
-    if not data then data = { parts = {}, trans = {} } hitboxData[pl] = data end
-    for _, p in ipairs(c:GetDescendants()) do
-        if p:IsA("BasePart") then
-            if data.parts[p] == nil then
-                data.parts[p] = p.Size
-                data.trans[p] = p.Transparency
-            end
-            pcall(function()
-                p.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-                p.Transparency = 0.7
-            end)
-        end
-    end
+--============================================================--
+-- FPS BOOST
+--============================================================--
+local boostOn, boostConn
+local savedQuality, savedCap, origLighting
+local savedAtmos, disabledLights = {}, {}
+
+local function isHyko(d)
+    return d and d.Name and string.sub(d.Name, 1, 4) == "Hyko"
 end
 
-local function restoreHitbox(pl)
-    local data = hitboxData[pl]
-    if not data then return end
-    for p, size in pairs(data.parts) do
-        if p and p.Parent then
-            pcall(function()
-                p.Size = size
-                p.Transparency = data.trans[p] or 0
-            end)
-        end
-    end
-    hitboxData[pl] = nil
-end
-
-local function enableHitboxAll()
-    for _, pl in ipairs(Players:GetPlayers()) do
-        if pl ~= LP then pcall(expandHitbox, pl) end
-    end
-end
-
-local function restoreHitboxAll()
-    for pl in pairs(hitboxData) do pcall(restoreHitbox, pl) end
-    hitboxData = {}
-end
-
-local hitboxLoop = nil
-local function startHitboxLoop()
-    if hitboxLoop then return end
-    hitboxLoop = task.spawn(function()
-        while hitboxOn do
-            for _, pl in ipairs(Players:GetPlayers()) do
-                if pl ~= LP then pcall(expandHitbox, pl) end
-            end
-            task.wait(0.5)
-        end
-    end)
-end
-
-local function stopHitboxLoop() hitboxOn = false end
-
---========================================================================--
--- [7] ESP
---========================================================================--
-local function removeESP(pl)
-    local e = espList[pl]
-    if not e then return end
-    if e.highlight then e.highlight:Destroy() end
-    if e.billboard then e.billboard:Destroy() end
-    if e.conn then e.conn:Disconnect() end
-    espList[pl] = nil
-end
-
-local function removeAllESP()
-    for pl in pairs(espList) do removeESP(pl) end
-    espList = {}
-end
-
-local function createESP(pl)
-    if pl == LP or espList[pl] then return end
-    local c = pl.Character
-    if not c then return end
-    local hrp = c:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "HykoESP"
-    highlight.Adornee = c
-    highlight.FillColor = espColor
-    highlight.FillTransparency = 0.6
-    highlight.OutlineColor = espColor
-    highlight.OutlineTransparency = 0
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Parent = c
-
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "HykoESPName"
-    billboard.Size = UDim2.new(0, 200, 0, 30)
-    billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Adornee = hrp
-    billboard.Parent = c
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = pl.Name
-    label.TextColor3 = espColor
-    label.TextStrokeTransparency = 0
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 14
-    label.Parent = billboard
-
-    local conn = pl.CharacterAdded:Connect(function()
-        task.wait(0.5)
-        if espOn then removeESP(pl) createESP(pl) end
-    end)
-
-    espList[pl] = { highlight = highlight, billboard = billboard, conn = conn }
-end
-
-local function enableESP()
-    espOn = true
-    for _, pl in ipairs(Players:GetPlayers()) do
-        if pl ~= LP then createESP(pl) end
-    end
-    espLoop = task.spawn(function()
-        while espOn do
-            for _, pl in ipairs(Players:GetPlayers()) do
-                if pl ~= LP and not espList[pl] then createESP(pl) end
-            end
-            task.wait(0.5)
-        end
-    end)
-end
-
-local function disableESP()
-    espOn = false
-    removeAllESP()
-end
-
---========================================================================--
--- [8] FPS BOOST
---========================================================================--
-local fpsOn              = false
-local fpsAddedConn       = nil
-local removedEffects     = {}
-local disabledLights     = {}
-local origLighting       = nil
-local origTerrain        = nil
-local savedQuality       = nil
-local savedFrameRateCap  = nil
-local savedAtmos         = {}
-local fogBlur            = nil
-local colorFix           = nil
-
-local function isHykoObject(d)
-    if not d or not d.Name then return false end
-    return string.sub(d.Name, 1, 4) == "Hyko"
-end
-
-local function isEffect(d)
-    if isHykoObject(d) then return false end
-    return d:IsA("ParticleEmitter")
-        or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Smoke")
-        or d:IsA("Fire") or d:IsA("Sparkles") or d:IsA("Explosion")
-        or d:IsA("SurfaceAppearance") or d:IsA("Decal") or d:IsA("Texture")
-end
-
-local function isSafeToRemove(d)
-    if isHykoObject(d) then return false end
-    local c = LP and LP.Character
+local function safeRemove(d)
+    if isHyko(d) then return false end
+    local c = LP.Character
     if c and d:IsDescendantOf(c) then return false end
     for _, pl in ipairs(Players:GetPlayers()) do
         local pc = pl.Character
         if pc and d:IsDescendantOf(pc) then return false end
     end
-    local pg = LP and LP:FindFirstChildOfClass("PlayerGui")
-    if pg and d:IsDescendantOf(pg) then
-        if d:IsA("ScreenGui") or d:IsA("BillboardGui") or d:IsA("SurfaceGui") then
-            return false
-        end
-    end
     return true
 end
 
-local function removeEffect(d)
-    if not d or not d.Parent then return end
-    if removedEffects[d] then return end
-    if not isSafeToRemove(d) then return end
-    removedEffects[d] = true
+local function isFX(d)
+    return d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam")
+        or d:IsA("Smoke") or d:IsA("Fire") or d:IsA("Sparkles")
+        or d:IsA("Explosion") or d:IsA("SurfaceAppearance")
+        or d:IsA("Decal") or d:IsA("Texture")
+end
+
+local function killFX(d)
+    if not d or not d.Parent or not safeRemove(d) then return end
     pcall(function() d:Destroy() end)
 end
 
-local function disableLightInstance(l)
+local function disableLight(l)
     if disabledLights[l] ~= nil then return end
-    local ok, val = pcall(function() return l.Enabled end)
+    local ok, v = pcall(function() return l.Enabled end)
     if not ok then return end
-    disabledLights[l] = val
+    disabledLights[l] = v
     pcall(function() l.Enabled = false end)
 end
 
-local function saveAndReduceLighting()
+local function saveLighting()
     origLighting = {
         Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
         Brightness = Lighting.Brightness, GlobalShadows = Lighting.GlobalShadows,
         Shadows = Lighting.Shadows, FogEnd = Lighting.FogEnd,
         FogStart = Lighting.FogStart, FogColor = Lighting.FogColor,
-        EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
-        EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
-        ClockTime = Lighting.ClockTime, ExposureCompensation = Lighting.ExposureCompensation,
-        ShadowSoftness = Lighting.ShadowSoftness,
+        EnvD = Lighting.EnvironmentDiffuseScale,
+        EnvS = Lighting.EnvironmentSpecularScale,
+        Exposure = Lighting.ExposureCompensation,
     }
     pcall(function()
         Lighting.GlobalShadows = false
@@ -826,69 +674,14 @@ local function saveAndReduceLighting()
         Lighting.EnvironmentDiffuseScale = 0
         Lighting.EnvironmentSpecularScale = 0
         Lighting.ExposureCompensation = -0.6
-        Lighting.ShadowSoftness = 0
-        Lighting.Ambient = Color3.fromRGB(235, 235, 240)
-        Lighting.OutdoorAmbient = Color3.fromRGB(235, 235, 240)
-        Lighting.FogColor = Color3.fromRGB(240, 240, 245)
-        Lighting.FogStart = 55
-        Lighting.FogEnd   = 210
-    end)
-
-    for _, d in ipairs(Lighting:GetChildren()) do
-        if d:IsA("Atmosphere") then
-            savedAtmos[d] = {
-                Density = d.Density, Haze = d.Haze, Glare = d.Glare,
-                Offset = d.Offset, Color = d.Color, Decay = d.Decay,
-            }
-            pcall(function()
-                d.Density = 0
-                d.Haze = 0
-                d.Glare = 0
-                d.Decay = Color3.fromRGB(0, 0, 0)
-                d.Color = Color3.fromRGB(255, 255, 255)
-            end)
-        elseif d:IsA("PostEffect") then
-            disableLightInstance(d)
-        end
-    end
-
-    for _, d in ipairs(Lighting:GetChildren()) do
-        if d:IsA("Sky") then
-            for _, child in ipairs(d:GetChildren()) do
-                pcall(function() child:Destroy() end)
-            end
-        elseif d:IsA("Clouds") then
-            pcall(function()
-                d.Cover = 0
-                d.Density = 0
-            end)
-        end
-    end
-
-    pcall(function()
-        local blur = Instance.new("BlurEffect")
-        blur.Name = "HykoFPSBlur"
-        blur.Size = 24
-        blur.Parent = Lighting
-        fogBlur = blur
-    end)
-    pcall(function()
-        local cc = Instance.new("ColorCorrectionEffect")
-        cc.Name = "HykoFPSColor"
-        cc.Brightness = 0
-        cc.Contrast = -0.1
-        cc.Saturation = -0.25
-        cc.TintColor = Color3.fromRGB(240, 240, 245)
-        cc.Parent = Lighting
-        colorFix = cc
+        Lighting.Ambient = Color3.fromRGB(235,235,240)
+        Lighting.OutdoorAmbient = Color3.fromRGB(235,235,240)
+        Lighting.FogColor = Color3.fromRGB(240,240,245)
+        Lighting.FogStart = 55; Lighting.FogEnd = 210
     end)
 end
 
 local function restoreLighting()
-    if fogBlur and fogBlur.Parent then fogBlur:Destroy() end
-    fogBlur = nil
-    if colorFix and colorFix.Parent then colorFix:Destroy() end
-    colorFix = nil
     if not origLighting then return end
     pcall(function()
         Lighting.Ambient = origLighting.Ambient
@@ -899,79 +692,57 @@ local function restoreLighting()
         Lighting.FogEnd = origLighting.FogEnd
         Lighting.FogStart = origLighting.FogStart
         Lighting.FogColor = origLighting.FogColor
-        Lighting.EnvironmentDiffuseScale = origLighting.EnvironmentDiffuseScale
-        Lighting.EnvironmentSpecularScale = origLighting.EnvironmentSpecularScale
-        Lighting.ClockTime = origLighting.ClockTime
-        Lighting.ExposureCompensation = origLighting.ExposureCompensation
-        if origLighting.ShadowSoftness then
-            Lighting.ShadowSoftness = origLighting.ShadowSoftness
-        end
+        Lighting.EnvironmentDiffuseScale = origLighting.EnvD
+        Lighting.EnvironmentSpecularScale = origLighting.EnvS
+        Lighting.ExposureCompensation = origLighting.Exposure
     end)
-    for a, st in pairs(savedAtmos) do
+    for a, s in pairs(savedAtmos) do
         if a and a.Parent then
             pcall(function()
-                a.Density = st.Density
-                a.Haze = st.Haze
-                a.Glare = st.Glare
-                a.Offset = st.Offset
-                a.Color = st.Color
-                a.Decay = st.Decay
+                a.Density = s.Density; a.Haze = s.Haze; a.Glare = s.Glare
             end)
         end
     end
     savedAtmos = {}
-    for l, state in pairs(disabledLights) do
-        if l and l.Parent then pcall(function() l.Enabled = state end) end
+    for l, st in pairs(disabledLights) do
+        if l and l.Parent then pcall(function() l.Enabled = st end) end
     end
     disabledLights = {}
     origLighting = nil
 end
 
-local function saveAndReduceTerrain()
-    local T = workspace.Terrain
-    origTerrain = {
-        WaterWaveSize = T.WaterWaveSize, WaterWaveSpeed = T.WaterWaveSpeed,
-        WaterReflectance = T.WaterReflectance, WaterTransparency = T.WaterTransparency,
-        Decoration = T.Decoration,
-    }
-    pcall(function()
-        T.WaterWaveSize = 0
-        T.WaterWaveSpeed = 0
-        T.WaterReflectance = 0
-        T.WaterTransparency = 1
-        T.Decoration = false
-    end)
-end
-
-local function restoreTerrain()
-    if not origTerrain then return end
-    pcall(function()
-        local T = workspace.Terrain
-        T.WaterWaveSize = origTerrain.WaterWaveSize
-        T.WaterWaveSpeed = origTerrain.WaterWaveSpeed
-        T.WaterReflectance = origTerrain.WaterReflectance
-        T.WaterTransparency = origTerrain.WaterTransparency
-        T.Decoration = origTerrain.Decoration
-    end)
-    origTerrain = nil
-end
-
-local function scanAndRemoveEffects()
-    for _, d in ipairs(workspace:GetDescendants()) do
-        if isEffect(d) then
-            removeEffect(d)
-        elseif d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") then
-            disableLightInstance(d)
-        elseif d:IsA("Highlight") and not isHykoObject(d) then
-            removeEffect(d)
+local function stripLighting()
+    for _, d in ipairs(Lighting:GetChildren()) do
+        if d:IsA("Atmosphere") then
+            savedAtmos[d] = { Density = d.Density, Haze = d.Haze, Glare = d.Glare }
+            pcall(function() d.Density = 0; d.Haze = 0; d.Glare = 0 end)
+        elseif d:IsA("PostEffect") then
+            disableLight(d)
+        elseif d:IsA("Sky") then
+            for _, ch in ipairs(d:GetChildren()) do
+                pcall(function() ch:Destroy() end)
+            end
+        elseif d:IsA("Clouds") then
+            pcall(function() d.Cover = 0; d.Density = 0 end)
         end
     end
 end
 
-local function enableFPSBoost()
-    if fpsOn then return end
-    fpsOn = true
+local function scanFX()
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if isFX(d) then killFX(d)
+        elseif d:IsA("PointLight") or d:IsA("SpotLight")
+            or d:IsA("SurfaceLight") then
+            disableLight(d)
+        elseif d:IsA("Highlight") and not isHyko(d) then
+            killFX(d)
+        end
+    end
+end
 
+local function enableBoost()
+    if boostOn then return end
+    boostOn = true
     pcall(function()
         local r = settings().Rendering
         savedQuality = r.QualityLevel
@@ -979,33 +750,34 @@ local function enableFPSBoost()
     end)
     pcall(function()
         local r = settings().Rendering
-        savedFrameRateCap = r.FramerateCap
+        savedCap = r.FramerateCap
         r.FramerateCap = 240
     end)
-
-    pcall(saveAndReduceLighting)
-    pcall(saveAndReduceTerrain)
-
-    task.spawn(function()
-        pcall(scanAndRemoveEffects)
+    pcall(saveLighting); pcall(stripLighting)
+    pcall(function()
+        local T = workspace.Terrain
+        T.WaterWaveSize = 0; T.WaterWaveSpeed = 0
+        T.WaterReflectance = 0; T.WaterTransparency = 1
+        T.Decoration = false
     end)
-
-    fpsAddedConn = workspace.DescendantAdded:Connect(function(d)
-        if not fpsOn or isHykoObject(d) then return end
-        if isEffect(d) then
-            task.defer(function() if fpsOn then removeEffect(d) end end)
-        elseif d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") then
-            task.defer(function() if fpsOn then disableLightInstance(d) end end)
-        elseif d:IsA("Highlight") and not isHykoObject(d) then
-            task.defer(function() if fpsOn then removeEffect(d) end end)
+    task.spawn(function() pcall(scanFX) end)
+    boostConn = workspace.DescendantAdded:Connect(function(d)
+        if not boostOn or isHyko(d) then return end
+        if isFX(d) then
+            task.defer(function() if boostOn then killFX(d) end end)
+        elseif d:IsA("PointLight") or d:IsA("SpotLight")
+            or d:IsA("SurfaceLight") then
+            task.defer(function() if boostOn then disableLight(d) end end)
+        elseif d:IsA("Highlight") and not isHyko(d) then
+            task.defer(function() if boostOn then killFX(d) end end)
         end
     end)
 end
 
-local function disableFPSBoost()
-    fpsOn = false
-    if fpsAddedConn then fpsAddedConn:Disconnect() fpsAddedConn = nil end
-
+local function disableBoost()
+    if not boostOn then return end
+    boostOn = false
+    if boostConn then boostConn:Disconnect() boostConn = nil end
     pcall(function()
         if savedQuality then
             settings().Rendering.QualityLevel = savedQuality
@@ -1013,1108 +785,1356 @@ local function disableFPSBoost()
         end
     end)
     pcall(function()
-        if savedFrameRateCap then
-            settings().Rendering.FramerateCap = savedFrameRateCap
-            savedFrameRateCap = nil
+        if savedCap then
+            settings().Rendering.FramerateCap = savedCap
+            savedCap = nil
         end
     end)
-
     pcall(restoreLighting)
-    pcall(restoreTerrain)
-    removedEffects = {}
 end
 
---========================================================================--
--- [9] FPS DISPLAY
---========================================================================--
-local FPSDisplayGui     = nil
-local fpsDisplayOn      = false
-local fpsDisplayConn    = nil
-local fpsFrameCount     = 0
-local fpsLastClock      = 0
-local fpsRefs           = {}
-
-local FPS_COLOR_HIGH = Color3.fromRGB(46, 204, 113)
-local FPS_COLOR_MID  = Color3.fromRGB(241, 196, 15)
-local FPS_COLOR_LOW  = Color3.fromRGB(231, 76, 60)
-
-local function fpsColorFor(fps)
-    if fps >= 45 then return FPS_COLOR_HIGH end
-    if fps >= 25 then return FPS_COLOR_MID end
-    return FPS_COLOR_LOW
+local function freeRAM()
+    for _ = 1, 3 do
+        pcall(function()
+            if collectgarbage then collectgarbage("collect") end
+        end)
+    end
 end
 
-local function createFPSDisplay()
-    if FPSDisplayGui then return end
+--============================================================--
+-- PALETTES
+--============================================================--
+local LIGHT = {
+    bg=Color3.fromRGB(255,255,255), grad1=Color3.fromRGB(255,255,255),
+    grad2=Color3.fromRGB(247,249,252), text=Color3.fromRGB(15,17,22),
+    sub=Color3.fromRGB(140,145,155), divider=Color3.fromRGB(238,240,244),
+    track=Color3.fromRGB(230,232,238), stroke=Color3.fromRGB(232,234,240),
+    btnBg=Color3.fromRGB(247,248,251), btnHov=Color3.fromRGB(238,241,246),
+    iconBtn=Color3.fromRGB(243,245,249), iconHov=Color3.fromRGB(232,236,242),
+}
+local DARK = {
+    bg=Color3.fromRGB(24,24,27), grad1=Color3.fromRGB(32,32,36),
+    grad2=Color3.fromRGB(20,20,23), text=Color3.fromRGB(245,245,247),
+    sub=Color3.fromRGB(150,152,158), divider=Color3.fromRGB(52,52,56),
+    track=Color3.fromRGB(60,60,64), stroke=Color3.fromRGB(58,58,62),
+    btnBg=Color3.fromRGB(44,44,48), btnHov=Color3.fromRGB(56,56,60),
+    iconBtn=Color3.fromRGB(40,40,44), iconHov=Color3.fromRGB(54,54,58),
+}
 
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "HykoFPSDisplay"
-    mountGui(gui)
+local COL = {}
+for k, v in pairs(LIGHT) do COL[k] = v end
+COL.accent = Color3.fromRGB(10, 132, 255)
+COL.green  = Color3.fromRGB(52, 199, 89)
+COL.red    = Color3.fromRGB(255, 69, 58)
+COL.amber  = Color3.fromRGB(255, 159, 10)
 
-    local main = Instance.new("Frame")
-    main.Name = "HykoFPSMain"
-    main.Size = UDim2.fromOffset(170, 70)
-    main.Position = UDim2.new(1, -190, 0, 20)
-    main.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    main.BackgroundTransparency = 0.05
-    main.BorderSizePixel = 0
-    main.Active = true
-    main.Draggable = true
-    main.ZIndex = 5
-    main.Parent = gui
+local accentEls, bgEls = {}, {}
+local function regAccent(o, p) if o then table.insert(accentEls, {o=o, p=p}) end end
+local function regBg(o, p, k) if o then table.insert(bgEls, {o=o, p=p, k=k}) end end
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 12)
-    corner.Parent = main
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(232, 234, 238)
-    stroke.Thickness = 1
-    stroke.Parent = main
-
-    applyWhiteGlow(main, 12, 3, 1)
-
-    local dot = Instance.new("Frame")
-    dot.Name = "HykoFPSDot"
-    dot.Size = UDim2.fromOffset(8, 8)
-    dot.Position = UDim2.fromOffset(12, 12)
-    dot.BackgroundColor3 = FPS_COLOR_HIGH
-    dot.BorderSizePixel = 0
-    dot.ZIndex = 6
-    dot.Parent = main
-    local dc = Instance.new("UICorner")
-    dc.CornerRadius = UDim.new(1, 0)
-    dc.Parent = dot
-
-    local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, -30, 0, 20)
-    header.Position = UDim2.fromOffset(26, 6)
-    header.BackgroundTransparency = 1
-    header.Text = "PERFORMANCE"
-    header.TextColor3 = Color3.fromRGB(120, 124, 130)
-    header.Font = Enum.Font.GothamBold
-    header.TextSize = 9
-    header.TextXAlignment = Enum.TextXAlignment.Left
-    header.ZIndex = 6
-    header.Parent = main
-
-    local sep = Instance.new("Frame")
-    sep.Size = UDim2.new(1, -24, 0, 1)
-    sep.Position = UDim2.fromOffset(12, 26)
-    sep.BackgroundColor3 = Color3.fromRGB(232, 234, 238)
-    sep.BorderSizePixel = 0
-    sep.ZIndex = 6
-    sep.Parent = main
-
-    local fpsNum = Instance.new("TextLabel")
-    fpsNum.Name = "HykoFPSNumber"
-    fpsNum.Size = UDim2.fromOffset(70, 34)
-    fpsNum.Position = UDim2.fromOffset(12, 30)
-    fpsNum.BackgroundTransparency = 1
-    fpsNum.Text = "0"
-    fpsNum.TextColor3 = FPS_COLOR_HIGH
-    fpsNum.Font = Enum.Font.GothamBold
-    fpsNum.TextSize = 24
-    fpsNum.TextXAlignment = Enum.TextXAlignment.Left
-    fpsNum.ZIndex = 6
-    fpsNum.Parent = main
-
-    local fpsUnit = Instance.new("TextLabel")
-    fpsUnit.Size = UDim2.fromOffset(30, 20)
-    fpsUnit.Position = UDim2.fromOffset(62, 40)
-    fpsUnit.BackgroundTransparency = 1
-    fpsUnit.Text = "FPS"
-    fpsUnit.TextColor3 = Color3.fromRGB(120, 124, 130)
-    fpsUnit.Font = Enum.Font.GothamMedium
-    fpsUnit.TextSize = 11
-    fpsUnit.TextXAlignment = Enum.TextXAlignment.Left
-    fpsUnit.ZIndex = 6
-    fpsUnit.Parent = main
-
-    local ping = Instance.new("TextLabel")
-    ping.Name = "HykoFPSPing"
-    ping.Size = UDim2.fromOffset(80, 20)
-    ping.Position = UDim2.new(1, -90, 0, 40)
-    ping.BackgroundTransparency = 1
-    ping.Text = "0 ms"
-    ping.TextColor3 = Color3.fromRGB(120, 124, 130)
-    ping.Font = Enum.Font.GothamMedium
-    ping.TextSize = 12
-    ping.TextXAlignment = Enum.TextXAlignment.Right
-    ping.ZIndex = 6
-    ping.Parent = main
-
-    FPSDisplayGui = gui
-    fpsRefs.number = fpsNum
-    fpsRefs.ping   = ping
-    fpsRefs.dot    = dot
+local function applyTheme(t)
+    COL.accent = t.Accent
+    for _, e in ipairs(accentEls) do
+        pcall(function() e.o[e.p] = t.Accent end)
+    end
 end
 
-local function destroyFPSDisplay()
-    if FPSDisplayGui then FPSDisplayGui:Destroy() FPSDisplayGui = nil end
-    fpsRefs = {}
+local isDark = false
+local function setDark(dark)
+    isDark = dark
+    local src = dark and DARK or LIGHT
+    for k, v in pairs(src) do COL[k] = v end
+    for _, e in ipairs(bgEls) do
+        pcall(function() e.o[e.p] = src[e.k] end)
+    end
 end
 
-local function startFPSDisplay()
-    if fpsDisplayConn then return end
-    createFPSDisplay()
-    fpsDisplayOn = true
-    fpsFrameCount = 0
-    fpsLastClock = os.clock()
+local THEMES = {
+    { Name = "Blue",    Accent = Color3.fromRGB(10, 132, 255)  },
+    { Name = "Green",   Accent = Color3.fromRGB(52, 199, 89)   },
+    { Name = "Violet",  Accent = Color3.fromRGB(139, 92, 246)  },
+    { Name = "Rose",    Accent = Color3.fromRGB(236, 72, 153)  },
+    { Name = "Crimson", Accent = Color3.fromRGB(255, 69, 58)   },
+    { Name = "Amber",   Accent = Color3.fromRGB(255, 159, 10)  },
+    { Name = "Teal",    Accent = Color3.fromRGB(48, 176, 199)  },
+    { Name = "Slate",   Accent = Color3.fromRGB(90, 100, 115)  },
+}
 
-    fpsDisplayConn = RunService.RenderStepped:Connect(function()
-        fpsFrameCount = fpsFrameCount + 1
-        local now = os.clock()
-        local elapsed = now - fpsLastClock
-        if elapsed >= 0.5 then
-            local fps = math.floor(fpsFrameCount / elapsed + 0.5)
-            fpsFrameCount = 0
-            fpsLastClock = now
+local EASE = {
+    smooth = TweenInfo.new(0.42, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+    spring = TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+    quick  = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+    fade   = TweenInfo.new(0.28, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+    slide  = TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+    seg    = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+    notif  = TweenInfo.new(0.38, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+}
 
-            local pingMs = 0
-            pcall(function()
-                pingMs = math.floor(LP:GetNetworkPing() * 1000 + 0.5)
-            end)
+local W_COL, H_COL = 104, 50
+local W_EXP, H_EXP = 300, 400
 
-            if fpsRefs.number and fpsRefs.number.Parent then
-                fpsRefs.number.Text = tostring(fps)
-                local col = fpsColorFor(fps)
-                fpsRefs.number.TextColor3 = col
-                if fpsRefs.dot and fpsRefs.dot.Parent then
-                    fpsRefs.dot.BackgroundColor3 = col
-                end
+--============================================================--
+-- SCREEN
+--============================================================--
+local screen = Instance.new("ScreenGui")
+screen.Name = "HykoLite"
+screen.IgnoreGuiInset = true
+screen.DisplayOrder = 100
+mountGui(screen)
+
+--============================================================--
+-- NOTIFICATION SYSTEM (dedupe + debounce)
+--============================================================--
+local notifHost = Instance.new("Frame")
+notifHost.Name = "HykoNotifs"
+notifHost.AnchorPoint = Vector2.new(1, 1)
+notifHost.Position = UDim2.new(1, -20, 1, -20)
+notifHost.Size = UDim2.fromOffset(280, 600)
+notifHost.BackgroundTransparency = 1
+notifHost.ZIndex = 200
+notifHost.Parent = screen
+
+local notifStack = {}
+local activeByTitle = {}
+local NOTIF_W, NOTIF_H, NOTIF_GAP = 264, 68, 8
+local MAX_NOTIFS = 3
+
+local refreshQueued = false
+local lastNotifAt = 0
+local NOTIF_MIN_INTERVAL = 0.06
+
+local function refreshNotifPositions()
+    if refreshQueued then return end
+    refreshQueued = true
+    RunService.Heartbeat:Once(function()
+        refreshQueued = false
+        local bottom = 0
+        for _, entry in ipairs(notifStack) do
+            local f = entry.frame
+            if f and f.Parent then
+                TweenService:Create(f, EASE.notif, {
+                    Position = UDim2.new(1, 0, 1, -bottom)
+                }):Play()
             end
-            if fpsRefs.ping and fpsRefs.ping.Parent then
-                fpsRefs.ping.Text = tostring(pingMs) .. " ms"
-                if pingMs < 80 then
-                    fpsRefs.ping.TextColor3 = Color3.fromRGB(120, 124, 130)
-                elseif pingMs < 200 then
-                    fpsRefs.ping.TextColor3 = FPS_COLOR_MID
-                else
-                    fpsRefs.ping.TextColor3 = FPS_COLOR_LOW
-                end
+            bottom = bottom + NOTIF_H + NOTIF_GAP
+        end
+    end)
+end
+
+local function dismissNotif(entry)
+    if not entry or entry.dismissed then return end
+    entry.dismissed = true
+
+    if entry.title and activeByTitle[entry.title] == entry then
+        activeByTitle[entry.title] = nil
+    end
+
+    if entry.progressTween then
+        pcall(function() entry.progressTween:Cancel() end)
+        entry.progressTween = nil
+    end
+
+    local f = entry.frame
+    if not f or not f.Parent then return end
+
+    TweenService:Create(f, EASE.notif, {
+        Position = UDim2.new(1, NOTIF_W + 40,
+                             f.Position.Y.Scale, f.Position.Y.Offset),
+    }):Play()
+
+    task.delay(0.4, function()
+        pcall(function() f:Destroy() end)
+        for i, e in ipairs(notifStack) do
+            if e == entry then
+                table.remove(notifStack, i)
+                break
+            end
+        end
+        refreshNotifPositions()
+    end)
+end
+
+local function pushNotif(opts)
+    local now = os.clock()
+    if now - lastNotifAt < NOTIF_MIN_INTERVAL then
+        local delayTime = NOTIF_MIN_INTERVAL - (now - lastNotifAt)
+        task.delay(delayTime, function()
+            pcall(function() pushNotif(opts) end)
+        end)
+        return
+    end
+    lastNotifAt = now
+
+    opts = opts or {}
+    local title    = opts.title    or "Hyko"
+    local message  = opts.message  or ""
+    local color    = opts.color    or COL.accent
+    local icon     = opts.icon     or ICONS.info
+    local duration = opts.duration or 3
+
+    -- dedupe: cùng title → reset timer + đổi message
+    local existing = activeByTitle[title]
+    if existing and not existing.dismissed and existing.frame.Parent then
+        existing.messageLabel.Text = message
+        if existing.progressTween then
+            pcall(function() existing.progressTween:Cancel() end)
+        end
+        existing.progressFill.Size = UDim2.fromScale(1, 1)
+        existing.progressTween = TweenService:Create(
+            existing.progressFill,
+            TweenInfo.new(duration, Enum.EasingStyle.Linear),
+            { Size = UDim2.fromScale(0, 1) }
+        )
+        existing.progressTween:Play()
+        return
+    end
+
+    while #notifStack >= MAX_NOTIFS do
+        dismissNotif(notifStack[#notifStack])
+    end
+
+    local card = Instance.new("Frame")
+    card.Name = "HykoNotif"
+    card.AnchorPoint = Vector2.new(1, 1)
+    card.Size = UDim2.fromOffset(NOTIF_W, NOTIF_H)
+    card.Position = UDim2.new(1, NOTIF_W + 20, 1, 0)
+    card.BackgroundColor3 = COL.bg
+    card.BorderSizePixel = 0
+    card.ZIndex = 201
+    card.Parent = notifHost
+
+    local cc = Instance.new("UICorner")
+    cc.CornerRadius = UDim.new(0, 16); cc.Parent = card
+
+    local cs = Instance.new("UIStroke")
+    cs.Color = COL.stroke; cs.Thickness = 1; cs.Transparency = 0.25
+    cs.Parent = card
+    regBg(cs, "Color", "stroke")
+
+    local tile = Instance.new("Frame")
+    tile.Size = UDim2.fromOffset(34, 34)
+    tile.Position = UDim2.fromOffset(14, 14)
+    tile.BackgroundColor3 = color
+    tile.BorderSizePixel = 0
+    tile.ZIndex = 203
+    tile.Parent = card
+
+    local tc = Instance.new("UICorner")
+    tc.CornerRadius = UDim.new(0, 10); tc.Parent = tile
+
+    local img = Instance.new("ImageLabel")
+    img.Size = UDim2.fromOffset(18, 18)
+    img.Position = UDim2.fromOffset(8, 8)
+    img.BackgroundTransparency = 1
+    img.Image = icon
+    img.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    img.ZIndex = 204
+    img.Parent = tile
+
+    local tl = Instance.new("TextLabel")
+    tl.Size = UDim2.new(1, -66, 0, 16)
+    tl.Position = UDim2.fromOffset(56, 12)
+    tl.BackgroundTransparency = 1
+    tl.Text = title
+    tl.TextColor3 = COL.text
+    tl.Font = Enum.Font.GothamBold
+    tl.TextSize = 13
+    tl.TextXAlignment = Enum.TextXAlignment.Left
+    tl.TextTruncate = Enum.TextTruncate.AtEnd
+    tl.ZIndex = 204
+    tl.Parent = card
+    regBg(tl, "TextColor3", "text")
+
+    local ml = Instance.new("TextLabel")
+    ml.Size = UDim2.new(1, -66, 0, 22)
+    ml.Position = UDim2.fromOffset(56, 28)
+    ml.BackgroundTransparency = 1
+    ml.Text = message
+    ml.TextColor3 = COL.sub
+    ml.Font = Enum.Font.GothamMedium
+    ml.TextSize = 11
+    ml.TextXAlignment = Enum.TextXAlignment.Left
+    ml.TextYAlignment = Enum.TextYAlignment.Top
+    ml.TextWrapped = true
+    ml.TextTruncate = Enum.TextTruncate.AtEnd
+    ml.ZIndex = 204
+    ml.Parent = card
+    regBg(ml, "TextColor3", "sub")
+
+    local progTrack = Instance.new("Frame")
+    progTrack.Size = UDim2.new(1, -20, 0, 3)
+    progTrack.Position = UDim2.new(0, 10, 1, -8)
+    progTrack.BackgroundColor3 = COL.track
+    progTrack.BackgroundTransparency = 0.5
+    progTrack.BorderSizePixel = 0
+    progTrack.ZIndex = 204
+    progTrack.Parent = card
+    regBg(progTrack, "BackgroundColor3", "track")
+
+    local ptc = Instance.new("UICorner")
+    ptc.CornerRadius = UDim.new(1, 0); ptc.Parent = progTrack
+
+    local progFill = Instance.new("Frame")
+    progFill.Size = UDim2.fromScale(1, 1)
+    progFill.BackgroundColor3 = color
+    progFill.BorderSizePixel = 0
+    progFill.ZIndex = 205
+    progFill.Parent = progTrack
+
+    local pfc = Instance.new("UICorner")
+    pfc.CornerRadius = UDim.new(1, 0); pfc.Parent = progFill
+
+    local progTween = TweenService:Create(
+        progFill,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear),
+        { Size = UDim2.fromScale(0, 1) }
+    )
+    progTween:Play()
+
+    local entry = {
+        frame = card,
+        title = title,
+        messageLabel = ml,
+        dismissed = false,
+        progressTween = progTween,
+        progressFill = progFill,
+    }
+    activeByTitle[title] = entry
+    table.insert(notifStack, 1, entry)
+    refreshNotifPositions()
+
+    task.delay(duration, function()
+        if not entry.dismissed then dismissNotif(entry) end
+    end)
+end
+
+--============================================================--
+-- MAIN CARD
+--============================================================--
+local main = Instance.new("Frame")
+main.AnchorPoint = Vector2.new(1, 0)
+main.Position = UDim2.new(1, -20, 0, 20)
+main.Size = UDim2.fromOffset(W_COL, H_COL)
+main.BackgroundColor3 = COL.bg
+main.BackgroundTransparency = 0.02
+main.BorderSizePixel = 0
+main.ClipsDescendants = false
+main.ZIndex = 10
+main.Parent = screen
+regBg(main, "BackgroundColor3", "bg")
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, H_COL / 2); corner.Parent = main
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = COL.stroke; mainStroke.Thickness = 1
+mainStroke.Transparency = 0.25; mainStroke.Parent = main
+regBg(mainStroke, "Color", "stroke")
+
+local mainGrad = Instance.new("UIGradient")
+mainGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, COL.grad1),
+    ColorSequenceKeypoint.new(1, COL.grad2),
+})
+mainGrad.Rotation = 90; mainGrad.Parent = main
+
+local function updateGrad()
+    local src = isDark and DARK or LIGHT
+    mainGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, src.grad1),
+        ColorSequenceKeypoint.new(1, src.grad2),
+    })
+end
+
+--============================================================--
+-- HEADER
+--============================================================--
+local avatarWrap = Instance.new("Frame")
+avatarWrap.Size = UDim2.fromOffset(30, 30)
+avatarWrap.Position = UDim2.fromOffset(10, 10)
+avatarWrap.BackgroundColor3 = Color3.fromRGB(240, 242, 246)
+avatarWrap.BorderSizePixel = 0
+avatarWrap.ZIndex = 12
+avatarWrap.Parent = main
+
+local avCorner = Instance.new("UICorner")
+avCorner.CornerRadius = UDim.new(1, 0); avCorner.Parent = avatarWrap
+
+local avatarImg = Instance.new("ImageLabel")
+avatarImg.Size = UDim2.fromScale(1, 1)
+avatarImg.BackgroundTransparency = 1
+avatarImg.ZIndex = 13
+avatarImg.Parent = avatarWrap
+
+local avImgCorner = Instance.new("UICorner")
+avImgCorner.CornerRadius = UDim.new(1, 0); avImgCorner.Parent = avatarImg
+
+local avStroke = Instance.new("UIStroke")
+avStroke.Color = Color3.fromRGB(255, 255, 255)
+avStroke.Thickness = 2; avStroke.Transparency = 0.15
+avStroke.Parent = avatarWrap
+
+task.spawn(function()
+    local ok, img = pcall(function()
+        return Players:GetUserThumbnailAsync(
+            LP.UserId, Enum.ThumbnailType.HeadShot,
+            Enum.ThumbnailSize.Size150x150)
+    end)
+    if ok and img and img ~= "" then avatarImg.Image = img; return end
+    local ok2, img2 = pcall(function()
+        return Players:GetUserThumbnailAsync(
+            LP.UserId, Enum.ThumbnailType.AvatarBust,
+            Enum.ThumbnailSize.Size150x150)
+    end)
+    if ok2 and img2 and img2 ~= "" then avatarImg.Image = img2 end
+end)
+
+local statusDot = Instance.new("Frame")
+statusDot.Size = UDim2.fromOffset(9, 9)
+statusDot.AnchorPoint = Vector2.new(1, 1)
+statusDot.Position = UDim2.new(1, 1, 1, 1)
+statusDot.BackgroundColor3 = COL.green
+statusDot.BorderSizePixel = 0
+statusDot.Visible = false
+statusDot.ZIndex = 14
+statusDot.Parent = avatarWrap
+
+local dotCorner = Instance.new("UICorner")
+dotCorner.CornerRadius = UDim.new(1, 0); dotCorner.Parent = statusDot
+
+local dotStroke = Instance.new("UIStroke")
+dotStroke.Color = Color3.fromRGB(255, 255, 255)
+dotStroke.Thickness = 2; dotStroke.Parent = statusDot
+
+local fpsWrap = Instance.new("Frame")
+fpsWrap.Size = UDim2.fromOffset(52, 30)
+fpsWrap.Position = UDim2.fromOffset(48, 10)
+fpsWrap.BackgroundTransparency = 1
+fpsWrap.ZIndex = 12
+fpsWrap.Parent = main
+
+local fpsNum = Instance.new("TextLabel")
+fpsNum.Size = UDim2.new(1, 0, 0, 20)
+fpsNum.BackgroundTransparency = 1
+fpsNum.Text = "60"
+fpsNum.TextColor3 = COL.accent
+fpsNum.Font = Enum.Font.GothamBold
+fpsNum.TextSize = 16
+fpsNum.TextXAlignment = Enum.TextXAlignment.Left
+fpsNum.ZIndex = 13
+fpsNum.Parent = fpsWrap
+regAccent(fpsNum, "TextColor3")
+
+local fpsTag = Instance.new("TextLabel")
+fpsTag.Size = UDim2.new(1, 0, 0, 11)
+fpsTag.Position = UDim2.fromOffset(0, 20)
+fpsTag.BackgroundTransparency = 1
+fpsTag.Text = "FPS"
+fpsTag.TextColor3 = COL.sub
+fpsTag.Font = Enum.Font.GothamMedium
+fpsTag.TextSize = 9
+fpsTag.TextXAlignment = Enum.TextXAlignment.Left
+fpsTag.ZIndex = 13
+fpsTag.Parent = fpsWrap
+regBg(fpsTag, "TextColor3", "sub")
+
+do
+    local frames, lastClock, lastFPS = 0, os.clock(), -1
+    RunService.RenderStepped:Connect(function()
+        frames = frames + 1
+        local now = os.clock()
+        local el = now - lastClock
+        if el >= 0.75 then
+            local f = math.floor(frames / el + 0.5)
+            frames, lastClock = 0, now
+            if f ~= lastFPS and fpsNum.Parent then
+                lastFPS = f
+                fpsNum.Text = tostring(f)
+                if f >= 45 then fpsNum.TextColor3 = COL.green
+                elseif f >= 25 then fpsNum.TextColor3 = Color3.fromRGB(255,159,10)
+                else fpsNum.TextColor3 = COL.red end
             end
         end
     end)
 end
 
-local function stopFPSDisplay()
-    fpsDisplayOn = false
-    if fpsDisplayConn then fpsDisplayConn:Disconnect() fpsDisplayConn = nil end
-    destroyFPSDisplay()
-end
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(0, 150, 0, 16)
+title.Position = UDim2.fromOffset(48, 11)
+title.BackgroundTransparency = 1
+title.Text = LP.DisplayName
+title.TextColor3 = COL.text
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.TextTruncate = Enum.TextTruncate.AtEnd
+title.TextTransparency = 1
+title.ZIndex = 12
+title.Parent = main
+regBg(title, "TextColor3", "text")
 
---========================================================================--
--- [10] RETURN HOME BUTTON
---========================================================================--
-local ReturnBtnGui = nil
-local ReturnBtn = nil
-local returnBtnConn = nil
+local subtitle = Instance.new("TextLabel")
+subtitle.Size = UDim2.new(0, 150, 0, 13)
+subtitle.Position = UDim2.fromOffset(48, 27)
+subtitle.BackgroundTransparency = 1
+subtitle.Text = "@" .. LP.Name
+subtitle.TextColor3 = COL.sub
+subtitle.Font = Enum.Font.GothamMedium
+subtitle.TextSize = 10
+subtitle.TextXAlignment = Enum.TextXAlignment.Left
+subtitle.TextTruncate = Enum.TextTruncate.AtEnd
+subtitle.TextTransparency = 1
+subtitle.ZIndex = 12
+subtitle.Parent = main
+regBg(subtitle, "TextColor3", "sub")
 
-local function destroyReturnHomeButton()
-    if returnBtnConn then
-        returnBtnConn:Disconnect()
-        returnBtnConn = nil
-    end
-    if ReturnBtnGui then
-        ReturnBtnGui:Destroy()
-        ReturnBtnGui = nil
-        ReturnBtn = nil
-    end
-end
+--============================================================--
+-- HEADER BUTTONS
+--============================================================--
+local function makeHdrBtn(xoff)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.fromOffset(26, 26)
+    b.AnchorPoint = Vector2.new(1, 0)
+    b.Position = UDim2.new(1, xoff, 0, 12)
+    b.BackgroundColor3 = COL.iconBtn
+    b.BorderSizePixel = 0
+    b.Text = ""
+    b.AutoButtonColor = false
+    b.ZIndex = 40
+    b.Visible = false
+    b.Parent = main
+    regBg(b, "BackgroundColor3", "iconBtn")
 
-local function createReturnHomeButton()
-    if ReturnBtnGui then return end
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0); c.Parent = b
 
-    ReturnBtnGui = Instance.new("ScreenGui")
-    ReturnBtnGui.Name = "HykoReturnHome"
-    ReturnBtnGui.ResetOnSpawn = false
-    ReturnBtnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    mountGui(ReturnBtnGui)
+    local s = Instance.new("UIStroke")
+    s.Color = COL.stroke; s.Thickness = 1; s.Transparency = 0.25
+    s.Parent = b
+    regBg(s, "Color", "stroke")
 
-    local wrap = Instance.new("Frame")
-    wrap.Name = "HykoReturnWrap"
-    wrap.Size = UDim2.fromOffset(180, 52)
-    wrap.Position = UDim2.new(0.5, -90, 0, 24)
-    wrap.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    wrap.BackgroundTransparency = 0.05
-    wrap.BorderSizePixel = 0
-    wrap.ZIndex = 5
-    wrap.Active = true
-    wrap.Parent = ReturnBtnGui
-
-    local wc = Instance.new("UICorner")
-    wc.CornerRadius = UDim.new(0, 14)
-    wc.Parent = wrap
-
-    local ws = Instance.new("UIStroke")
-    ws.Color = Color3.fromRGB(232, 234, 238)
-    ws.Thickness = 1
-    ws.Parent = wrap
-
-    applyWhiteGlow(wrap, 14, 3, 1)
-
-    local iconWrap = Instance.new("Frame")
-    iconWrap.Size = UDim2.fromOffset(34, 34)
-    iconWrap.Position = UDim2.new(0, 12, 0.5, -17)
-    iconWrap.BackgroundColor3 = Color3.fromRGB(70, 130, 230)
-    iconWrap.BorderSizePixel = 0
-    iconWrap.ZIndex = 6
-    iconWrap.Parent = wrap
-    local ic = Instance.new("UICorner")
-    ic.CornerRadius = UDim.new(1, 0)
-    ic.Parent = iconWrap
-
-    local iconText = Instance.new("TextLabel")
-    iconText.Size = UDim2.new(1, 0, 1, 0)
-    iconText.BackgroundTransparency = 1
-    iconText.Text = "H"
-    iconText.TextColor3 = Color3.fromRGB(255, 255, 255)
-    iconText.Font = Enum.Font.GothamBold
-    iconText.TextSize = 18
-    iconText.ZIndex = 7
-    iconText.Parent = iconWrap
-
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -60, 0, 18)
-    title.Position = UDim2.fromOffset(56, 9)
-    title.BackgroundTransparency = 1
-    title.Text = "Return Home"
-    title.TextColor3 = Color3.fromRGB(28, 30, 36)
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 14
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.ZIndex = 6
-    title.Parent = wrap
-
-    local subtitle = Instance.new("TextLabel")
-    subtitle.Size = UDim2.new(1, -60, 0, 14)
-    subtitle.Position = UDim2.fromOffset(56, 27)
-    subtitle.BackgroundTransparency = 1
-    subtitle.Text = "Tap to teleport"
-    subtitle.TextColor3 = Color3.fromRGB(150, 154, 160)
-    subtitle.Font = Enum.Font.GothamMedium
-    subtitle.TextSize = 10
-    subtitle.TextXAlignment = Enum.TextXAlignment.Left
-    subtitle.ZIndex = 6
-    subtitle.Parent = wrap
-
-    local chev = Instance.new("TextLabel")
-    chev.Size = UDim2.fromOffset(20, 20)
-    chev.Position = UDim2.new(1, -28, 0.5, -10)
-    chev.BackgroundTransparency = 1
-    chev.Text = ">"
-    chev.TextColor3 = Color3.fromRGB(180, 184, 190)
-    chev.Font = Enum.Font.GothamBold
-    chev.TextSize = 18
-    chev.ZIndex = 6
-    chev.Parent = wrap
-
-    local clickButton = Instance.new("TextButton")
-    clickButton.Name = "ClickArea"
-    clickButton.Size = UDim2.fromScale(1, 1)
-    clickButton.Position = UDim2.fromScale(0, 0)
-    clickButton.BackgroundTransparency = 1
-    clickButton.BorderSizePixel = 0
-    clickButton.Text = ""
-    clickButton.AutoButtonColor = false
-    clickButton.ZIndex = 10
-    clickButton.Parent = wrap
-
-    ReturnBtn = wrap
-    returnBtnConn = clickButton.Activated:Connect(function()
-        beginReturnHome()
+    b.MouseEnter:Connect(function()
+        local src = isDark and DARK or LIGHT
+        TweenService:Create(b, EASE.quick, { BackgroundColor3 = src.iconHov }):Play()
     end)
+    b.MouseLeave:Connect(function()
+        local src = isDark and DARK or LIGHT
+        TweenService:Create(b, EASE.quick, { BackgroundColor3 = src.iconBtn }):Play()
+    end)
+    return b
+end
+
+local setBtn = makeHdrBtn(-42)
+local setIcon = Instance.new("ImageLabel")
+setIcon.Size = UDim2.fromOffset(14, 14)
+setIcon.Position = UDim2.fromOffset(6, 6)
+setIcon.BackgroundTransparency = 1
+setIcon.Image = ICONS.gear
+setIcon.ImageColor3 = COL.text
+setIcon.ZIndex = 41
+setIcon.Parent = setBtn
+regBg(setIcon, "ImageColor3", "text")
+
+local minBtn = makeHdrBtn(-10)
+minBtn.Text = "−"
+minBtn.TextColor3 = COL.text
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 18
+regBg(minBtn, "TextColor3", "text")
+
+--============================================================--
+-- BODY
+--============================================================--
+local body = Instance.new("CanvasGroup")
+body.Size = UDim2.new(1, -24, 1, -72)
+body.Position = UDim2.fromOffset(12, 56)
+body.BackgroundTransparency = 1
+body.GroupTransparency = 1
+body.ZIndex = 11
+body.Parent = main
+
+local pageMain = Instance.new("CanvasGroup")
+pageMain.Size = UDim2.fromScale(1, 1)
+pageMain.BackgroundTransparency = 1
+pageMain.GroupTransparency = 0
+pageMain.ZIndex = 11
+pageMain.Parent = body
+
+local pageSettings = Instance.new("CanvasGroup")
+pageSettings.Size = UDim2.fromScale(1, 1)
+pageSettings.BackgroundTransparency = 1
+pageSettings.GroupTransparency = 1
+pageSettings.Visible = false
+pageSettings.ZIndex = 11
+pageSettings.Parent = body
+
+--============================================================--
+-- BUILDERS
+--============================================================--
+local function sectionLabel(parent, y, txt)
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(1, 0, 0, 12)
+    l.Position = UDim2.fromOffset(4, y)
+    l.BackgroundTransparency = 1
+    l.Text = txt
+    l.TextColor3 = COL.sub
+    l.Font = Enum.Font.GothamBold
+    l.TextSize = 9
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.ZIndex = 12
+    l.Parent = parent
+    regBg(l, "TextColor3", "sub")
+    return l
+end
+
+local function makeSwitch(parent, xOff, y)
+    local track = Instance.new("Frame")
+    track.Size = UDim2.fromOffset(44, 26)
+    track.AnchorPoint = Vector2.new(1, 0)
+    track.Position = UDim2.new(1, xOff, 0, y)
+    track.BackgroundColor3 = COL.track
+    track.BorderSizePixel = 0
+    track.ZIndex = 14
+    track.Parent = parent
+    regBg(track, "BackgroundColor3", "track")
+
+    local tc = Instance.new("UICorner")
+    tc.CornerRadius = UDim.new(1, 0); tc.Parent = track
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(22, 22)
+    knob.Position = UDim2.fromOffset(2, 2)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 15
+    knob.Parent = track
+
+    local kc = Instance.new("UICorner")
+    kc.CornerRadius = UDim.new(1, 0); kc.Parent = knob
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromScale(1, 1)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.ZIndex = 16
+    btn.Parent = track
+
+    local state = false
+    local function apply(anim)
+        local bg  = state and COL.green or COL.track
+        local pos = state and UDim2.new(1, -24, 0, 2) or UDim2.fromOffset(2, 2)
+        if anim then
+            TweenService:Create(track, EASE.quick, { BackgroundColor3 = bg }):Play()
+            TweenService:Create(knob, EASE.quick, { Position = pos }):Play()
+        else
+            track.BackgroundColor3 = bg; knob.Position = pos
+        end
+    end
+    apply(false)
+
+    return {
+        button = btn,
+        setState = function(v, a) state = v apply(a) end,
+        getState = function() return state end,
+    }
+end
+
+local function makeSlider(parent, y, min, max, default, onChange)
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, 0, 0, 6)
+    track.Position = UDim2.fromOffset(0, y)
+    track.BackgroundColor3 = COL.track
+    track.BorderSizePixel = 0
+    track.ZIndex = 13
+    track.Parent = parent
+    regBg(track, "BackgroundColor3", "track")
+
+    local tc = Instance.new("UICorner")
+    tc.CornerRadius = UDim.new(1, 0); tc.Parent = track
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = COL.accent
+    fill.BorderSizePixel = 0
+    fill.ZIndex = 14
+    fill.Parent = track
+    regAccent(fill, "BackgroundColor3")
+
+    local fc = Instance.new("UICorner")
+    fc.CornerRadius = UDim.new(1, 0); fc.Parent = fill
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(20, 20)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.new(0, 0, 0.5, 0)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 15
+    knob.Parent = track
+
+    local kc = Instance.new("UICorner")
+    kc.CornerRadius = UDim.new(1, 0); kc.Parent = knob
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 26, 3, 0)
+    btn.AnchorPoint = Vector2.new(0.5, 0.5)
+    btn.Position = UDim2.new(0.5, 0, 0.5, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.ZIndex = 16
+    btn.Parent = track
+
+    local value = default
+    local function apply(v)
+        local t = math.clamp((v - min) / (max - min), 0, 1)
+        fill.Size = UDim2.new(t, 0, 1, 0)
+        knob.Position = UDim2.new(t, 0, 0.5, 0)
+    end
+    apply(value)
 
     local dragging = false
-    local dragStart, startPos
-    clickButton.InputBegan:Connect(function(input)
+    local function update(absX)
+        local sx = track.AbsolutePosition.X
+        local w = track.AbsoluteSize.X
+        if w <= 0 then return end
+        local t = math.clamp((absX - sx) / w, 0, 1)
+        value = math.floor(min + t * (max - min) + 0.5)
+        apply(value)
+        if onChange then onChange(value) end
+    end
+
+    btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            dragStart = input.Position
-            startPos = wrap.Position
+            TweenService:Create(knob, EASE.quick, { Size = UDim2.fromOffset(24, 24) }):Play()
+            update(input.Position.X)
         end
     end)
-    clickButton.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            wrap.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+    btn.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            update(input.Position.X)
         end
     end)
-    clickButton.InputEnded:Connect(function(input)
+    btn.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
+            TweenService:Create(knob, EASE.quick, { Size = UDim2.fromOffset(20, 20) }):Play()
         end
     end)
 
-    wrap.Position = UDim2.new(0.5, -90, 0, -60)
-    TweenService:Create(wrap, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-        Position = UDim2.new(0.5, -90, 0, 24)
-    }):Play()
+    return { set = function(v) value = v apply(v) end, get = function() return value end }
 end
 
---========================================================================--
--- [11] RETURN HOME LOGIC
---========================================================================--
-local homeStatusPara = nil
-local homeCFrame = nil
+local function featureRow(parent, y, iconAsset, titleTxt, subTxt)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 54)
+    row.Position = UDim2.fromOffset(0, y)
+    row.BackgroundTransparency = 1
+    row.ZIndex = 12
+    row.Parent = parent
 
-local function updateHomeStatus()
-    if not homeStatusPara then return end
-    pcall(function()
-        if homePos then
-            homeStatusPara:SetDesc(string.format("X: %.1f  Y: %.1f  Z: %.1f",
-                homePos.X, homePos.Y, homePos.Z))
-        else
-            homeStatusPara:SetDesc("Not set")
+    local tile = Instance.new("Frame")
+    tile.Size = UDim2.fromOffset(32, 32)
+    tile.Position = UDim2.fromOffset(2, 11)
+    tile.BackgroundColor3 = COL.accent
+    tile.BorderSizePixel = 0
+    tile.ZIndex = 13
+    tile.Parent = row
+    regAccent(tile, "BackgroundColor3")
+
+    local tcorner = Instance.new("UICorner")
+    tcorner.CornerRadius = UDim.new(0, 10); tcorner.Parent = tile
+
+    local img = Instance.new("ImageLabel")
+    img.Size = UDim2.fromOffset(18, 18)
+    img.Position = UDim2.fromOffset(7, 7)
+    img.BackgroundTransparency = 1
+    img.Image = iconAsset
+    img.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    img.ZIndex = 15
+    img.Parent = tile
+
+    local t = Instance.new("TextLabel")
+    t.Size = UDim2.new(1, -120, 0, 15)
+    t.Position = UDim2.fromOffset(42, 10)
+    t.BackgroundTransparency = 1
+    t.Text = titleTxt
+    t.TextColor3 = COL.text
+    t.Font = Enum.Font.GothamBold
+    t.TextSize = 12
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.ZIndex = 13
+    t.Parent = row
+    regBg(t, "TextColor3", "text")
+
+    local st = Instance.new("TextLabel")
+    st.Size = UDim2.new(1, -120, 0, 12)
+    st.Position = UDim2.fromOffset(42, 28)
+    st.BackgroundTransparency = 1
+    st.Text = subTxt
+    st.TextColor3 = COL.sub
+    st.Font = Enum.Font.GothamMedium
+    st.TextSize = 9
+    st.TextXAlignment = Enum.TextXAlignment.Left
+    st.ZIndex = 13
+    st.Parent = row
+    regBg(st, "TextColor3", "sub")
+
+    return row
+end
+
+--============================================================--
+-- PAGE 1 : MAIN
+--============================================================--
+sectionLabel(pageMain, 0, "FEATURES")
+
+featureRow(pageMain, 16, ICONS.loot, "Fast Loot", "Auto-collect · Key E")
+local lootSwitch = makeSwitch(pageMain, -4, 30)
+
+featureRow(pageMain, 78, ICONS.shield, "Anti-Ragdoll",
+    "Stable movement · recovery on reset")
+local antiSwitch = makeSwitch(pageMain, -4, 92)
+
+featureRow(pageMain, 140, ICONS.users, "Player ESP",
+    "Outline players · boxed names")
+local espSwitch = makeSwitch(pageMain, -4, 154)
+
+sectionLabel(pageMain, 210, "MOVEMENT")
+
+local sliderValue = Instance.new("TextLabel")
+sliderValue.Size = UDim2.new(0, 52, 0, 20)
+sliderValue.Position = UDim2.new(1, -52, 0, 226)
+sliderValue.BackgroundColor3 = COL.accent
+sliderValue.BackgroundTransparency = 0.88
+sliderValue.Text = tostring(antiSpeed)
+sliderValue.TextColor3 = COL.accent
+sliderValue.Font = Enum.Font.GothamBold
+sliderValue.TextSize = 11
+sliderValue.ZIndex = 13
+sliderValue.Parent = pageMain
+regAccent(sliderValue, "TextColor3")
+
+local svCorner = Instance.new("UICorner")
+svCorner.CornerRadius = UDim.new(0, 7); svCorner.Parent = sliderValue
+
+local sliderHost = Instance.new("Frame")
+sliderHost.Size = UDim2.new(1, 0, 0, 6)
+sliderHost.Position = UDim2.fromOffset(0, 256)
+sliderHost.BackgroundTransparency = 1
+sliderHost.ZIndex = 13
+sliderHost.Parent = pageMain
+
+local speedSlider = makeSlider(sliderHost, 0, 20, 800, antiSpeed, function(v)
+    antiSpeed = v
+    sliderValue.Text = tostring(v)
+end)
+
+--============================================================--
+-- PAGE 2 : SETTINGS
+--============================================================--
+sectionLabel(pageSettings, 0, "ACCENT COLOR")
+
+local swatchRow = Instance.new("Frame")
+swatchRow.Size = UDim2.new(1, 0, 0, 26)
+swatchRow.Position = UDim2.fromOffset(0, 18)
+swatchRow.BackgroundTransparency = 1
+swatchRow.ZIndex = 12
+swatchRow.Parent = pageSettings
+
+local swatchStrokes = {}
+for i, th in ipairs(THEMES) do
+    local sw = Instance.new("TextButton")
+    sw.Size = UDim2.fromOffset(26, 26)
+    sw.Position = UDim2.fromOffset((i - 1) * 33, 0)
+    sw.BackgroundColor3 = th.Accent
+    sw.BorderSizePixel = 0
+    sw.Text = ""
+    sw.AutoButtonColor = false
+    sw.ZIndex = 13
+    sw.Parent = swatchRow
+
+    local sc = Instance.new("UICorner")
+    sc.CornerRadius = UDim.new(1, 0); sc.Parent = sw
+
+    local ss = Instance.new("UIStroke")
+    ss.Color = Color3.fromRGB(255, 255, 255)
+    ss.Thickness = 2
+    ss.Transparency = (i == 1) and 0 or 0.75
+    ss.Parent = sw
+    swatchStrokes[i] = ss
+
+    sw.MouseButton1Click:Connect(function()
+        applyTheme(th)
+        for j, st in ipairs(swatchStrokes) do
+            st.Transparency = (j == i) and 0 or 0.75
         end
-    end)
-end
-
-local function notify(title, content, icon)
-    pcall(function()
-        WindUI:Notify({
-            Title = title,
-            Content = content,
-            Icon = icon or "info",
-            Duration = 3,
+        pushNotif({
+            title = "Accent Color",
+            message = "Switched to " .. th.Name,
+            color = th.Accent,
+            icon = ICONS.sparkle,
         })
     end)
 end
 
-local function setHome()
-    local c = LP.Character
-    local hrp = c and c:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        notify("Hyko by Huy", "Character not found", "alert-triangle")
-        return
-    end
-    homeCFrame = hrp.CFrame
-    homePos = homeCFrame.Position
-    updateHomeStatus()
-    notify("Hyko by Huy", string.format("Home set at %.1f, %.1f, %.1f",
-        homePos.X, homePos.Y, homePos.Z), "check-circle")
+local div1 = Instance.new("Frame")
+div1.Size = UDim2.new(1, 0, 0, 1)
+div1.Position = UDim2.fromOffset(0, 56)
+div1.BackgroundColor3 = COL.divider
+div1.BorderSizePixel = 0
+div1.ZIndex = 12
+div1.Parent = pageSettings
+regBg(div1, "BackgroundColor3", "divider")
+
+sectionLabel(pageSettings, 66, "BACKGROUND")
+
+local segWrap = Instance.new("Frame")
+segWrap.Size = UDim2.new(1, 0, 0, 34)
+segWrap.Position = UDim2.fromOffset(0, 84)
+segWrap.BackgroundColor3 = COL.track
+segWrap.BorderSizePixel = 0
+segWrap.ZIndex = 12
+segWrap.Parent = pageSettings
+regBg(segWrap, "BackgroundColor3", "track")
+
+local segCorner = Instance.new("UICorner")
+segCorner.CornerRadius = UDim.new(0, 10); segCorner.Parent = segWrap
+
+local segInd = Instance.new("Frame")
+segInd.Size = UDim2.new(0.5, -3, 1, -6)
+segInd.Position = UDim2.fromOffset(3, 3)
+segInd.BackgroundColor3 = COL.bg
+segInd.BorderSizePixel = 0
+segInd.ZIndex = 13
+segInd.Parent = segWrap
+regBg(segInd, "BackgroundColor3", "bg")
+
+local segIndCorner = Instance.new("UICorner")
+segIndCorner.CornerRadius = UDim.new(0, 8); segIndCorner.Parent = segInd
+
+local segLightBtn = Instance.new("TextButton")
+segLightBtn.Size = UDim2.new(0.5, 0, 1, 0)
+segLightBtn.BackgroundTransparency = 1
+segLightBtn.Text = "Light"
+segLightBtn.TextColor3 = COL.text
+segLightBtn.Font = Enum.Font.GothamBold
+segLightBtn.TextSize = 11
+segLightBtn.AutoButtonColor = false
+segLightBtn.ZIndex = 14
+segLightBtn.Parent = segWrap
+regBg(segLightBtn, "TextColor3", "text")
+
+local segDarkBtn = Instance.new("TextButton")
+segDarkBtn.Size = UDim2.new(0.5, 0, 1, 0)
+segDarkBtn.Position = UDim2.new(0.5, 0, 0, 0)
+segDarkBtn.BackgroundTransparency = 1
+segDarkBtn.Text = "Dark"
+segDarkBtn.TextColor3 = COL.sub
+segDarkBtn.Font = Enum.Font.GothamBold
+segDarkBtn.TextSize = 11
+segDarkBtn.AutoButtonColor = false
+segDarkBtn.ZIndex = 14
+segDarkBtn.Parent = segWrap
+regBg(segDarkBtn, "TextColor3", "sub")
+
+local function setSegment(dark)
+    local target = dark and UDim2.new(0.5, 1, 0, 3) or UDim2.fromOffset(3, 3)
+    TweenService:Create(segInd, EASE.seg, { Position = target }):Play()
+    local src = dark and DARK or LIGHT
+    TweenService:Create(segLightBtn, EASE.seg,
+        { TextColor3 = dark and src.sub or src.text }):Play()
+    TweenService:Create(segDarkBtn, EASE.seg,
+        { TextColor3 = dark and src.text or src.sub }):Play()
 end
 
-local function clearHome()
-    homePos = nil
-    homeCFrame = nil
-    returningHome = false
-    stopHomeLoop()
-    updateHomeStatus()
-    notify("Hyko by Huy", "Home cleared", "check-circle")
+segLightBtn.MouseButton1Click:Connect(function()
+    if not isDark then return end
+    setDark(false); setSegment(false); updateGrad()
+    pushNotif({
+        title = "Background",
+        message = "Light mode enabled",
+        color = Color3.fromRGB(255, 255, 255),
+        icon = ICONS.sparkle,
+    })
+end)
+segDarkBtn.MouseButton1Click:Connect(function()
+    if isDark then return end
+    setDark(true); setSegment(true); updateGrad()
+    pushNotif({
+        title = "Background",
+        message = "Dark mode enabled",
+        color = Color3.fromRGB(30, 30, 34),
+        icon = ICONS.sparkle,
+    })
+end)
+
+local div2 = Instance.new("Frame")
+div2.Size = UDim2.new(1, 0, 0, 1)
+div2.Position = UDim2.fromOffset(0, 128)
+div2.BackgroundColor3 = COL.divider
+div2.BorderSizePixel = 0
+div2.ZIndex = 12
+div2.Parent = pageSettings
+regBg(div2, "BackgroundColor3", "divider")
+
+featureRow(pageSettings, 138, ICONS.sparkle, "FPS Boost Ultra", "Reduce graphics")
+local fpsSwitch = makeSwitch(pageSettings, -4, 152)
+
+local function actionBtn(parent, y, txt, iconAsset)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, 0, 0, 36)
+    b.Position = UDim2.fromOffset(0, y)
+    b.BackgroundColor3 = COL.btnBg
+    b.BorderSizePixel = 0
+    b.Text = ""
+    b.AutoButtonColor = false
+    b.ZIndex = 13
+    b.Parent = parent
+    regBg(b, "BackgroundColor3", "btnBg")
+
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 11); c.Parent = b
+
+    local s = Instance.new("UIStroke")
+    s.Color = COL.stroke; s.Thickness = 1; s.Transparency = 0.4
+    s.Parent = b
+    regBg(s, "Color", "stroke")
+
+    local icon = Instance.new("ImageLabel")
+    icon.Size = UDim2.fromOffset(14, 14)
+    icon.Position = UDim2.fromOffset(12, 11)
+    icon.BackgroundTransparency = 1
+    icon.Image = iconAsset
+    icon.ImageColor3 = COL.accent
+    icon.ZIndex = 14
+    icon.Parent = b
+    regAccent(icon, "ImageColor3")
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -40, 1, 0)
+    lbl.Position = UDim2.fromOffset(34, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = txt
+    lbl.TextColor3 = COL.text
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 14
+    lbl.Parent = b
+    regBg(lbl, "TextColor3", "text")
+
+    return b
 end
 
-local function stopHomeLoop()
-    if homeConn then
-        homeConn:Disconnect()
-        homeConn = nil
-    end
+local purgeBtn = actionBtn(pageSettings, 204, "Purge World Effects", ICONS.sparkle)
+purgeBtn.MouseButton1Click:Connect(function()
+    task.spawn(function() pcall(scanFX) end)
+    pushNotif({
+        title = "Effects Cleared",
+        message = "World effects purged",
+        color = COL.accent,
+        icon = ICONS.sparkle,
+    })
+end)
+
+local ramBtn = actionBtn(pageSettings, 246, "Free Memory", ICONS.info)
+ramBtn.MouseButton1Click:Connect(function()
+    freeRAM()
+    pushNotif({
+        title = "Memory",
+        message = "Garbage collected",
+        color = COL.green,
+        icon = ICONS.info,
+    })
+end)
+
+--============================================================--
+-- STATE
+--============================================================--
+local function updateDot()
+    statusDot.Visible = antiOn or lootOn or boostOn
 end
 
-local function beginReturnHome()
-    if not homeCFrame then
-        notify("Hyko by Huy", "No home position set", "alert-triangle")
-        return
-    end
-    if returningHome then
-        notify("Hyko by Huy", "Already returning home", "info")
-        return
-    end
+lootSwitch.button.Activated:Connect(function()
+    local s = not lootOn
+    lootSwitch.setState(s, true); lootOn = s
+    if s then enableLoot() else disableLoot() end
+    updateDot()
+    pushNotif({
+        title = "Fast Loot",
+        message = s and "Enabled · press E to grab" or "Disabled",
+        color = s and COL.green or COL.sub,
+        icon = ICONS.loot,
+    })
+end)
 
-    local c = LP.Character
-    local hrp = c and c:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        notify("Hyko by Huy", "Character not found", "alert-triangle")
-        return
-    end
-
-    returningHome = true
-    stopHomeLoop()
-
-    local ok = pcall(function()
-        c:PivotTo(homeCFrame)
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end)
-
-    returningHome = false
-    if ok then
-        notify("Hyko by Huy", "Arrived at home", "check-circle")
+espSwitch.button.Activated:Connect(function()
+    local state = not espOn
+    espSwitch.setState(state, true)
+    if state then
+        enableESP()
+        pushNotif({
+            title = "Player ESP",
+            message = "Outlines and boxed names enabled",
+            color = COL.accent,
+            icon = ICONS.users,
+            duration = 2.2,
+        })
     else
-        notify("Hyko by Huy", "Return Home failed", "alert-triangle")
+        disableESP()
+        pushNotif({
+            title = "Player ESP",
+            message = "Outlines and boxed names disabled",
+            color = COL.sub,
+            icon = ICONS.users,
+            duration = 2.0,
+        })
     end
-end
+end)
 
-local function cancelReturnHome()
-    returningHome = false
-    stopHomeLoop()
-    local c = LP.Character
-    local hrp = c and c:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end
-    notify("Hyko by Huy", "Return Home stopped", "stop-circle")
-end
+antiSwitch.button.Activated:Connect(function()
+    local s = not antiOn
+    antiSwitch.setState(s, true); antiOn = s
+    if s then startAnti() else stopAnti() end
+    updateDot()
+    pushNotif({
+        title = "Anti-Ragdoll",
+        message = s and "Hard lock engaged" or "Disabled · body restored",
+        color = s and COL.green or COL.sub,
+        icon = ICONS.shield,
+    })
+end)
 
---========================================================================--
--- [12] SERVER HOP
---========================================================================--
-local hopThreshold   = 1
-local autoHopOn      = false
-local autoHopThread  = nil
-
-local function fetchServers()
-    local url = "https://games.roblox.com/v1/games/" .. PlaceId
-        .. "/servers/Public?sortOrder=Asc&limit=100"
-    local ok, raw = pcall(function() return game:HttpGet(url) end)
-    if not ok or not raw or raw == "" then return nil end
-    local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
-    if not ok2 or not data or not data.data then return nil end
-    return data.data
-end
-
-local function getRandomServerId()
-    local data = fetchServers()
-    if not data or #data == 0 then return nil end
-    local currentId = tostring(game.JobId)
-    local candidates = {}
-    for _, s in ipairs(data) do
-        if s.id and tostring(s.id) ~= currentId then
-            table.insert(candidates, tostring(s.id))
-        end
-    end
-    if #candidates == 0 then return nil end
-    return candidates[math.random(1, #candidates)]
-end
-
-local function teleportToServer(serverId)
-    if not serverId then return false, "No server id" end
-    local ok, err = pcall(function()
-        TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
-    end)
-    return ok, err
-end
-
-local function hopOnce()
-    local currentCount = #Players:GetPlayers()
-    if currentCount <= hopThreshold then
-        notify("Hyko Server Hop",
-            "Current server meets condition (" .. currentCount .. " players)", "info")
-        return false
-    end
-    notify("Hyko Server Hop", "Searching for a new server...", "search")
-    local serverId = getRandomServerId()
-    if not serverId then
-        notify("Hyko Server Hop", "Failed to fetch server list", "alert-triangle")
-        return false
-    end
-    local ok, err = teleportToServer(serverId)
-    if not ok then
-        notify("Hyko Server Hop", "Error: " .. tostring(err):sub(1, 60), "alert-triangle")
-        return false
-    end
-    return true
-end
-
---========================================================================--
--- [13] WHITE THEME
---========================================================================--
-print("[Hyko] Step 4: adding white theme")
-
-WindUI:AddTheme({
-    Name = "Hyko White",
-    Accent = Color3.fromHex("#3B82F6"),
-    Background = Color3.fromHex("#FFFFFF"),
-    Outline = Color3.fromHex("#E5E7EB"),
-    Text = Color3.fromHex("#1F2937"),
-    Placeholder = Color3.fromHex("#9CA3AF"),
-    Button = Color3.fromHex("#F3F4F6"),
-    Icon = Color3.fromHex("#6B7280"),
-    Dialog = Color3.fromHex("#F9FAFB"),
-})
-
---========================================================================--
--- [14] WINDUI WINDOW
---========================================================================--
-print("[Hyko] Step 5: creating WindUI window")
-
-print("[Hyko] Step 5: creating WindUI window v1.666")
-
-local ICON_ID = 133251082112509
-local BACKGROUND_ID = 16149300225
-
-local Window = WindUI:CreateWindow({
-    Title = "Hyko by Huy",
-    Author = "by Huy",
-    Icon = "rbxassetid://" .. tostring(ICON_ID),
-    Background = "rbxassetid://" .. tostring(BACKGROUND_ID),
-    BackgroundImageTransparency = 0.12,
-    Theme = "Hyko White",
-    Folder = "HykoConfig",
-    Size = UDim2.fromOffset(620, 480),
-    MinSize = Vector2.new(560, 350),
-    MaxSize = Vector2.new(850, 560),
-    ToggleKey = Enum.KeyCode.RightShift,
-    Transparent = true,
-    Resizable = true,
-    SideBarWidth = 200,
-    HideSearchBar = false,
-    ScrollBarEnabled = true,
-
-    User = {
-        Enabled = true,
-        Anonymous = false,
-        Callback = function()
-            WindUI:Notify({
-                Title = "Hyko by Huy",
-                Content = "Hello " .. game.Players.LocalPlayer.DisplayName .. "!",
-                Icon = "user",
-                Duration = 3,
+fpsSwitch.button.Activated:Connect(function()
+    local s = not boostOn
+    fpsSwitch.setState(s, true)
+    if s then
+        local ok = pcall(enableBoost)
+        if not ok then
+            fpsSwitch.setState(false, true)
+            pushNotif({
+                title = "FPS Boost",
+                message = "Failed to enable",
+                color = COL.red,
+                icon = ICONS.sparkle,
             })
-        end,
-    },
-
-    KeySystem = {
-        Note = "Enter the key to continue (key: OP)",
-        SaveKey = false,
-        Key = { "OP" },
-    },
-})
-
-
--- ULTIMATE FIX 1.666 - Ép background + icon win bằng ImageLabel trực tiếp, không qua API WindUI
-task.spawn(function()
-    task.wait(1.2)
-    local ICON_ID = 133251082112509
-    local BG_ID = 6675147490 -- dùng ID public mới tìm, ông đổi lại 16149300225 nếu muốn
-    
-    local function getAllGuis()
-        local list = {}
-        pcall(function() if gethui then for _,v in ipairs(gethui():GetChildren()) do table.insert(list, v) end end end)
-        pcall(function() for _,v in ipairs(game.CoreGui:GetChildren()) do table.insert(list, v) end end)
-        pcall(function() local pg = game.Players.LocalPlayer:FindFirstChildOfClass("PlayerGui") if pg then for _,v in ipairs(pg:GetChildren()) do table.insert(list, v) end end end)
-        return list
-    end
-    
-    local guis = getAllGuis()
-    local mainFrame = nil
-    local biggest = 0
-    local windGui = nil
-    
-    for _, gui in ipairs(guis) do
-        if gui:IsA("ScreenGui") then
-            for _, d in ipairs(gui:GetDescendants()) do
-                if d:IsA("Frame") and d.AbsoluteSize.X >= 500 and d.AbsoluteSize.X <= 900 and d.AbsoluteSize.Y >= 350 and d.AbsoluteSize.Y <= 600 then
-                    -- Frame chính của WindUI thường có UICorner và không có Text
-                    local area = d.AbsoluteSize.X * d.AbsoluteSize.Y
-                    if area > biggest then
-                        biggest = area
-                        mainFrame = d
-                        windGui = gui
-                    end
-                end
-            end
+            return
         end
+    else
+        pcall(disableBoost)
     end
-    
-    if not mainFrame then
-        warn("[Hyko] Ultimate: không tìm thấy mainFrame")
-        return
-    end
-    
-    print("[Hyko] Ultimate: mainFrame", mainFrame:GetFullName(), mainFrame.AbsoluteSize, "in", windGui.Name)
-    
-    -- Xóa BG cũ
-    for _, c in ipairs(mainFrame:GetChildren()) do
-        if c.Name:find("Hyko") then c:Destroy() end
-    end
-    
-    -- Tạo nền mới
-    local bg = Instance.new("ImageLabel")
-    bg.Name = "Hyko_BG_Ultimate"
-    bg.Image = "rbxassetid://"..tostring(BG_ID)
-    bg.BackgroundTransparency = 1
-    bg.ImageTransparency = 0.12
-    bg.ScaleType = Enum.ScaleType.Crop
-    bg.Size = UDim2.new(1, 0, 1, 0)
-    bg.Position = UDim2.new(0, 0, 0, 0)
-    bg.ZIndex = 1
-    bg.Parent = mainFrame
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 12)
-    corner.Parent = bg
-    
-    -- Đưa bg xuống đáy
-    bg.Parent = mainFrame
-    -- Đảm bảo mainFrame clip
-    mainFrame.ClipsDescendants = true
-    
-    -- Ép icon win - tìm ImageLabel ở top-left
-    local iconSet = 0
-    for _, d in ipairs(windGui:GetDescendants()) do
-        if d:IsA("ImageLabel") and d.AbsoluteSize.X >= 16 and d.AbsoluteSize.X <= 36 then
-            if d.AbsolutePosition.Y < 150 and d.AbsolutePosition.X < 400 then
-                -- Check nếu gần title
-                if d.Parent and d.Parent:IsA("Frame") then
-                    local ok = pcall(function()
-                        if d.Image ~= "" then
-                            d.Image = "rbxassetid://"..tostring(ICON_ID)
-                            d.ImageTransparency = 0
-                            d.BackgroundTransparency = 1
-                            iconSet = iconSet + 1
-                            print("[Hyko] Icon set:", d:GetFullName())
-                        end
-                    end)
-                end
-            end
-        end
-    end
-    print("[Hyko] Ultimate done, icons set:", iconSet)
+    updateDot()
+    pushNotif({
+        title = "FPS Boost Ultra",
+        message = s and "Graphics reduced · 240 cap" or "Disabled · restored",
+        color = s and COL.green or COL.sub,
+        icon = ICONS.sparkle,
+    })
 end)
 
+--============================================================--
+-- PAGE SWAP
+--============================================================--
+local showingSettings = false
+local pageBusy = false
 
---========================================================================--
--- [15] TABS
---========================================================================--
-local MainTab   = Window:Tab({ Title = "Main",   Icon = "layout-dashboard" })
-local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
-local HopTab    = Window:Tab({ Title = "Server Hop", Icon = "server" })
-local ThemeTab  = Window:Tab({ Title = "Theme",  Icon = "palette" })
-local ConfigTab = Window:Tab({ Title = "Config", Icon = "settings" })
+local function swapPage(toSettings)
+    if pageBusy then return end
+    if showingSettings == toSettings then return end
+    pageBusy = true
+    showingSettings = toSettings
 
-if ThemeTab and ThemeTab.BuildThemeSection then
-    ThemeTab:BuildThemeSection()
+    local fromPage = toSettings and pageMain or pageSettings
+    local toPage   = toSettings and pageSettings or pageMain
+
+    local fromEnd = UDim2.fromOffset(toSettings and -14 or 14, 0)
+    local toStart = UDim2.fromOffset(toSettings and 14 or -14, 0)
+
+    toPage.Position = toStart
+    toPage.Visible = true
+
+    TweenService:Create(toPage, EASE.slide, {
+        Position = UDim2.fromOffset(0, 0),
+        GroupTransparency = 0,
+    }):Play()
+    TweenService:Create(fromPage, EASE.slide, {
+        Position = fromEnd,
+        GroupTransparency = 1,
+    }):Play()
+
+    setIcon.Image = toSettings and ICONS.back or ICONS.gear
+
+    task.delay(0.32, function()
+        fromPage.Visible = false
+        fromPage.Position = UDim2.fromOffset(0, 0)
+        pageBusy = false
+    end)
 end
-if ConfigTab and ConfigTab.BuildConfigSection then
-    ConfigTab:BuildConfigSection()
+
+--============================================================--
+-- EXPAND
+--============================================================--
+local expanded = false
+local animToken = 0
+
+local function setExpanded(state)
+    animToken = animToken + 1
+    local my = animToken
+    expanded = state
+
+    if not state and showingSettings then
+        pageMain.Visible = true
+        pageMain.Position = UDim2.fromOffset(0, 0)
+        pageMain.GroupTransparency = 0
+        pageSettings.Visible = false
+        pageSettings.GroupTransparency = 1
+        showingSettings = false
+        setIcon.Image = ICONS.gear
+    end
+
+    local tSize = state and UDim2.fromOffset(W_EXP, H_EXP)
+                       or UDim2.fromOffset(W_COL, H_COL)
+    local tRadius = state and UDim.new(0, 22) or UDim.new(0, H_COL / 2)
+
+    TweenService:Create(main, EASE.spring, { Size = tSize }):Play()
+    TweenService:Create(corner, EASE.spring, { CornerRadius = tRadius }):Play()
+    TweenService:Create(title, EASE.smooth,
+        { TextTransparency = state and 0 or 1 }):Play()
+    TweenService:Create(subtitle, EASE.smooth,
+        { TextTransparency = state and 0 or 1 }):Play()
+    TweenService:Create(fpsNum, EASE.smooth,
+        { TextTransparency = state and 1 or 0 }):Play()
+    TweenService:Create(fpsTag, EASE.smooth,
+        { TextTransparency = state and 1 or 0 }):Play()
+
+    minBtn.Visible = true
+    setBtn.Visible = true
+    TweenService:Create(minBtn, EASE.smooth, {
+        BackgroundTransparency = state and 0 or 1,
+        TextTransparency = state and 0 or 1,
+    }):Play()
+    TweenService:Create(setBtn, EASE.smooth, {
+        BackgroundTransparency = state and 0 or 1,
+    }):Play()
+    TweenService:Create(setIcon, EASE.smooth, {
+        ImageTransparency = state and 0 or 1,
+    }):Play()
+
+    if state then
+        body.Visible = true
+        TweenService:Create(body, EASE.smooth, { GroupTransparency = 0 }):Play()
+    else
+        TweenService:Create(body, EASE.smooth, { GroupTransparency = 1 }):Play()
+    end
+
+    task.delay(0.6, function()
+        if my ~= animToken then return end
+        if not expanded then
+            body.Visible = false
+            minBtn.Visible = false
+            setBtn.Visible = false
+        end
+    end)
 end
 
-print("[Hyko] Step 7: tabs created")
+--============================================================--
+-- DRAG
+--============================================================--
+local headerBtn = Instance.new("TextButton")
+headerBtn.Size = UDim2.new(1, 0, 0, 50)
+headerBtn.Position = UDim2.fromOffset(0, 0)
+headerBtn.BackgroundTransparency = 1
+headerBtn.Text = ""
+headerBtn.AutoButtonColor = false
+headerBtn.ZIndex = 30
+headerBtn.Parent = main
 
---========================================================================--
--- [16] MAIN TAB
---========================================================================--
-MainTab:Section({ Title = "Speed", Box = true })
+local dragStart, dragBasePos, dragging = nil, nil, false
 
-MainTab:Slider({
-    Title = "Speed Value",
-    Desc = "Main movement speed",
-    Icon = "gauge",
-    Step = 1,
-    Value = { Min = 10, Max = 800, Default = 60 },
-    Callback = function(value) curSpeed = value end,
-})
-
-MainTab:Slider({
-    Title = "Fake WalkSpeed",
-    Desc = "Displayed WalkSpeed on local fake Humanoid",
-    Icon = "footprints",
-    Step = 1,
-    Value = { Min = 16, Max = 1000, Default = 600 },
-    Callback = function(value)
-        fakeWalkSpeed = value
-        if driveFakeHum and driveFakeHum.Parent then
-            pcall(function() driveFakeHum.WalkSpeed = fakeWalkSpeed end)
-        end
-    end,
-})
-
-MainTab:Toggle({
-    Title = "Enable Speed",
-    Desc = "Enable the high-speed drive system",
-    Icon = "zap",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        speedOn = state
-        refreshDrive()
-        notify("Hyko by Huy", state and "Speed enabled" or "Speed disabled",
-            state and "play" or "pause")
-    end,
-})
-
-MainTab:Section({ Title = "Anti-Ragdoll (Anti-Knockback)", Box = true })
-
-MainTab:Slider({
-    Title = "Anti-Ragdoll Speed",
-    Desc = "Speed while anti-ragdoll is active",
-    Icon = "shield",
-    Step = 1,
-    Value = { Min = 10, Max = 800, Default = 60 },
-    Callback = function(value) antiRagdollSpeed = value end,
-})
-
-MainTab:Toggle({
-    Title = "Enable Anti-Ragdoll (Hard Lock)",
-    Desc = "Destroy body + LinearVelocity constraint chống bị đẩy lùi",
-    Icon = "shield-check",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        antiRagdollOn = state
-        refreshDrive()
-        notify("Hyko by Huy",
-            state and "Anti-Ragdoll enabled (hard lock)" or "Anti-Ragdoll disabled",
-            state and "shield-check" or "shield-off")
-    end,
-})
-
-MainTab:Section({ Title = "Loot", Box = true })
-
-MainTab:Toggle({
-    Title = "Enable Fast Loot (Key E)",
-    Desc = "Sets HoldDuration to 0 and auto-fires the nearest prompt",
-    Icon = "package",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        if state then lootOn = true enableLoot()
-        else lootOn = false disableLoot() end
-    end,
-})
-
-MainTab:Section({ Title = "Hitbox Expand", Box = true })
-
-MainTab:Slider({
-    Title = "Hitbox Size",
-    Desc = "Size of other players' hitboxes",
-    Icon = "target",
-    Step = 1,
-    Value = { Min = 1, Max = 50, Default = 15 },
-    Callback = function(value) hitboxSize = value end,
-})
-
-MainTab:Toggle({
-    Title = "Enable Hitbox Expand (Players)",
-    Desc = "Enlarges all other players' hitboxes",
-    Icon = "crosshair",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        if state then
-            hitboxOn = true
-            enableHitboxAll()
-            startHitboxLoop()
-        else
-            stopHitboxLoop()
-            restoreHitboxAll()
-        end
-    end,
-})
-
-MainTab:Section({ Title = "Return Home", Box = true })
-
-homeStatusPara = MainTab:Paragraph({
-    Title = "Home Position",
-    Desc = "Not set",
-    Icon = "map-pin",
-})
-
-MainTab:Slider({
-    Title = "Return Speed",
-    Desc = "Speed when returning home",
-    Icon = "navigation",
-    Step = 1,
-    Value = { Min = 10, Max = 800, Default = 120 },
-    Callback = function(value) returnSpeed = value end,
-})
-
-MainTab:Toggle({
-    Title = "Show Return Home Button",
-    Desc = "Floating draggable button on screen",
-    Icon = "home",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        if state then
-            createReturnHomeButton()
-        else
-            destroyReturnHomeButton()
-        end
-    end,
-})
-
-MainTab:Button({
-    Title = "Set Home (current position)",
-    Desc = "Save your current position as home",
-    Icon = "map-pin",
-    Callback = function() setHome() end,
-})
-
-MainTab:Button({
-    Title = "Return Home",
-    Desc = "Teleport back to the saved home position",
-    Icon = "home",
-    Callback = function() beginReturnHome() end,
-})
-
-MainTab:Button({
-    Title = "Stop Return Home",
-    Desc = "Cancel the return home process",
-    Icon = "stop-circle",
-    Callback = function() cancelReturnHome() end,
-})
-
-MainTab:Button({
-    Title = "Clear Home",
-    Desc = "Remove the saved home position",
-    Icon = "trash-2",
-    Callback = function() clearHome() end,
-})
-
-MainTab:Section({ Title = "Info", Box = true })
-MainTab:Paragraph({
-    Title = "Notes",
-    Desc = "Speed & Anti-Ragdoll share a single drive system using a local fake Humanoid.\n"
-        .. "Anti-Ragdoll: destroy body parts + destroy game body movers.\n"
-        .. "Anti-Knockback: LinearVelocity constraint khóa cứng vận tốc ngang.\n"
-        .. "Fast Loot: HoldDuration = 0, phím E kích prompt gần nhất.\n"
-        .. "Hitbox Expand: phóng to hitbox người chơi khác.\n"
-        .. "Return Home: dùng nút nổi hoặc nút trong tab.",
-    Icon = "info",
-})
-
-print("[Hyko] Step 8: main tab built")
-
---========================================================================--
--- [17] VISUAL TAB
---========================================================================--
-VisualTab:Section({ Title = "ESP", Box = true })
-
-VisualTab:Colorpicker({
-    Title = "ESP Color",
-    Desc = "Highlight and name color",
-    Icon = "palette",
-    Color = espColor,
-    Callback = function(color)
-        espColor = color
-        for _, e in pairs(espList) do
-            if e.highlight then
-                e.highlight.FillColor = color
-                e.highlight.OutlineColor = color
-            end
-            if e.billboard then
-                local lbl = e.billboard:FindFirstChildOfClass("TextLabel")
-                if lbl then lbl.TextColor3 = color end
-            end
-        end
-    end,
-})
-
-VisualTab:Toggle({
-    Title = "Enable ESP Players",
-    Desc = "Highlight and name tag above other players",
-    Icon = "radar",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        if state then enableESP() else disableESP() end
-    end,
-})
-
-VisualTab:Section({ Title = "FPS Boost", Box = true })
-
-VisualTab:Toggle({
-    Title = "Enable FPS Boost (Ultra++)",
-    Desc = "Aggressive graphics reduction + background blur",
-    Icon = "rocket",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        if state then
-            local ok, err = pcall(enableFPSBoost)
-            if not ok then
-                notify("Hyko by Huy", "FPS Boost error: " .. tostring(err):sub(1, 60), "alert-triangle")
-            else
-                notify("Hyko by Huy", "FPS Boost Ultra++ enabled", "rocket")
-            end
-        else
-            pcall(disableFPSBoost)
-            notify("Hyko by Huy", "FPS Boost disabled", "stop-circle")
-        end
-    end,
-})
-
-VisualTab:Button({
-    Title = "Clean Effects Now",
-    Desc = "Manually removes particles, lights, shadows",
-    Icon = "sparkles",
-    Callback = function()
-        task.spawn(function()
-            pcall(scanAndRemoveEffects)
-        end)
-        notify("Hyko by Huy", "Effects cleared", "sparkles")
-    end,
-})
-
-VisualTab:Section({ Title = "FPS Display", Box = true })
-
-VisualTab:Toggle({
-    Title = "Show FPS Display",
-    Desc = "Draggable FPS/ping overlay with white glow",
-    Icon = "activity",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        if state then
-            startFPSDisplay()
-            notify("Hyko by Huy", "FPS Display on", "activity")
-        else
-            stopFPSDisplay()
-            notify("Hyko by Huy", "FPS Display off", "stop-circle")
-        end
-    end,
-})
-
-VisualTab:Section({ Title = "Info", Box = true })
-VisualTab:Paragraph({
-    Title = "FPS Boost Ultra++ Details",
-    Desc = "Sets QualityLevel to minimum, FramerateCap 240.\n"
-        .. "Removes all lighting effects, shadows, post-processing, skybox children.\n"
-        .. "White fog (FogStart 55 / FogEnd 210) hides distant objects.\n"
-        .. "Adds BlurEffect size 24 + ColorCorrection to soften background.",
-    Icon = "info",
-})
-
-print("[Hyko] Step 9: visual tab built")
-
---========================================================================--
--- [18] SERVER HOP TAB
---========================================================================--
-HopTab:Section({ Title = "Status", Box = true })
-
-local statusPara = HopTab:Paragraph({
-    Title = "Server Information",
-    Desc = "Current Players: " .. #Players:GetPlayers()
-        .. "\nJob ID: " .. tostring(game.JobId):sub(1, 20) .. "...",
-    Icon = "server",
-})
-
-task.spawn(function()
-    while Window do
-        task.wait(2)
-        pcall(function()
-            statusPara:SetDesc("Current Players: " .. #Players:GetPlayers()
-                .. "\nJob ID: " .. tostring(game.JobId):sub(1, 20) .. "...")
-        end)
+headerBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        dragBasePos = main.Position
     end
 end)
 
-HopTab:Section({ Title = "Configuration", Box = true })
+UIS.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+        local d = input.Position - dragStart
+        main.Position = UDim2.new(
+            dragBasePos.X.Scale, dragBasePos.X.Offset + d.X,
+            dragBasePos.Y.Scale, dragBasePos.Y.Offset + d.Y)
+    end
+end)
 
-HopTab:Input({
-    Title = "Hop Threshold (players)",
-    Desc = "Minimum player count to trigger hop",
-    Placeholder = "Enter number",
-    Icon = "users",
-    Value = "1",
-    Callback = function(text)
-        local n = tonumber(text)
-        if n and n >= 1 then hopThreshold = math.floor(n) end
-    end,
-})
+UIS.InputEnded:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        local moved = (input.Position - dragStart).Magnitude
+        dragging = false
+        dragStart, dragBasePos = nil, nil
+        if moved < 6 then setExpanded(not expanded) end
+    end
+end)
 
-HopTab:Section({ Title = "Actions", Box = true })
+minBtn.MouseButton1Click:Connect(function() setExpanded(false) end)
 
-HopTab:Button({
-    Title = "Hop Once",
-    Desc = "Teleport to a random public server",
-    Icon = "refresh-cw",
-    Callback = function() task.spawn(function() hopOnce() end) end,
-})
+setBtn.MouseButton1Click:Connect(function()
+    if not expanded then setExpanded(true); return end
+    swapPage(not showingSettings)
+end)
 
-HopTab:Toggle({
-    Title = "Auto Hop",
-    Desc = "Repeats hop every few seconds",
-    Icon = "repeat",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        autoHopOn = state
-        if state then
-            autoHopThread = task.spawn(function()
-                while autoHopOn do
-                    local count = #Players:GetPlayers()
-                    if count <= hopThreshold then
-                        task.wait(3)
-                    else
-                        hopOnce()
-                        task.wait(5)
-                    end
-                end
-            end)
-        else
-            if autoHopThread then
-                pcall(function() task.cancel(autoHopThread) end)
-                autoHopThread = nil
-            end
-        end
-    end,
-})
-
-HopTab:Section({ Title = "Info", Box = true })
-HopTab:Paragraph({
-    Title = "Notes",
-    Desc = "Hop Once: teleports to a random public server if player count is above threshold.\n"
-        .. "Auto Hop: repeats the hop every few seconds.",
-    Icon = "info",
-})
-
-print("[Hyko] Step 10: server hop tab built")
-
---========================================================================--
--- [19] RESPAWN + PLAYER EVENTS
---========================================================================--
+--============================================================--
+-- RESPAWN
+--============================================================--
 LP.CharacterAdded:Connect(function()
-    task.wait(0.5)
-    if driveActive then
-        pcall(function()
-            if driveConn then driveConn:Disconnect() driveConn = nil end
-            if drivePostConn then drivePostConn:Disconnect() drivePostConn = nil end
-            destroyVelConstraint()
-            driveActive = false
-            driveRealHum = nil
-            driveFakeHum = nil
-            driveSavedCollide = {}
-            lastSafeY = nil
-            refreshDrive()
-        end)
+    -- Reset always starts clean: Anti-Ragdoll stays OFF after death/reset.
+    if antiOn then
+        antiOn = false
+        antiSwitch.setState(false, true)
+        stopAnti()
     end
-    if lootOn then
-        pcall(function()
-            disableLoot()
-            lootOn = true
-            enableLoot()
-        end)
+
+    task.wait(0.35)
+
+    if espOn then
+        for plr in pairs(espEntries) do espDestroyPlayer(plr) end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LP then task.defer(espCreatePlayer, plr) end
+        end
     end
-    if returningHome then
-        pcall(function()
-            stopHomeLoop()
-        end)
-    end
+
+    if lootOn then disableLoot(); enableLoot() end
 end)
 
-Players.PlayerAdded:Connect(function(pl)
-    pl.CharacterAdded:Connect(function()
-        if hitboxOn then task.wait(0.5) pcall(expandHitbox, pl) end
-        if espOn then task.wait(0.5) pcall(createESP, pl) end
+--============================================================--
+-- BOOT
+--============================================================--
+setExpanded(true)
+
+-- Startup notification nhẹ: chỉ tạo 1 card, tránh burst UI/Tween lúc spawn.
+task.defer(function()
+    task.wait(0.8)
+    pcall(function()
+        pushNotif({
+            title = "Hyko Loaded",
+            message = "Welcome, " .. LP.DisplayName,
+            color = COL.accent,
+            icon = ICONS.info,
+            duration = 2.5,
+        })
     end)
 end)
-for _, pl in ipairs(Players:GetPlayers()) do
-    if pl ~= LP then
-        pl.CharacterAdded:Connect(function()
-            if hitboxOn then task.wait(0.5) pcall(expandHitbox, pl) end
-        end)
-    end
-end
 
-print("[Hyko] All loaded successfully - WindUI Edition (Optimized)")
+print("[Hyko] v10 FINAL · Lucide icons active")
