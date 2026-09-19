@@ -1,7 +1,7 @@
 --============================================================--
---  Hyko Lite · iOS Dropdown UI
---  Features : Fast Loot  ·  Anti-Ragdoll (Hard Lock)
---  Header   : Local player avatar + name
+--  Hyko Lite · iOS Dropdown UI + Key System (T)
+--  Features : Fast Loot  ·  Anti-Ragdoll (Server-safe body)
+--  Header   : Avatar + FPS counter
 --============================================================--
 
 local Players      = game:GetService("Players")
@@ -60,7 +60,7 @@ local function readMove()
 end
 
 --============================================================--
--- [3] ANTI-RAGDOLL ENGINE
+-- [3] ANTI-RAGDOLL ENGINE  (body stays alive → server-safe)
 --============================================================--
 local antiOn        = false
 local antiSpeed     = 60
@@ -78,6 +78,9 @@ local lastSafeY          = nil
 local KILL_UP_VELOCITY   = 40
 local MAX_ABOVE_GROUND   = 12
 local MAX_ABOVE_SAFE     = 25
+
+-- snapshot of original body state so we can restore perfectly
+local bodySnapshot = {}
 
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -113,10 +116,57 @@ local function buildFakeHumanoid()
     return h
 end
 
-local function stripBody(char, root)
+-- Save original CanCollide/Massless so we can revert exactly
+local function snapshotPart(p)
+    if bodySnapshot[p] then return end
+    bodySnapshot[p] = {
+        CanCollide = p.CanCollide,
+        Massless   = p.Massless,
+    }
+end
+
+-- "Lừa server": giữ nguyên body, chỉ neutralize physics
+local function neutralizeBody(char, root)
     for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") and p ~= root then
-            pcall(function() p:Destroy() end)
+        if p:IsA("BasePart") then
+            if p ~= root then
+                snapshotPart(p)
+                pcall(function()
+                    if p.CanCollide then p.CanCollide = false end
+                    if not p.Massless then p.Massless = true end
+                    p.AssemblyLinearVelocity = Vector3.zero
+                    p.AssemblyAngularVelocity = Vector3.zero
+                end)
+            end
+            pcall(function() p.AssemblyAngularVelocity = Vector3.zero end)
+        elseif isBodyMover(p) then
+            if p.Name ~= "HykoAntiFlingVel" then
+                pcall(function() p:Destroy() end)
+            end
+        end
+    end
+end
+
+-- Restore original body state cleanly
+local function restoreBody(char)
+    if not char then return end
+    for p, state in pairs(bodySnapshot) do
+        if p and p.Parent then
+            pcall(function()
+                p.CanCollide = state.CanCollide
+                p.Massless   = state.Massless
+            end)
+        end
+    end
+    bodySnapshot = {}
+
+    -- also ensure limbs are zeroed so they don't jolt when toggled off
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            pcall(function()
+                p.AssemblyLinearVelocity = Vector3.zero
+                p.AssemblyAngularVelocity = Vector3.zero
+            end)
         end
     end
 end
@@ -189,25 +239,12 @@ local function antiHeartbeat()
     end
 
     forceHealthy()
-    stripBody(ch, root)
+    neutralizeBody(ch, root)
 
     if not velConstraint or not velConstraint.Parent then
         createVelConstraint(root)
     end
     pcall(function() root:SetNetworkOwner(LP) end)
-
-    for _, p in ipairs(ch:GetDescendants()) do
-        if p:IsA("BasePart") then
-            pcall(function() p.AssemblyAngularVelocity = Vector3.zero end)
-            if p ~= root then
-                pcall(function() p.AssemblyLinearVelocity = Vector3.zero end)
-            end
-        elseif isBodyMover(p) then
-            if p.Name ~= "HykoAntiFlingVel" then
-                pcall(function() p:Destroy() end)
-            end
-        end
-    end
 
     local look = cam.CFrame.LookVector
     local flat = Vector3.new(look.X, 0, look.Z)
@@ -309,14 +346,23 @@ local function startAnti()
     pcall(function() hrp:SetNetworkOwner(LP) end)
 
     lastSafeY = hrp.Position.Y
-    stripBody(c, hrp)
+    bodySnapshot = {}
+    neutralizeBody(c, hrp)
     createVelConstraint(hrp)
 
     antiAdded = c.DescendantAdded:Connect(function(d)
         if not antiOn then return end
         if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
             task.defer(function()
-                if antiOn then pcall(function() d:Destroy() end) end
+                if antiOn and d.Parent then
+                    snapshotPart(d)
+                    pcall(function()
+                        if d.CanCollide then d.CanCollide = false end
+                        if not d.Massless then d.Massless = true end
+                        d.AssemblyLinearVelocity = Vector3.zero
+                        d.AssemblyAngularVelocity = Vector3.zero
+                    end)
+                end
             end)
         elseif isBodyMover(d) and d.Name ~= "HykoAntiFlingVel" then
             task.defer(function()
@@ -342,6 +388,9 @@ local function stopAnti()
             hrp.AssemblyLinearVelocity = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
         end
+        -- restore exact original body state
+        restoreBody(c)
+
         if fakeHum and fakeHum.Parent then
             pcall(function() fakeHum:Destroy() end)
         end
@@ -351,6 +400,7 @@ local function stopAnti()
                 realHum.Parent = c
                 realHum.WalkSpeed = 16
                 realHum.JumpPower = 50
+                realHum:ChangeState(Enum.HumanoidStateType.Running)
             end)
         end
         realHum = nil
@@ -449,23 +499,244 @@ local COL = {
     track   = Color3.fromRGB(228, 230, 234),
     accent  = Color3.fromRGB(64, 128, 232),
     green   = Color3.fromRGB(52, 199, 89),
+    red     = Color3.fromRGB(231, 76, 60),
     stroke  = Color3.fromRGB(230, 232, 236),
 }
 
 --============================================================--
 -- [6] DIMENSIONS
 --============================================================--
-local W_COL = 56
+local W_COL = 108
 local H_COL = 56
 local W_EXP = 300
 local H_EXP = 260
 
 --============================================================--
--- [7] SCREEN + ROOT
+-- [7] KEY SYSTEM (key = "T")
+--============================================================--
+local VALID_KEY = "t"  -- case-insensitive
+
+local keyGui = Instance.new("ScreenGui")
+keyGui.Name = "HykoKeySystem"
+keyGui.IgnoreGuiInset = true
+keyGui.DisplayOrder = 999
+mountGui(keyGui)
+
+-- dim background
+local backdrop = Instance.new("Frame")
+backdrop.Size = UDim2.fromScale(1, 1)
+backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+backdrop.BackgroundTransparency = 0.55
+backdrop.BorderSizePixel = 0
+backdrop.ZIndex = 1
+backdrop.Parent = keyGui
+
+local keyCard = Instance.new("Frame")
+keyCard.AnchorPoint = Vector2.new(0.5, 0.5)
+keyCard.Position = UDim2.fromScale(0.5, 0.5)
+keyCard.Size = UDim2.fromOffset(320, 230)
+keyCard.BackgroundColor3 = COL.bg
+keyCard.BackgroundTransparency = 0.02
+keyCard.BorderSizePixel = 0
+keyCard.ZIndex = 2
+keyCard.Parent = keyGui
+
+local kcCorner = Instance.new("UICorner")
+kcCorner.CornerRadius = UDim.new(0, 22)
+kcCorner.Parent = keyCard
+
+local kcStroke = Instance.new("UIStroke")
+kcStroke.Color = COL.stroke
+kcStroke.Thickness = 1
+kcStroke.Transparency = 0.3
+kcStroke.Parent = keyCard
+
+do
+    for i = 1, 2 do
+        local g = Instance.new("Frame")
+        g.BackgroundTransparency = 1
+        g.BorderSizePixel = 0
+        g.Size     = UDim2.new(1, i * 8, 1, i * 8)
+        g.Position = UDim2.new(0, -i * 4, 0, -i * 4)
+        g.ZIndex   = 2 - i
+        g.Parent   = keyCard
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 22 + i * 4)
+        c.Parent = g
+        local s = Instance.new("UIStroke")
+        s.Color = Color3.fromRGB(255, 255, 255)
+        s.Thickness = 1.4
+        s.Transparency = 0.55 + (i - 1) * 0.15
+        s.Parent = g
+    end
+end
+
+-- avatar in card
+local kAvatarWrap = Instance.new("Frame")
+kAvatarWrap.Size = UDim2.fromOffset(46, 46)
+kAvatarWrap.Position = UDim2.fromOffset(24, 22)
+kAvatarWrap.BackgroundColor3 = Color3.fromRGB(240, 242, 245)
+kAvatarWrap.BorderSizePixel = 0
+kAvatarWrap.ZIndex = 3
+kAvatarWrap.Parent = keyCard
+
+local kAvatarCorner = Instance.new("UICorner")
+kAvatarCorner.CornerRadius = UDim.new(1, 0)
+kAvatarCorner.Parent = kAvatarWrap
+
+local kAvatarImg = Instance.new("ImageLabel")
+kAvatarImg.Size = UDim2.fromScale(1, 1)
+kAvatarImg.BackgroundTransparency = 1
+kAvatarImg.ZIndex = 4
+kAvatarImg.Parent = kAvatarWrap
+
+local kAvatarImgCorner = Instance.new("UICorner")
+kAvatarImgCorner.CornerRadius = UDim.new(1, 0)
+kAvatarImgCorner.Parent = kAvatarImg
+
+local kAvatarStroke = Instance.new("UIStroke")
+kAvatarStroke.Color = Color3.fromRGB(255, 255, 255)
+kAvatarStroke.Thickness = 2
+kAvatarStroke.Transparency = 0.2
+kAvatarStroke.Parent = kAvatarWrap
+
+task.spawn(function()
+    local ok, img = pcall(function()
+        return Players:GetUserThumbnailAsync(
+            LP.UserId,
+            Enum.ThumbnailType.HeadShot,
+            Enum.ThumbnailSize.Size150x150
+        )
+    end)
+    if ok and img and img ~= "" then
+        kAvatarImg.Image = img
+    else
+        local ok2, img2 = pcall(function()
+            return Players:GetUserThumbnailAsync(
+                LP.UserId,
+                Enum.ThumbnailType.AvatarBust,
+                Enum.ThumbnailSize.Size150x150
+            )
+        end)
+        if ok2 and img2 and img2 ~= "" then
+            kAvatarImg.Image = img2
+        end
+    end
+end)
+
+local kTitle = Instance.new("TextLabel")
+kTitle.Size = UDim2.new(1, -100, 0, 22)
+kTitle.Position = UDim2.fromOffset(82, 26)
+kTitle.BackgroundTransparency = 1
+kTitle.Text = "Hyko Access"
+kTitle.TextColor3 = COL.text
+kTitle.Font = Enum.Font.GothamBold
+kTitle.TextSize = 18
+kTitle.TextXAlignment = Enum.TextXAlignment.Left
+kTitle.ZIndex = 3
+kTitle.Parent = keyCard
+
+local kSub = Instance.new("TextLabel")
+kSub.Size = UDim2.new(1, -100, 0, 16)
+kSub.Position = UDim2.fromOffset(82, 48)
+kSub.BackgroundTransparency = 1
+kSub.Text = "Enter key to unlock"
+kSub.TextColor3 = COL.sub
+kSub.Font = Enum.Font.GothamMedium
+kSub.TextSize = 11
+kSub.TextXAlignment = Enum.TextXAlignment.Left
+kSub.ZIndex = 3
+kSub.Parent = keyCard
+
+local kDiv = Instance.new("Frame")
+kDiv.Size = UDim2.new(1, -48, 0, 1)
+kDiv.Position = UDim2.fromOffset(24, 86)
+kDiv.BackgroundColor3 = COL.divider
+kDiv.BorderSizePixel = 0
+kDiv.ZIndex = 3
+kDiv.Parent = keyCard
+
+local kInputWrap = Instance.new("Frame")
+kInputWrap.Size = UDim2.new(1, -48, 0, 42)
+kInputWrap.Position = UDim2.fromOffset(24, 104)
+kInputWrap.BackgroundColor3 = Color3.fromRGB(248, 249, 251)
+kInputWrap.BorderSizePixel = 0
+kInputWrap.ZIndex = 3
+kInputWrap.Parent = keyCard
+
+local kInputCorner = Instance.new("UICorner")
+kInputCorner.CornerRadius = UDim.new(0, 12)
+kInputCorner.Parent = kInputWrap
+
+local kInputStroke = Instance.new("UIStroke")
+kInputStroke.Color = COL.stroke
+kInputStroke.Thickness = 1
+kInputStroke.Transparency = 0.3
+kInputStroke.Parent = kInputWrap
+
+local kInput = Instance.new("TextBox")
+kInput.Size = UDim2.new(1, -20, 1, 0)
+kInput.Position = UDim2.fromOffset(10, 0)
+kInput.BackgroundTransparency = 1
+kInput.PlaceholderText = "Key"
+kInput.Text = ""
+kInput.TextColor3 = COL.text
+kInput.PlaceholderColor3 = COL.sub
+kInput.Font = Enum.Font.GothamBold
+kInput.TextSize = 15
+kInput.TextXAlignment = Enum.TextXAlignment.Left
+kInput.ClearTextOnFocus = false
+kInput.ZIndex = 4
+kInput.Parent = kInputWrap
+
+local kHint = Instance.new("TextLabel")
+kHint.Size = UDim2.new(1, -48, 0, 16)
+kHint.Position = UDim2.fromOffset(24, 152)
+kHint.BackgroundTransparency = 1
+kHint.Text = "Hint: single letter — the toggle key"
+kHint.TextColor3 = COL.sub
+kHint.Font = Enum.Font.GothamMedium
+kHint.TextSize = 10
+kHint.TextXAlignment = Enum.TextXAlignment.Left
+kHint.ZIndex = 3
+kHint.Parent = keyCard
+
+local kButton = Instance.new("TextButton")
+kButton.Size = UDim2.new(1, -48, 0, 42)
+kButton.Position = UDim2.fromOffset(24, 176)
+kButton.BackgroundColor3 = COL.accent
+kButton.BorderSizePixel = 0
+kButton.Text = "Unlock"
+kButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+kButton.Font = Enum.Font.GothamBold
+kButton.TextSize = 14
+kButton.AutoButtonColor = false
+kButton.ZIndex = 3
+kButton.Parent = keyCard
+
+local kButtonCorner = Instance.new("UICorner")
+kButtonCorner.CornerRadius = UDim.new(0, 12)
+kButtonCorner.Parent = kButton
+
+local kStatus = Instance.new("TextLabel")
+kStatus.Size = UDim2.new(1, -48, 0, 14)
+kStatus.Position = UDim2.fromOffset(24, 220)
+kStatus.BackgroundTransparency = 1
+kStatus.Text = ""
+kStatus.TextColor3 = COL.red
+kStatus.Font = Enum.Font.GothamMedium
+kStatus.TextSize = 10
+kStatus.TextXAlignment = Enum.TextXAlignment.Center
+kStatus.ZIndex = 3
+kStatus.Parent = keyCard
+
+--============================================================--
+-- [8] SCREEN + ROOT (main UI, hidden until unlocked)
 --============================================================--
 local screen = Instance.new("ScreenGui")
 screen.Name = "HykoLite"
 screen.IgnoreGuiInset = true
+screen.Enabled = false
 mountGui(screen)
 
 local main = Instance.new("Frame")
@@ -481,7 +752,7 @@ main.ZIndex = 10
 main.Parent = screen
 
 local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, W_COL / 2)
+corner.CornerRadius = UDim.new(0, H_COL / 2)
 corner.Parent = main
 
 local stroke = Instance.new("UIStroke")
@@ -500,7 +771,7 @@ do
         g.ZIndex   = 10 - i
         g.Parent   = main
         local c = Instance.new("UICorner")
-        c.CornerRadius = UDim.new(0, W_COL / 2 + i * 4)
+        c.CornerRadius = UDim.new(0, H_COL / 2 + i * 4)
         c.Parent = g
         local s = Instance.new("UIStroke")
         s.Color = Color3.fromRGB(255, 255, 255)
@@ -511,7 +782,7 @@ do
 end
 
 --============================================================--
--- [8] HEADER AVATAR
+-- [9] HEADER AVATAR
 --============================================================--
 local avatarWrap = Instance.new("Frame")
 avatarWrap.Name = "AvatarWrap"
@@ -527,10 +798,8 @@ avatarCorner.CornerRadius = UDim.new(1, 0)
 avatarCorner.Parent = avatarWrap
 
 local avatarImg = Instance.new("ImageLabel")
-avatarImg.Name = "Avatar"
 avatarImg.Size = UDim2.fromScale(1, 1)
 avatarImg.BackgroundTransparency = 1
-avatarImg.Image = ""
 avatarImg.ZIndex = 13
 avatarImg.Parent = avatarWrap
 
@@ -593,7 +862,67 @@ dotStroke.Thickness = 2
 dotStroke.Parent = statusDot
 
 --============================================================--
--- [9] HEADER TEXT
+-- [10] FPS COUNTER
+--============================================================--
+local fpsWrap = Instance.new("Frame")
+fpsWrap.Name = "FPSWrap"
+fpsWrap.Size = UDim2.fromOffset(50, 34)
+fpsWrap.Position = UDim2.fromOffset(50, 11)
+fpsWrap.BackgroundTransparency = 1
+fpsWrap.ZIndex = 12
+fpsWrap.Parent = main
+
+local fpsNum = Instance.new("TextLabel")
+fpsNum.Size = UDim2.new(1, 0, 0, 22)
+fpsNum.Position = UDim2.fromOffset(0, 0)
+fpsNum.BackgroundTransparency = 1
+fpsNum.Text = "60"
+fpsNum.TextColor3 = COL.accent
+fpsNum.Font = Enum.Font.GothamBold
+fpsNum.TextSize = 18
+fpsNum.TextXAlignment = Enum.TextXAlignment.Left
+fpsNum.ZIndex = 13
+fpsNum.Parent = fpsWrap
+
+local fpsTag = Instance.new("TextLabel")
+fpsTag.Size = UDim2.new(1, 0, 0, 12)
+fpsTag.Position = UDim2.fromOffset(0, 22)
+fpsTag.BackgroundTransparency = 1
+fpsTag.Text = "FPS"
+fpsTag.TextColor3 = COL.sub
+fpsTag.Font = Enum.Font.GothamMedium
+fpsTag.TextSize = 9
+fpsTag.TextXAlignment = Enum.TextXAlignment.Left
+fpsTag.ZIndex = 13
+fpsTag.Parent = fpsWrap
+
+do
+    local frames = 0
+    local lastClock = os.clock()
+    RunService.RenderStepped:Connect(function()
+        frames += 1
+        local now = os.clock()
+        local elapsed = now - lastClock
+        if elapsed >= 0.5 then
+            local fps = math.floor(frames / elapsed + 0.5)
+            frames = 0
+            lastClock = now
+            if fpsNum.Parent then
+                fpsNum.Text = tostring(fps)
+                if fps >= 45 then
+                    fpsNum.TextColor3 = COL.green
+                elseif fps >= 25 then
+                    fpsNum.TextColor3 = Color3.fromRGB(241, 196, 15)
+                else
+                    fpsNum.TextColor3 = COL.red
+                end
+            end
+        end
+    end)
+end
+
+--============================================================--
+-- [11] HEADER TEXT
 --============================================================--
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(0, 160, 0, 18)
@@ -624,7 +953,7 @@ subtitle.ZIndex = 12
 subtitle.Parent = main
 
 --============================================================--
--- [10] MINIMIZE BUTTON
+-- [12] MINIMIZE BUTTON
 --============================================================--
 local minBtn = Instance.new("TextButton")
 minBtn.Size = UDim2.fromOffset(26, 26)
@@ -652,7 +981,7 @@ minStroke.Transparency = 0.3
 minStroke.Parent = minBtn
 
 --============================================================--
--- [11] BODY
+-- [13] BODY
 --============================================================--
 local body = Instance.new("CanvasGroup")
 body.Size = UDim2.new(1, -32, 1, -78)
@@ -663,7 +992,7 @@ body.ZIndex = 11
 body.Parent = main
 
 --============================================================--
--- [12] WIDGET BUILDERS
+-- [14] WIDGET BUILDERS
 --============================================================--
 local function makeRowGlyph(parent, y, glyphType)
     local wrap = Instance.new("Frame")
@@ -915,7 +1244,7 @@ local function makeSlider(parent, y, min, max, default, onChange)
 end
 
 --============================================================--
--- [13] BODY CONTENT
+-- [15] BODY CONTENT
 --============================================================--
 makeRowGlyph(body, 8, "loot")
 makeRowLabel(body, 8, "Fast Loot", "Auto-collect prompts · Key E")
@@ -924,7 +1253,7 @@ local lootSwitch = makeSwitch(body, 12)
 makeDivider(body, 56)
 
 makeRowGlyph(body, 72, "shield")
-makeRowLabel(body, 72, "Anti-Ragdoll", "Hard lock · body-strip · anti-fling")
+makeRowLabel(body, 72, "Anti-Ragdoll", "Server-safe body · hard lock")
 local antiSwitch = makeSwitch(body, 76)
 
 makeDivider(body, 120)
@@ -962,7 +1291,7 @@ local note = Instance.new("TextLabel")
 note.Size = UDim2.new(1, 0, 0, 14)
 note.Position = UDim2.fromOffset(0, 190)
 note.BackgroundTransparency = 1
-note.Text = "Press T · Drag header to move"
+note.Text = "Drag header to move"
 note.TextColor3 = COL.sub
 note.Font = Enum.Font.GothamMedium
 note.TextSize = 10
@@ -971,7 +1300,7 @@ note.ZIndex = 13
 note.Parent = body
 
 --============================================================--
--- [14] STATE
+-- [16] STATE
 --============================================================--
 local function updateStatusDot()
     statusDot.Visible = antiOn or lootOn
@@ -996,16 +1325,8 @@ end
 lootSwitch.button.Activated:Connect(toggleLoot)
 antiSwitch.button.Activated:Connect(toggleAnti)
 
-UIS.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-    if input.KeyCode == Enum.KeyCode.T then
-        toggleAnti()
-    end
-end)
-
 --============================================================--
--- [15] EXPAND / COLLAPSE
+-- [17] EXPAND / COLLAPSE
 --============================================================--
 local expanded  = false
 local animating = false
@@ -1018,7 +1339,7 @@ local function setExpanded(state)
     local targetSize   = state and UDim2.fromOffset(W_EXP, H_EXP)
                               or UDim2.fromOffset(W_COL, H_COL)
     local targetRadius = state and UDim.new(0, 22)
-                              or UDim.new(0, W_COL / 2)
+                              or UDim.new(0, H_COL / 2)
     local info = TweenInfo.new(0.36, Enum.EasingStyle.Quart,
                                 Enum.EasingDirection.Out)
 
@@ -1028,6 +1349,10 @@ local function setExpanded(state)
         { TextTransparency = state and 0 or 1 }):Play()
     TweenService:Create(subtitle, info,
         { TextTransparency = state and 0 or 1 }):Play()
+    TweenService:Create(fpsNum, info,
+        { TextTransparency = state and 1 or 0 }):Play()
+    TweenService:Create(fpsTag, info,
+        { TextTransparency = state and 1 or 0 }):Play()
 
     minBtn.Visible = true
     TweenService:Create(minBtn, info, {
@@ -1052,7 +1377,7 @@ local function setExpanded(state)
 end
 
 --============================================================--
--- [16] HEADER DRAG + TAP
+-- [18] HEADER DRAG + TAP
 --============================================================--
 local headerBtn = Instance.new("TextButton")
 headerBtn.Name = "HeaderButton"
@@ -1105,7 +1430,7 @@ minBtn.MouseButton1Click:Connect(function()
 end)
 
 --============================================================--
--- [17] RESPAWN SAFETY
+-- [19] RESPAWN SAFETY
 --============================================================--
 LP.CharacterAdded:Connect(function()
     task.wait(0.6)
@@ -1117,6 +1442,7 @@ LP.CharacterAdded:Connect(function()
         realHum = nil
         velConstraint = nil
         velAttachment = nil
+        bodySnapshot = {}
         startAnti()
     end
     if lootOn then
@@ -1125,4 +1451,68 @@ LP.CharacterAdded:Connect(function()
     end
 end)
 
-print("[Hyko Lite] Loaded · Player: " .. LP.Name)
+--============================================================--
+-- [20] KEY SYSTEM LOGIC
+--============================================================--
+local unlocked = false
+
+local function tryUnlock()
+    local typed = string.lower(kInput.Text or "")
+    typed = string.gsub(typed, "%s", "")
+    if typed == VALID_KEY then
+        unlocked = true
+        kInput.Text = ""
+        kStatus.Text = "Access granted"
+        kStatus.TextColor3 = COL.green
+        kButton.BackgroundColor3 = COL.green
+        kButton.Text = "Unlocked"
+
+        -- tween card out
+        local outInfo = TweenInfo.new(0.32, Enum.EasingStyle.Quart,
+                                       Enum.EasingDirection.Out)
+        TweenService:Create(keyCard, outInfo, {
+            Size = UDim2.fromOffset(260, 200),
+        }):Play()
+        TweenService:Create(keyGui, TweenInfo.new(0.32), {}):Play()
+
+        task.wait(0.32)
+        keyGui.Enabled = false
+        screen.Enabled = true
+        setExpanded(true)
+    else
+        kStatus.Text = "Invalid key"
+        kStatus.TextColor3 = COL.red
+        kInput.Text = ""
+        -- shake
+        local basePos = keyCard.Position
+        for _, off in ipairs({ -8, 8, -6, 6, -3, 3, 0 }) do
+            keyCard.Position = UDim2.new(
+                basePos.X.Scale, basePos.X.Offset + off,
+                basePos.Y.Scale, basePos.Y.Offset
+            )
+            task.wait(0.03)
+        end
+        keyCard.Position = basePos
+    end
+end
+
+kButton.MouseButton1Click:Connect(tryUnlock)
+kInput.FocusLost:Connect(function(enter)
+    if enter then tryUnlock() end
+end)
+
+--============================================================--
+-- [21] BOOT
+--============================================================--
+-- main UI starts hidden, key system shows first
+main.Visible = true
+screen.Enabled = false
+keyGui.Enabled = true
+
+-- entrance animation on key card
+keyCard.Size = UDim2.fromOffset(280, 210)
+TweenService:Create(keyCard,
+    TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+    { Size = UDim2.fromOffset(320, 230) }):Play()
+
+print("[Hyko Lite] Loaded · Player: " .. LP.Name .. " · Key = T")
