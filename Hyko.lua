@@ -47,6 +47,7 @@ local ICONS = {
     user    = "rbxassetid://114567720540659", -- lucide-user
     ruler   = "rbxassetid://84633402845324", -- lucide-ruler
     settings2 = "rbxassetid://109485777305919", -- lucide-settings-2
+    boots = "rbxassetid://10734961038", -- lucide-footprints fallback
 }
 
 --============================================================--
@@ -684,6 +685,21 @@ local function disableESP()
     for plr in pairs(espEntries) do espDestroyPlayer(plr) end
 end
 
+-- ESP safety refresh: recreates tags after late character loads/respawns.
+RunService.Heartbeat:Connect(function()
+    if not espOn then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character then
+            local e = espEntries[plr]
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if root and hum and hum.Health > 0 and (not e or e.char ~= plr.Character) then
+                espCreatePlayer(plr)
+            end
+        end
+    end
+end)
+
 --============================================================--
 -- FAST LOOT
 --============================================================--
@@ -1029,68 +1045,44 @@ mountGui(screen)
 --============================================================--
 local notifHost = Instance.new("Frame")
 notifHost.Name = "HykoNotifs"
-notifHost.AnchorPoint = Vector2.new(1, 1)
-notifHost.Position = UDim2.new(1, -20, 1, -20)
-notifHost.Size = UDim2.fromOffset(280, 600)
+notifHost.AnchorPoint = Vector2.new(0.5, 0)
+notifHost.Position = UDim2.new(0.5, 0, 0, 10)
+notifHost.Size = UDim2.fromOffset(390, 56)
 notifHost.BackgroundTransparency = 1
 notifHost.ZIndex = 200
 notifHost.Parent = screen
 
 local notifStack = {}
 local activeByTitle = {}
-local NOTIF_W, NOTIF_H, NOTIF_GAP = 264, 68, 8
-local MAX_NOTIFS = 3
-
-local refreshQueued = false
+local NOTIF_W, NOTIF_H, NOTIF_GAP = 390, 50, 6
+local MAX_NOTIFS = 1
 local lastNotifAt = 0
 local NOTIF_MIN_INTERVAL = 0.06
 
 local function refreshNotifPositions()
-    if refreshQueued then return end
-    refreshQueued = true
-    RunService.Heartbeat:Once(function()
-        refreshQueued = false
-        local bottom = 0
-        for _, entry in ipairs(notifStack) do
-            local f = entry.frame
-            if f and f.Parent then
-                TweenService:Create(f, EASE.notif, {
-                    Position = UDim2.new(1, 0, 1, -bottom)
-                }):Play()
-            end
-            bottom = bottom + NOTIF_H + NOTIF_GAP
+    for i, entry in ipairs(notifStack) do
+        local f = entry.frame
+        if f and f.Parent then
+            f.Position = UDim2.new(0.5, 0, 0, (i - 1) * (NOTIF_H + NOTIF_GAP))
         end
-    end)
+    end
 end
 
 local function dismissNotif(entry)
     if not entry or entry.dismissed then return end
     entry.dismissed = true
-
-    if entry.title and activeByTitle[entry.title] == entry then
-        activeByTitle[entry.title] = nil
-    end
-
-    if entry.progressTween then
-        pcall(function() entry.progressTween:Cancel() end)
-        entry.progressTween = nil
-    end
-
+    if activeByTitle[entry.title] == entry then activeByTitle[entry.title] = nil end
+    if entry.progressTween then pcall(function() entry.progressTween:Cancel() end) end
     local f = entry.frame
     if not f or not f.Parent then return end
-
     TweenService:Create(f, EASE.notif, {
-        Position = UDim2.new(1, NOTIF_W + 40,
-                             f.Position.Y.Scale, f.Position.Y.Offset),
+        Position = UDim2.new(0.5, 0, 0, -64),
+        BackgroundTransparency = 1,
     }):Play()
-
     task.delay(0.4, function()
         pcall(function() f:Destroy() end)
         for i, e in ipairs(notifStack) do
-            if e == entry then
-                table.remove(notifStack, i)
-                break
-            end
+            if e == entry then table.remove(notifStack, i); break end
         end
         refreshNotifPositions()
     end)
@@ -1099,8 +1091,7 @@ end
 local function pushNotif(opts)
     local now = os.clock()
     if now - lastNotifAt < NOTIF_MIN_INTERVAL then
-        local delayTime = NOTIF_MIN_INTERVAL - (now - lastNotifAt)
-        task.delay(delayTime, function()
+        task.delay(NOTIF_MIN_INTERVAL - (now - lastNotifAt), function()
             pcall(function() pushNotif(opts) end)
         end)
         return
@@ -1108,24 +1099,23 @@ local function pushNotif(opts)
     lastNotifAt = now
 
     opts = opts or {}
-    local title    = opts.title    or "Hyko"
-    local message  = opts.message  or ""
-    local color    = opts.color    or COL.accent
-    local icon     = opts.icon     or ICONS.info
-    local duration = opts.duration or 3
+    local title = opts.title or "Hyko"
+    local message = opts.message or ""
+    local color = opts.color or COL.accent
+    local iconAsset = opts.icon or ICONS.info
+    local duration = opts.duration or 2.4
 
-    -- dedupe: cùng title → reset timer + đổi message
     local existing = activeByTitle[title]
     if existing and not existing.dismissed and existing.frame.Parent then
         existing.messageLabel.Text = message
-        if existing.progressTween then
-            pcall(function() existing.progressTween:Cancel() end)
-        end
+        existing.icon.Image = iconAsset
+        existing.iconBg.BackgroundColor3 = color
+        if existing.progressTween then pcall(function() existing.progressTween:Cancel() end) end
         existing.progressFill.Size = UDim2.fromScale(1, 1)
         existing.progressTween = TweenService:Create(
             existing.progressFill,
             TweenInfo.new(duration, Enum.EasingStyle.Linear),
-            { Size = UDim2.fromScale(0, 1) }
+            {Size = UDim2.fromScale(0, 1)}
         )
         existing.progressTween:Play()
         return
@@ -1137,114 +1127,94 @@ local function pushNotif(opts)
 
     local card = Instance.new("Frame")
     card.Name = "HykoNotif"
-    card.AnchorPoint = Vector2.new(1, 1)
+    card.AnchorPoint = Vector2.new(0.5, 0)
     card.Size = UDim2.fromOffset(NOTIF_W, NOTIF_H)
-    card.Position = UDim2.new(1, NOTIF_W + 20, 1, 0)
+    card.Position = UDim2.new(0.5, 0, 0, -64)
     card.BackgroundColor3 = COL.bg
+    card.BackgroundTransparency = 0.02
     card.BorderSizePixel = 0
     card.ZIndex = 201
     card.Parent = notifHost
+    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(0, 16); cc.Parent = card
+    local cs = Instance.new("UIStroke"); cs.Color = COL.stroke; cs.Thickness = 1; cs.Transparency = 0.18; cs.Parent = card; regBg(cs, "Color", "stroke")
 
-    local cc = Instance.new("UICorner")
-    cc.CornerRadius = UDim.new(0, 16); cc.Parent = card
+    local iconBg = Instance.new("Frame")
+    iconBg.Size = UDim2.fromOffset(32, 32)
+    iconBg.Position = UDim2.fromOffset(9, 9)
+    iconBg.BackgroundColor3 = color
+    iconBg.BackgroundTransparency = 0.08
+    iconBg.BorderSizePixel = 0
+    iconBg.Parent = card
+    local ibc = Instance.new("UICorner"); ibc.CornerRadius = UDim.new(0, 10); ibc.Parent = iconBg
 
-    local cs = Instance.new("UIStroke")
-    cs.Color = COL.stroke; cs.Thickness = 1; cs.Transparency = 0.25
-    cs.Parent = card
-    regBg(cs, "Color", "stroke")
+    local icon = Instance.new("ImageLabel")
+    icon.Size = UDim2.fromOffset(17, 17)
+    icon.Position = UDim2.fromOffset(7.5, 7.5)
+    icon.BackgroundTransparency = 1
+    icon.Image = iconAsset
+    icon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    icon.Parent = iconBg
 
-    local tile = Instance.new("Frame")
-    tile.Size = UDim2.fromOffset(34, 34)
-    tile.Position = UDim2.fromOffset(14, 14)
-    tile.BackgroundColor3 = color
-    tile.BorderSizePixel = 0
-    tile.ZIndex = 203
-    tile.Parent = card
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Position = UDim2.fromOffset(51, 7)
+    titleLabel.Size = UDim2.new(1, -125, 0, 18)
+    titleLabel.Font = Enum.Font.GothamSemibold
+    titleLabel.TextSize = 12
+    titleLabel.TextColor3 = COL.text
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Text = title
+    titleLabel.Parent = card
+    regBg(titleLabel, "TextColor3", "text")
 
-    local tc = Instance.new("UICorner")
-    tc.CornerRadius = UDim.new(0, 10); tc.Parent = tile
+    local msg = Instance.new("TextLabel")
+    msg.BackgroundTransparency = 1
+    msg.Position = UDim2.fromOffset(51, 24)
+    msg.Size = UDim2.new(1, -125, 0, 17)
+    msg.Font = Enum.Font.Gotham
+    msg.TextSize = 10
+    msg.TextColor3 = COL.sub
+    msg.TextXAlignment = Enum.TextXAlignment.Left
+    msg.TextTruncate = Enum.TextTruncate.AtEnd
+    msg.Text = message
+    msg.Parent = card
+    regBg(msg, "TextColor3", "sub")
 
-    local img = Instance.new("ImageLabel")
-    img.Size = UDim2.fromOffset(18, 18)
-    img.Position = UDim2.fromOffset(8, 8)
-    img.BackgroundTransparency = 1
-    img.Image = icon
-    img.ImageColor3 = Color3.fromRGB(255, 255, 255)
-    img.ZIndex = 204
-    img.Parent = tile
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.fromOffset(24, 24)
+    close.Position = UDim2.new(1, -33, 0, 13)
+    close.BackgroundTransparency = 1
+    close.Text = "×"
+    close.TextColor3 = COL.sub
+    close.Font = Enum.Font.GothamMedium
+    close.TextSize = 18
+    close.AutoButtonColor = false
+    close.Parent = card
 
-    local tl = Instance.new("TextLabel")
-    tl.Size = UDim2.new(1, -66, 0, 16)
-    tl.Position = UDim2.fromOffset(56, 12)
-    tl.BackgroundTransparency = 1
-    tl.Text = title
-    tl.TextColor3 = COL.text
-    tl.Font = Enum.Font.GothamBold
-    tl.TextSize = 13
-    tl.TextXAlignment = Enum.TextXAlignment.Left
-    tl.TextTruncate = Enum.TextTruncate.AtEnd
-    tl.ZIndex = 204
-    tl.Parent = card
-    regBg(tl, "TextColor3", "text")
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, -18, 0, 2)
+    bar.Position = UDim2.new(0, 9, 1, -5)
+    bar.BackgroundColor3 = color
+    bar.BorderSizePixel = 0
+    bar.Parent = card
+    local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(1, 0); bc.Parent = bar
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.fromScale(1, 1)
+    fill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    fill.BackgroundTransparency = 0.7
+    fill.BorderSizePixel = 0
+    fill.Parent = bar
+    local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(1, 0); fc.Parent = fill
 
-    local ml = Instance.new("TextLabel")
-    ml.Size = UDim2.new(1, -66, 0, 22)
-    ml.Position = UDim2.fromOffset(56, 28)
-    ml.BackgroundTransparency = 1
-    ml.Text = message
-    ml.TextColor3 = COL.sub
-    ml.Font = Enum.Font.GothamMedium
-    ml.TextSize = 11
-    ml.TextXAlignment = Enum.TextXAlignment.Left
-    ml.TextYAlignment = Enum.TextYAlignment.Top
-    ml.TextWrapped = true
-    ml.TextTruncate = Enum.TextTruncate.AtEnd
-    ml.ZIndex = 204
-    ml.Parent = card
-    regBg(ml, "TextColor3", "sub")
-
-    local progTrack = Instance.new("Frame")
-    progTrack.Size = UDim2.new(1, -20, 0, 3)
-    progTrack.Position = UDim2.new(0, 10, 1, -8)
-    progTrack.BackgroundColor3 = COL.track
-    progTrack.BackgroundTransparency = 0.5
-    progTrack.BorderSizePixel = 0
-    progTrack.ZIndex = 204
-    progTrack.Parent = card
-    regBg(progTrack, "BackgroundColor3", "track")
-
-    local ptc = Instance.new("UICorner")
-    ptc.CornerRadius = UDim.new(1, 0); ptc.Parent = progTrack
-
-    local progFill = Instance.new("Frame")
-    progFill.Size = UDim2.fromScale(1, 1)
-    progFill.BackgroundColor3 = color
-    progFill.BorderSizePixel = 0
-    progFill.ZIndex = 205
-    progFill.Parent = progTrack
-
-    local pfc = Instance.new("UICorner")
-    pfc.CornerRadius = UDim.new(1, 0); pfc.Parent = progFill
-
-    local progTween = TweenService:Create(
-        progFill,
-        TweenInfo.new(duration, Enum.EasingStyle.Linear),
-        { Size = UDim2.fromScale(0, 1) }
-    )
-    progTween:Play()
-
-    local entry = {
-        frame = card,
-        title = title,
-        messageLabel = ml,
-        dismissed = false,
-        progressTween = progTween,
-        progressFill = progFill,
-    }
+    local entry = {frame = card, title = title, messageLabel = msg, icon = icon, iconBg = iconBg, progressFill = fill, dismissed = false}
     activeByTitle[title] = entry
-    table.insert(notifStack, 1, entry)
-    refreshNotifPositions()
+    table.insert(notifStack, entry)
+    close.MouseButton1Click:Connect(function() dismissNotif(entry) end)
 
+    refreshNotifPositions()
+    TweenService:Create(card, EASE.notif, {Position = UDim2.new(0.5, 0, 0, 0)}):Play()
+    entry.progressTween = TweenService:Create(fill, TweenInfo.new(duration, Enum.EasingStyle.Linear), {Size = UDim2.fromScale(0, 1)})
+    entry.progressTween:Play()
     task.delay(duration, function()
         if not entry.dismissed then dismissNotif(entry) end
     end)
@@ -2238,6 +2208,64 @@ setBtn.MouseButton1Click:Connect(function()
 end)
 
 --============================================================--
+-- iOS QUICK BAR
+--============================================================--
+local quickBar = Instance.new("Frame")
+quickBar.Name = "HykoQuickBar"
+quickBar.AnchorPoint = Vector2.new(0.5, 0)
+quickBar.Position = UDim2.new(0.5, 0, 0, 74)
+quickBar.Size = UDim2.fromOffset(276, 44)
+quickBar.BackgroundColor3 = COL.bg
+quickBar.BackgroundTransparency = 0.02
+quickBar.BorderSizePixel = 0
+quickBar.ZIndex = 90
+quickBar.Parent = screen
+local qcorner=Instance.new("UICorner"); qcorner.CornerRadius=UDim.new(0,16); qcorner.Parent=quickBar
+local qstroke=Instance.new("UIStroke"); qstroke.Color=COL.stroke; qstroke.Thickness=1; qstroke.Transparency=0.18; qstroke.Parent=quickBar; regBg(qstroke,"Color","stroke")
+local qlayout=Instance.new("UIListLayout"); qlayout.FillDirection=Enum.FillDirection.Horizontal; qlayout.HorizontalAlignment=Enum.HorizontalAlignment.Center; qlayout.VerticalAlignment=Enum.VerticalAlignment.Center; qlayout.Padding=UDim.new(0,5); qlayout.Parent=quickBar
+
+local function quickButton(name, image, callback)
+    local b=Instance.new("ImageButton")
+    b.Name=name; b.Size=UDim2.fromOffset(36,36); b.BackgroundColor3=COL.iconBtn; b.BorderSizePixel=0; b.AutoButtonColor=false; b.Image=image; b.ImageColor3=COL.text; b.Parent=quickBar
+    local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,11); c.Parent=b
+    regBg(b,"BackgroundColor3","iconBtn"); regBg(b,"ImageColor3","text")
+    b.MouseEnter:Connect(function() TweenService:Create(b,EASE.quick,{BackgroundColor3=COL.iconHov}):Play() end)
+    b.MouseLeave:Connect(function() TweenService:Create(b,EASE.quick,{BackgroundColor3=COL.iconBtn}):Play() end)
+    b.MouseButton1Click:Connect(callback)
+    return b
+end
+
+quickButton("FastLoot", ICONS.loot, function()
+    local state=not lootOn
+    if state then enableLoot() else disableLoot() end
+    lootOn=state
+    lootSwitch.setState(state,true)
+    pushNotif({title="Fast Loot",message=state and "Enabled" or "Disabled",color=state and COL.green or COL.sub,icon=ICONS.loot})
+end)
+quickButton("FPSBoost", ICONS.sparkle, function()
+    local state=not boostOn
+    if state then
+        local ok=pcall(enableBoost)
+        if not ok then state=false end
+    else
+        pcall(disableBoost)
+    end
+    boostOn=state
+    fpsSwitch.setState(state,true)
+    pushNotif({title="FPS Boost",message=state and "Performance mode enabled" or "Disabled",color=state and COL.green or COL.sub,icon=ICONS.sparkle})
+end)
+quickButton("Boots", ICONS.boots, function()
+    pushNotif({title="Boots",message="Use the movement control in Hyko",color=COL.accent,icon=ICONS.boots})
+end)
+quickButton("Settings", ICONS.gear, function()
+    setExpanded(true)
+    if not showingSettings then swapPage(true) end
+end)
+quickButton("Close", ICONS.back, function()
+    if showingSettings then swapPage(false) else setExpanded(false) end
+end)
+
+--============================================================--
 -- RESPAWN
 --============================================================--
 LP.CharacterAdded:Connect(function()
@@ -2271,7 +2299,7 @@ task.defer(function()
     pcall(function()
         pushNotif({
             title = "Hyko Loaded",
-            message = "Welcome, " .. LP.DisplayName,
+            message = "Ready · " .. LP.DisplayName,
             color = COL.accent,
             icon = ICONS.info,
             duration = 2.5,
