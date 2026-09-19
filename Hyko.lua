@@ -1,7 +1,7 @@
 --============================================================--
 --  Hyko · iOS UI  v10 FINAL
 --  · Roblox shield icon (asset ID)
---  · Bottom-right notifications
+--  · Bottom-right notifications (progress bar, no side bar)
 --============================================================--
 
 local Players      = game:GetService("Players")
@@ -30,6 +30,19 @@ local function mountGui(g)
         end)
     end
 end
+
+--============================================================--
+-- ICON REGISTRY  (Roblox official asset IDs)
+--============================================================--
+local ICONS = {
+    info    = "rbxassetid://6031075931",  -- info / bell
+    check   = "rbxassetid://6031094678",  -- checkmark circle
+    gear    = "rbxassetid://6031280882",  -- settings gear
+    back    = "rbxassetid://6031091004",  -- back chevron
+    shield  = "rbxassetid://6031227817",  -- shield  (Anti-Ragdoll)
+    loot    = "rbxassetid://6034287458",  -- bag     (Fast Loot)
+    sparkle = "rbxassetid://6031094678",  -- generic sparkle
+}
 
 --============================================================--
 -- MOVE INPUT
@@ -711,7 +724,7 @@ local W_COL, H_COL = 104, 50
 local W_EXP, H_EXP = 300, 400
 
 --============================================================--
--- SCREEN + NOTIFICATION SYSTEM
+-- SCREEN + NOTIFICATION SYSTEM  (progress-bar style)
 --============================================================--
 local screen = Instance.new("ScreenGui")
 screen.Name = "HykoLite"
@@ -728,18 +741,19 @@ notifHost.BackgroundTransparency = 1
 notifHost.ZIndex = 200
 notifHost.Parent = screen
 
-local notifStack = {}     -- { {frame, height} ... } ordered newest first
-local NOTIF_W, NOTIF_H, NOTIF_GAP = 264, 68, 10
+local notifStack = {}
+local NOTIF_W, NOTIF_H, NOTIF_GAP = 264, 72, 10
 local MAX_NOTIFS = 5
 
 local function refreshNotifPositions()
     local bottom = 0
-    for i, entry in ipairs(notifStack) do
+    for _, entry in ipairs(notifStack) do
         local f = entry.frame
-        local targetY = bottom
-        TweenService:Create(f, EASE.notif, {
-            Position = UDim2.new(1, 0, 1, -targetY)
-        }):Play()
+        if f and f.Parent then
+            TweenService:Create(f, EASE.notif, {
+                Position = UDim2.new(1, 0, 1, -bottom)
+            }):Play()
+        end
         bottom = bottom + NOTIF_H + NOTIF_GAP
     end
 end
@@ -747,24 +761,21 @@ end
 local function dismissNotif(entry)
     if entry.dismissed then return end
     entry.dismissed = true
-    local f = entry.frame
-    TweenService:Create(f, EASE.notif, {
-        Position = UDim2.new(1, NOTIF_W + 20, f.Position.Y.Scale,
-                             f.Position.Y.Offset),
-        BackgroundTransparency = 1,
-    }):Play()
-    for _, d in ipairs(f:GetDescendants()) do
-        if d:IsA("GuiObject") then
-            if d:IsA("TextLabel") then
-                TweenService:Create(d, EASE.notif, { TextTransparency = 1 }):Play()
-            elseif d:IsA("ImageLabel") then
-                TweenService:Create(d, EASE.notif, { ImageTransparency = 1 }):Play()
-            elseif d:IsA("Frame") then
-                TweenService:Create(d, EASE.notif,
-                    { BackgroundTransparency = 1 }):Play()
-            end
-        end
+
+    if entry.progressTween then
+        pcall(function() entry.progressTween:Cancel() end)
+        entry.progressTween = nil
     end
+
+    local f = entry.frame
+    if not f or not f.Parent then return end
+
+    -- 1 tween duy nhất: trượt ra ngoài phải, không lag
+    TweenService:Create(f, EASE.notif, {
+        Position = UDim2.new(1, NOTIF_W + 40,
+                             f.Position.Y.Scale, f.Position.Y.Offset),
+    }):Play()
+
     task.delay(0.42, function()
         pcall(function() f:Destroy() end)
         for i, e in ipairs(notifStack) do
@@ -779,15 +790,14 @@ end
 
 local function pushNotif(opts)
     opts = opts or {}
-    local title   = opts.title   or "Hyko"
-    local message = opts.message or ""
-    local color   = opts.color   or COL.accent
-    local icon    = opts.icon    or "rbxassetid://6031075931"
-    local duration= opts.duration or 3
+    local title    = opts.title    or "Hyko"
+    local message  = opts.message  or ""
+    local color    = opts.color    or COL.accent
+    local icon     = opts.icon     or ICONS.info
+    local duration = opts.duration or 3
 
     while #notifStack >= MAX_NOTIFS do
-        local oldest = notifStack[#notifStack]
-        dismissNotif(oldest)
+        dismissNotif(notifStack[#notifStack])
     end
 
     local card = Instance.new("Frame")
@@ -808,7 +818,6 @@ local function pushNotif(opts)
     cs.Parent = card
     regBg(cs, "Color", "stroke")
 
-    -- shadow
     local shadow = Instance.new("Frame")
     shadow.Size = UDim2.new(1, 6, 1, 6)
     shadow.Position = UDim2.fromOffset(-3, -3)
@@ -821,22 +830,10 @@ local function pushNotif(opts)
     local shc = Instance.new("UICorner")
     shc.CornerRadius = UDim.new(0, 16); shc.Parent = shadow
 
-    -- accent side bar
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(0, 4, 1, -20)
-    bar.Position = UDim2.fromOffset(9, 10)
-    bar.BackgroundColor3 = color
-    bar.BorderSizePixel = 0
-    bar.ZIndex = 203
-    bar.Parent = card
-
-    local bc = Instance.new("UICorner")
-    bc.CornerRadius = UDim.new(1, 0); bc.Parent = bar
-
-    -- icon tile
+    -- icon tile (không còn side bar)
     local tile = Instance.new("Frame")
     tile.Size = UDim2.fromOffset(34, 34)
-    tile.Position = UDim2.fromOffset(20, 17)
+    tile.Position = UDim2.fromOffset(14, 15)
     tile.BackgroundColor3 = color
     tile.BorderSizePixel = 0
     tile.ZIndex = 203
@@ -862,10 +859,9 @@ local function pushNotif(opts)
     img.ZIndex = 204
     img.Parent = tile
 
-    -- title
     local tl = Instance.new("TextLabel")
-    tl.Size = UDim2.new(1, -74, 0, 16)
-    tl.Position = UDim2.fromOffset(62, 17)
+    tl.Size = UDim2.new(1, -66, 0, 16)
+    tl.Position = UDim2.fromOffset(56, 14)
     tl.BackgroundTransparency = 1
     tl.Text = title
     tl.TextColor3 = COL.text
@@ -877,10 +873,9 @@ local function pushNotif(opts)
     tl.Parent = card
     regBg(tl, "TextColor3", "text")
 
-    -- message
     local ml = Instance.new("TextLabel")
-    ml.Size = UDim2.new(1, -74, 0, 26)
-    ml.Position = UDim2.fromOffset(62, 34)
+    ml.Size = UDim2.new(1, -66, 0, 24)
+    ml.Position = UDim2.fromOffset(56, 30)
     ml.BackgroundTransparency = 1
     ml.Text = message
     ml.TextColor3 = COL.sub
@@ -894,7 +889,45 @@ local function pushNotif(opts)
     ml.Parent = card
     regBg(ml, "TextColor3", "sub")
 
-    local entry = { frame = card, dismissed = false }
+    -- bottom progress bar (bo tròn, đồng bộ UI)
+    local progTrack = Instance.new("Frame")
+    progTrack.Name = "ProgressTrack"
+    progTrack.Size = UDim2.new(1, -20, 0, 3)
+    progTrack.Position = UDim2.new(0, 10, 1, -8)
+    progTrack.BackgroundColor3 = COL.track
+    progTrack.BackgroundTransparency = 0.5
+    progTrack.BorderSizePixel = 0
+    progTrack.ZIndex = 204
+    progTrack.Parent = card
+    regBg(progTrack, "BackgroundColor3", "track")
+
+    local ptc = Instance.new("UICorner")
+    ptc.CornerRadius = UDim.new(1, 0); ptc.Parent = progTrack
+
+    local progFill = Instance.new("Frame")
+    progFill.Name = "ProgressFill"
+    progFill.Size = UDim2.fromScale(1, 1)
+    progFill.BackgroundColor3 = color
+    progFill.BorderSizePixel = 0
+    progFill.ZIndex = 205
+    progFill.Parent = progTrack
+
+    local pfc = Instance.new("UICorner")
+    pfc.CornerRadius = UDim.new(1, 0); pfc.Parent = progFill
+
+    local progTween = TweenService:Create(
+        progFill,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear),
+        { Size = UDim2.fromScale(0, 1) }
+    )
+    progTween:Play()
+
+    local entry = {
+        frame = card,
+        dismissed = false,
+        progressTween = progTween,
+        progressFill = progFill,
+    }
     table.insert(notifStack, 1, entry)
     refreshNotifPositions()
 
@@ -1086,9 +1119,6 @@ regBg(subtitle, "TextColor3", "sub")
 --============================================================--
 -- HEADER BUTTONS
 --============================================================--
-local ICON_GEAR = "rbxassetid://6031280882"
-local ICON_BACK = "rbxassetid://6031091004"
-
 local function makeHdrBtn(xoff)
     local b = Instance.new("TextButton")
     b.Size = UDim2.fromOffset(26, 26)
@@ -1127,7 +1157,7 @@ local setIcon = Instance.new("ImageLabel")
 setIcon.Size = UDim2.fromOffset(14, 14)
 setIcon.Position = UDim2.fromOffset(6, 6)
 setIcon.BackgroundTransparency = 1
-setIcon.Image = ICON_GEAR
+setIcon.Image = ICONS.gear
 setIcon.ImageColor3 = COL.text
 setIcon.ZIndex = 41
 setIcon.Parent = setBtn
@@ -1435,18 +1465,16 @@ local function featureRow(parent, y, iconAsset, titleTxt, subTxt)
 end
 
 --============================================================--
--- PAGE 1 : MAIN  (Anti-Ragdoll uses Roblox shield asset)
+-- PAGE 1 : MAIN
 --============================================================--
 sectionLabel(pageMain, 0, "FEATURES")
 
-featureRow(pageMain, 16, "rbxassetid://6031075931", "Fast Loot",
-    "Auto-collect · Key E")
+-- Fast Loot (bag icon)
+featureRow(pageMain, 16, ICONS.loot, "Fast Loot", "Auto-collect · Key E")
 local lootSwitch = makeSwitch(pageMain, -4, 30)
 
--- Roblox shield asset ID
-local ICON_SHIELD = "rbxassetid://6031227817"
-
-featureRow(pageMain, 78, ICON_SHIELD, "Anti-Ragdoll",
+-- Anti-Ragdoll (Roblox shield icon)
+featureRow(pageMain, 78, ICONS.shield, "Anti-Ragdoll",
     "Server-safe body · hard lock")
 local antiSwitch = makeSwitch(pageMain, -4, 92)
 
@@ -1535,7 +1563,7 @@ for i, th in ipairs(THEMES) do
             title = "Accent Color",
             message = "Switched to " .. th.Name,
             color = th.Accent,
-            icon = "rbxassetid://6031094678",
+            icon = ICONS.sparkle,
         })
     end)
 end
@@ -1629,7 +1657,7 @@ segLightBtn.MouseButton1Click:Connect(function()
         title = "Background",
         message = "Light mode enabled",
         color = Color3.fromRGB(255, 255, 255),
-        icon = "rbxassetid://6031094678",
+        icon = ICONS.sparkle,
     })
 end)
 segDarkBtn.MouseButton1Click:Connect(function()
@@ -1639,7 +1667,7 @@ segDarkBtn.MouseButton1Click:Connect(function()
         title = "Background",
         message = "Dark mode enabled",
         color = Color3.fromRGB(30, 30, 34),
-        icon = "rbxassetid://6031094678",
+        icon = ICONS.sparkle,
     })
 end)
 
@@ -1652,7 +1680,7 @@ div2.ZIndex = 12
 div2.Parent = pageSettings
 regBg(div2, "BackgroundColor3", "divider")
 
-featureRow(pageSettings, 138, "rbxassetid://6031094678", "FPS Boost Ultra",
+featureRow(pageSettings, 138, ICONS.sparkle, "FPS Boost Ultra",
     "Reduce graphics")
 local fpsSwitch = makeSwitch(pageSettings, -4, 152)
 
@@ -1712,26 +1740,25 @@ local function actionBtn(parent, y, txt, iconAsset)
 end
 
 local purgeBtn = actionBtn(pageSettings, 204, "Purge World Effects",
-    "rbxassetid://6031094678")
+    ICONS.sparkle)
 purgeBtn.MouseButton1Click:Connect(function()
     task.spawn(function() pcall(scanFX) end)
     pushNotif({
         title = "Effects Cleared",
         message = "World effects purged",
         color = COL.accent,
-        icon = "rbxassetid://6031094678",
+        icon = ICONS.sparkle,
     })
 end)
 
-local ramBtn = actionBtn(pageSettings, 246, "Free Memory",
-    "rbxassetid://6031075931")
+local ramBtn = actionBtn(pageSettings, 246, "Free Memory", ICONS.info)
 ramBtn.MouseButton1Click:Connect(function()
     freeRAM()
     pushNotif({
         title = "Memory",
         message = "Garbage collected",
         color = COL.green,
-        icon = "rbxassetid://6031075931",
+        icon = ICONS.info,
     })
 end)
 
@@ -1751,7 +1778,7 @@ lootSwitch.button.Activated:Connect(function()
         title = "Fast Loot",
         message = s and "Enabled · press E to grab" or "Disabled",
         color = s and COL.green or COL.sub,
-        icon = "rbxassetid://6031075931",
+        icon = ICONS.loot,
     })
 end)
 
@@ -1764,7 +1791,7 @@ antiSwitch.button.Activated:Connect(function()
         title = "Anti-Ragdoll",
         message = s and "Hard lock engaged" or "Disabled · body restored",
         color = s and COL.green or COL.sub,
-        icon = ICON_SHIELD,
+        icon = ICONS.shield,
     })
 end)
 
@@ -1779,7 +1806,7 @@ fpsSwitch.button.Activated:Connect(function()
                 title = "FPS Boost",
                 message = "Failed to enable",
                 color = COL.red,
-                icon = "rbxassetid://6031094678",
+                icon = ICONS.sparkle,
             })
             return
         end
@@ -1791,7 +1818,7 @@ fpsSwitch.button.Activated:Connect(function()
         title = "FPS Boost Ultra",
         message = s and "Graphics reduced · 240 cap" or "Disabled · restored",
         color = s and COL.green or COL.sub,
-        icon = "rbxassetid://6031094678",
+        icon = ICONS.sparkle,
     })
 end)
 
@@ -1825,7 +1852,7 @@ local function swapPage(toSettings)
         GroupTransparency = 1,
     }):Play()
 
-    setIcon.Image = toSettings and ICON_BACK or ICON_GEAR
+    setIcon.Image = toSettings and ICONS.back or ICONS.gear
 
     task.delay(0.32, function()
         fromPage.Visible = false
@@ -1852,7 +1879,7 @@ local function setExpanded(state)
         pageSettings.Visible = false
         pageSettings.GroupTransparency = 1
         showingSettings = false
-        setIcon.Image = ICON_GEAR
+        setIcon.Image = ICONS.gear
     end
 
     local tSize = state and UDim2.fromOffset(W_EXP, H_EXP)
@@ -1972,14 +1999,13 @@ end)
 --============================================================--
 setExpanded(true)
 
--- Welcome notification (staggered so it feels alive)
 task.spawn(function()
     task.wait(0.35)
     pushNotif({
         title = "Hyko Loaded",
         message = "Welcome, " .. LP.DisplayName,
         color = COL.accent,
-        icon = "rbxassetid://6031075931",
+        icon = ICONS.info,
         duration = 3.5,
     })
     task.wait(0.4)
@@ -1987,9 +2013,9 @@ task.spawn(function()
         title = "Ready",
         message = "Tap the card to open features",
         color = COL.green,
-        icon = "rbxassetid://6031094678",
+        icon = ICONS.check,
         duration = 3,
     })
 end)
 
-print("[Hyko] v10 FINAL · Notifications active · Shield asset ID active")
+print("[Hyko] v10 FINAL · Notifications active · Shield + Bag icons active")
