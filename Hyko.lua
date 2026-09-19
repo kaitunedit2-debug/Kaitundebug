@@ -35,20 +35,12 @@ end
 -- ICON REGISTRY  (Lucide style)
 --============================================================--
 local ICONS = {
-    info    = "rbxassetid://10734818717", -- lucide-info
-    check   = "rbxassetid://10734804256", -- lucide-check
-    gear    = "rbxassetid://10734950309", -- lucide-settings
-    back    = "rbxassetid://10734788491", -- lucide-arrow-left
-    shield  = "rbxassetid://10734951847", -- lucide-shield
-    loot    = "rbxassetid://10734898820", -- lucide-shopping-bag
-    sparkle = "rbxassetid://10734961038", -- lucide-sparkles
-    users   = "rbxassetid://85332511060401", -- lucide-users
-    scan    = "rbxassetid://125367266780285", -- lucide-scan
-    user    = "rbxassetid://114567720540659", -- lucide-user
-    ruler   = "rbxassetid://84633402845324", -- lucide-ruler
-    settings2 = "rbxassetid://109485777305919", -- lucide-settings-2
-    boots = "rbxassetid://10734961038", -- lucide-footprints fallback
+    info="rbxassetid://10734818717", check="rbxassetid://10734804256", gear="rbxassetid://10734950309", back="rbxassetid://10734788491",
+    shield="rbxassetid://10734951847", loot="rbxassetid://10734898820", sparkle="rbxassetid://10734961038", users="rbxassetid://85332511060401",
+    scan="rbxassetid://125367266780285", user="rbxassetid://114567720540659", ruler="rbxassetid://84633402845324", settings2="rbxassetid://109485777305919",
+    boots="rbxassetid://10734961038",
 }
+local ICON_FALLBACK = {loot="▣", boots="ϟ", back="‹", gear="⚙", sparkle="✦"}
 
 --============================================================--
 -- MOVE INPUT
@@ -545,6 +537,10 @@ local espOn = false
 local espEntries = {}
 local espPlayerAdded, espPlayerRemoving
 local ESP_REFRESH = 0.25
+local espCharacterConnections = {}
+local espFolder = Instance.new("Folder")
+espFolder.Name = "HykoESP"
+pcall(function() espFolder.Parent = workspace end)
 
 local function espDestroyPlayer(plr)
     local entry = espEntries[plr]
@@ -570,7 +566,7 @@ local function espCreatePlayer(plr)
     highlight.FillTransparency = 1
     highlight.OutlineTransparency = 0.08
     highlight.OutlineColor = COL.accent
-    highlight.Parent = char
+    highlight.Parent = espFolder
 
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "HykoNameTag"
@@ -659,13 +655,19 @@ local function enableESP()
     end
     espPlayerAdded = Players.PlayerAdded:Connect(function(plr)
         if not espOn then return end
-        plr.CharacterAdded:Connect(function()
-            task.wait(0.15)
+        task.defer(function()
             if espOn then espCreatePlayer(plr) end
         end)
-        task.defer(espCreatePlayer, plr)
+        if espCharacterConnections[plr] then pcall(function() espCharacterConnections[plr]:Disconnect() end) end
+        espCharacterConnections[plr] = plr.CharacterAdded:Connect(function()
+            task.wait(0.2)
+            if espOn then espCreatePlayer(plr) end
+        end)
     end)
-    espPlayerRemoving = Players.PlayerRemoving:Connect(espDestroyPlayer)
+    espPlayerRemoving = Players.PlayerRemoving:Connect(function(plr)
+        if espCharacterConnections[plr] then pcall(function() espCharacterConnections[plr]:Disconnect() end); espCharacterConnections[plr]=nil end
+        espDestroyPlayer(plr)
+    end)
 end
 
 local function disableESP()
@@ -782,7 +784,9 @@ local savedQuality, savedCap, origLighting
 local savedAtmos, disabledLights = {}, {}
 
 local function isHyko(d)
-    return d and d.Name and string.sub(d.Name, 1, 4) == "Hyko"
+    if not d then return false end
+    if d == espFolder or (espFolder and d:IsDescendantOf(espFolder)) then return true end
+    return d.Name and string.sub(d.Name, 1, 4) == "Hyko"
 end
 
 local function safeRemove(d)
@@ -1547,6 +1551,22 @@ local function featureRow(parent, y, iconAsset, titleTxt, subTxt)
     img.ZIndex = 15
     img.Parent = tile
 
+    local fallback = Instance.new("TextLabel")
+    fallback.Size = UDim2.fromScale(1,1)
+    fallback.BackgroundTransparency = 1
+    fallback.Text = (iconAsset == ICONS.loot and ICON_FALLBACK.loot) or (iconAsset == ICONS.sparkle and ICON_FALLBACK.sparkle) or "•"
+    fallback.TextColor3 = Color3.new(1,1,1)
+    fallback.Font = Enum.Font.GothamBold
+    fallback.TextSize = 16
+    fallback.TextXAlignment = Enum.TextXAlignment.Center
+    fallback.TextYAlignment = Enum.TextYAlignment.Center
+    fallback.ZIndex = 14
+    fallback.Parent = tile
+
+    task.defer(function()
+        pcall(function() fallback.Visible = not img.IsLoaded end)
+    end)
+
     local t = Instance.new("TextLabel")
     t.Size = UDim2.new(1, -120, 0, 15)
     t.Position = UDim2.fromOffset(42, 10)
@@ -1770,8 +1790,11 @@ div2.ZIndex = 12
 div2.Parent = pageSettings
 regBg(div2, "BackgroundColor3", "divider")
 
-featureRow(pageSettings, 138, ICONS.sparkle, "FPS Boost Ultra", "Reduce graphics")
+featureRow(pageSettings, 138, ICONS.boots, "FPS Boost Ultra", "Reduce graphics")
 local fpsSwitch = makeSwitch(pageSettings, -4, 152)
+
+featureRow(pageSettings, 196, ICONS.loot, "Fast Loot", "Press E to collect nearby prompts")
+local fastLootSettings = makeSwitch(pageSettings, -4, 210)
 
 local function actionBtn(parent, y, txt, iconAsset)
     local b = Instance.new("TextButton")
@@ -1803,6 +1826,17 @@ local function actionBtn(parent, y, txt, iconAsset)
     icon.Parent = b
     regAccent(icon, "ImageColor3")
 
+    local iconFallback = Instance.new("TextLabel")
+    iconFallback.Size = UDim2.fromOffset(18,18)
+    iconFallback.Position = UDim2.fromOffset(10,9)
+    iconFallback.BackgroundTransparency = 1
+    iconFallback.Text = (iconAsset == ICONS.back and ICON_FALLBACK.back) or (iconAsset == ICONS.sparkle and ICON_FALLBACK.sparkle) or (iconAsset == ICONS.info and "i") or "•"
+    iconFallback.TextColor3 = COL.accent
+    iconFallback.Font = Enum.Font.GothamBold
+    iconFallback.TextSize = 14
+    iconFallback.ZIndex = 15
+    iconFallback.Parent = b
+
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(1, -40, 1, 0)
     lbl.Position = UDim2.fromOffset(34, 0)
@@ -1833,13 +1867,11 @@ end)
 local ramBtn = actionBtn(pageSettings, 246, "Free Memory", ICONS.info)
 ramBtn.MouseButton1Click:Connect(function()
     freeRAM()
-    pushNotif({
-        title = "Memory",
-        message = "Garbage collected",
-        color = COL.green,
-        icon = ICONS.info,
-    })
+    pushNotif({ title = "Memory", message = "Garbage collected", color = COL.green, icon = ICONS.info })
 end)
+
+local exitBtn = actionBtn(pageSettings, 288, "Close Menu", ICONS.back)
+exitBtn.MouseButton1Click:Connect(function() setExpanded(false) end)
 
 --============================================================--
 -- STATE
@@ -1859,6 +1891,15 @@ lootSwitch.button.Activated:Connect(function()
         color = s and COL.green or COL.sub,
         icon = ICONS.loot,
     })
+end)
+
+fastLootSettings.button.Activated:Connect(function()
+    local s = not lootOn
+    lootOn = s
+    lootSwitch.setState(s, true)
+    fastLootSettings.setState(s, true)
+    if s then enableLoot() else disableLoot() end
+    updateDot()
 end)
 
 espSwitch.button.Activated:Connect(function()
@@ -2105,6 +2146,10 @@ LP.CharacterAdded:Connect(function()
     end
 
     if lootOn then disableLoot(); enableLoot() end
+    lootSwitch.setState(lootOn, true)
+    fastLootSettings.setState(lootOn, true)
+    fpsSwitch.setState(boostOn, true)
+    espSwitch.setState(espOn, true)
 end)
 
 --============================================================--
