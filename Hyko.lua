@@ -551,7 +551,7 @@ local function espDestroyPlayer(plr)
     if not entry then return end
     if entry.highlight then pcall(function() entry.highlight:Destroy() end) end
     if entry.billboard then pcall(function() entry.billboard:Destroy() end) end
-    if entry.connection then pcall(function() entry.connection:Disconnect() end) end
+    if entry.connection and typeof(entry.connection) == "RBXScriptConnection" then pcall(function() entry.connection:Disconnect() end) end
     espEntries[plr] = nil
 end
 
@@ -644,20 +644,11 @@ local function espCreatePlayer(plr)
     local entry = {highlight=highlight, billboard=billboard, label=label, distance=distance, icon=icon, dicon=dicon, char=char}
     espEntries[plr] = entry
 
-    -- Theme colors update only while the tag exists; no per-frame work.
-    entry.connection = task.spawn(function()
-        while espOn and espEntries[plr] == entry and billboard.Parent do
-            local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            if myRoot and root.Parent then
-                distance.Text = string.format("%dm", math.floor((myRoot.Position-root.Position).Magnitude+0.5))
-            end
-            card.BackgroundColor3 = COL.bg
-            label.TextColor3 = COL.text
-            icon.ImageColor3 = COL.accent
-            highlight.OutlineColor = COL.accent
-            task.wait(ESP_REFRESH)
-        end
-    end)
+    -- Distance/theme updates are handled by the single global Heartbeat loop below.
+    card.BackgroundColor3 = COL.bg
+    label.TextColor3 = COL.text
+    icon.ImageColor3 = COL.accent
+    highlight.OutlineColor = COL.accent
 end
 
 local function enableESP()
@@ -695,6 +686,16 @@ RunService.Heartbeat:Connect(function()
             local hum = plr.Character:FindFirstChildOfClass("Humanoid")
             if root and hum and hum.Health > 0 and (not e or e.char ~= plr.Character) then
                 espCreatePlayer(plr)
+                e = espEntries[plr]
+            end
+            if e and e.char == plr.Character and e.distance then
+                local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                if myRoot and root then
+                    e.distance.Text = string.format("%dm", math.floor((myRoot.Position - root.Position).Magnitude + 0.5))
+                end
+                if e.highlight then e.highlight.OutlineColor = COL.accent end
+                if e.label then e.label.TextColor3 = COL.text end
+                if e.icon then e.icon.ImageColor3 = COL.accent end
             end
         end
     end
@@ -1051,6 +1052,7 @@ notifHost.Size = UDim2.fromOffset(390, 56)
 notifHost.BackgroundTransparency = 1
 notifHost.ZIndex = 200
 notifHost.Parent = screen
+notifHost:Destroy() -- notification UI removed
 
 local notifStack = {}
 local activeByTitle = {}
@@ -1089,135 +1091,8 @@ local function dismissNotif(entry)
 end
 
 local function pushNotif(opts)
-    local now = os.clock()
-    if now - lastNotifAt < NOTIF_MIN_INTERVAL then
-        task.delay(NOTIF_MIN_INTERVAL - (now - lastNotifAt), function()
-            pcall(function() pushNotif(opts) end)
-        end)
-        return
-    end
-    lastNotifAt = now
-
-    opts = opts or {}
-    local title = opts.title or "Hyko"
-    local message = opts.message or ""
-    local color = opts.color or COL.accent
-    local iconAsset = opts.icon or ICONS.info
-    local duration = opts.duration or 2.4
-
-    local existing = activeByTitle[title]
-    if existing and not existing.dismissed and existing.frame.Parent then
-        existing.messageLabel.Text = message
-        existing.icon.Image = iconAsset
-        existing.iconBg.BackgroundColor3 = color
-        if existing.progressTween then pcall(function() existing.progressTween:Cancel() end) end
-        existing.progressFill.Size = UDim2.fromScale(1, 1)
-        existing.progressTween = TweenService:Create(
-            existing.progressFill,
-            TweenInfo.new(duration, Enum.EasingStyle.Linear),
-            {Size = UDim2.fromScale(0, 1)}
-        )
-        existing.progressTween:Play()
-        return
-    end
-
-    while #notifStack >= MAX_NOTIFS do
-        dismissNotif(notifStack[#notifStack])
-    end
-
-    local card = Instance.new("Frame")
-    card.Name = "HykoNotif"
-    card.AnchorPoint = Vector2.new(0.5, 0)
-    card.Size = UDim2.fromOffset(NOTIF_W, NOTIF_H)
-    card.Position = UDim2.new(0.5, 0, 0, -64)
-    card.BackgroundColor3 = COL.bg
-    card.BackgroundTransparency = 0.02
-    card.BorderSizePixel = 0
-    card.ZIndex = 201
-    card.Parent = notifHost
-    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(0, 16); cc.Parent = card
-    local cs = Instance.new("UIStroke"); cs.Color = COL.stroke; cs.Thickness = 1; cs.Transparency = 0.18; cs.Parent = card; regBg(cs, "Color", "stroke")
-
-    local iconBg = Instance.new("Frame")
-    iconBg.Size = UDim2.fromOffset(32, 32)
-    iconBg.Position = UDim2.fromOffset(9, 9)
-    iconBg.BackgroundColor3 = color
-    iconBg.BackgroundTransparency = 0.08
-    iconBg.BorderSizePixel = 0
-    iconBg.Parent = card
-    local ibc = Instance.new("UICorner"); ibc.CornerRadius = UDim.new(0, 10); ibc.Parent = iconBg
-
-    local icon = Instance.new("ImageLabel")
-    icon.Size = UDim2.fromOffset(17, 17)
-    icon.Position = UDim2.fromOffset(7.5, 7.5)
-    icon.BackgroundTransparency = 1
-    icon.Image = iconAsset
-    icon.ImageColor3 = Color3.fromRGB(255, 255, 255)
-    icon.Parent = iconBg
-
-    local titleLabel = Instance.new("TextLabel")
-    titleLabel.BackgroundTransparency = 1
-    titleLabel.Position = UDim2.fromOffset(51, 7)
-    titleLabel.Size = UDim2.new(1, -125, 0, 18)
-    titleLabel.Font = Enum.Font.GothamSemibold
-    titleLabel.TextSize = 12
-    titleLabel.TextColor3 = COL.text
-    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    titleLabel.Text = title
-    titleLabel.Parent = card
-    regBg(titleLabel, "TextColor3", "text")
-
-    local msg = Instance.new("TextLabel")
-    msg.BackgroundTransparency = 1
-    msg.Position = UDim2.fromOffset(51, 24)
-    msg.Size = UDim2.new(1, -125, 0, 17)
-    msg.Font = Enum.Font.Gotham
-    msg.TextSize = 10
-    msg.TextColor3 = COL.sub
-    msg.TextXAlignment = Enum.TextXAlignment.Left
-    msg.TextTruncate = Enum.TextTruncate.AtEnd
-    msg.Text = message
-    msg.Parent = card
-    regBg(msg, "TextColor3", "sub")
-
-    local close = Instance.new("TextButton")
-    close.Size = UDim2.fromOffset(24, 24)
-    close.Position = UDim2.new(1, -33, 0, 13)
-    close.BackgroundTransparency = 1
-    close.Text = "×"
-    close.TextColor3 = COL.sub
-    close.Font = Enum.Font.GothamMedium
-    close.TextSize = 18
-    close.AutoButtonColor = false
-    close.Parent = card
-
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(1, -18, 0, 2)
-    bar.Position = UDim2.new(0, 9, 1, -5)
-    bar.BackgroundColor3 = color
-    bar.BorderSizePixel = 0
-    bar.Parent = card
-    local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(1, 0); bc.Parent = bar
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.fromScale(1, 1)
-    fill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    fill.BackgroundTransparency = 0.7
-    fill.BorderSizePixel = 0
-    fill.Parent = bar
-    local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(1, 0); fc.Parent = fill
-
-    local entry = {frame = card, title = title, messageLabel = msg, icon = icon, iconBg = iconBg, progressFill = fill, dismissed = false}
-    activeByTitle[title] = entry
-    table.insert(notifStack, entry)
-    close.MouseButton1Click:Connect(function() dismissNotif(entry) end)
-
-    refreshNotifPositions()
-    TweenService:Create(card, EASE.notif, {Position = UDim2.new(0.5, 0, 0, 0)}):Play()
-    entry.progressTween = TweenService:Create(fill, TweenInfo.new(duration, Enum.EasingStyle.Linear), {Size = UDim2.fromScale(0, 1)})
-    entry.progressTween:Play()
-    task.delay(duration, function()
-        if not entry.dismissed then dismissNotif(entry) end
-    end)
+    -- Notifications disabled: keep API calls harmless.
+    return
 end
 
 --============================================================--
@@ -2207,63 +2082,7 @@ setBtn.MouseButton1Click:Connect(function()
     swapPage(not showingSettings)
 end)
 
---============================================================--
--- iOS QUICK BAR
---============================================================--
-local quickBar = Instance.new("Frame")
-quickBar.Name = "HykoQuickBar"
-quickBar.AnchorPoint = Vector2.new(0.5, 0)
-quickBar.Position = UDim2.new(0.5, 0, 0, 74)
-quickBar.Size = UDim2.fromOffset(276, 44)
-quickBar.BackgroundColor3 = COL.bg
-quickBar.BackgroundTransparency = 0.02
-quickBar.BorderSizePixel = 0
-quickBar.ZIndex = 90
-quickBar.Parent = screen
-local qcorner=Instance.new("UICorner"); qcorner.CornerRadius=UDim.new(0,16); qcorner.Parent=quickBar
-local qstroke=Instance.new("UIStroke"); qstroke.Color=COL.stroke; qstroke.Thickness=1; qstroke.Transparency=0.18; qstroke.Parent=quickBar; regBg(qstroke,"Color","stroke")
-local qlayout=Instance.new("UIListLayout"); qlayout.FillDirection=Enum.FillDirection.Horizontal; qlayout.HorizontalAlignment=Enum.HorizontalAlignment.Center; qlayout.VerticalAlignment=Enum.VerticalAlignment.Center; qlayout.Padding=UDim.new(0,5); qlayout.Parent=quickBar
-
-local function quickButton(name, image, callback)
-    local b=Instance.new("ImageButton")
-    b.Name=name; b.Size=UDim2.fromOffset(36,36); b.BackgroundColor3=COL.iconBtn; b.BorderSizePixel=0; b.AutoButtonColor=false; b.Image=image; b.ImageColor3=COL.text; b.Parent=quickBar
-    local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,11); c.Parent=b
-    regBg(b,"BackgroundColor3","iconBtn"); regBg(b,"ImageColor3","text")
-    b.MouseEnter:Connect(function() TweenService:Create(b,EASE.quick,{BackgroundColor3=COL.iconHov}):Play() end)
-    b.MouseLeave:Connect(function() TweenService:Create(b,EASE.quick,{BackgroundColor3=COL.iconBtn}):Play() end)
-    b.MouseButton1Click:Connect(callback)
-    return b
-end
-
-quickButton("FastLoot", ICONS.loot, function()
-    local state=not lootOn
-    if state then enableLoot() else disableLoot() end
-    lootOn=state
-    lootSwitch.setState(state,true)
-    pushNotif({title="Fast Loot",message=state and "Enabled" or "Disabled",color=state and COL.green or COL.sub,icon=ICONS.loot})
-end)
-quickButton("FPSBoost", ICONS.sparkle, function()
-    local state=not boostOn
-    if state then
-        local ok=pcall(enableBoost)
-        if not ok then state=false end
-    else
-        pcall(disableBoost)
-    end
-    boostOn=state
-    fpsSwitch.setState(state,true)
-    pushNotif({title="FPS Boost",message=state and "Performance mode enabled" or "Disabled",color=state and COL.green or COL.sub,icon=ICONS.sparkle})
-end)
-quickButton("Boots", ICONS.boots, function()
-    pushNotif({title="Boots",message="Use the movement control in Hyko",color=COL.accent,icon=ICONS.boots})
-end)
-quickButton("Settings", ICONS.gear, function()
-    setExpanded(true)
-    if not showingSettings then swapPage(true) end
-end)
-quickButton("Close", ICONS.back, function()
-    if showingSettings then swapPage(false) else setExpanded(false) end
-end)
+-- iOS quick bar removed by user request.
 
 --============================================================--
 -- RESPAWN
@@ -2293,18 +2112,4 @@ end)
 --============================================================--
 setExpanded(true)
 
--- Startup notification nhẹ: chỉ tạo 1 card, tránh burst UI/Tween lúc spawn.
-task.defer(function()
-    task.wait(0.8)
-    pcall(function()
-        pushNotif({
-            title = "Hyko Loaded",
-            message = "Ready · " .. LP.DisplayName,
-            color = COL.accent,
-            icon = ICONS.info,
-            duration = 2.5,
-        })
-    end)
-end)
-
-print("[Hyko] v10 FINAL · Lucide icons active")
+-- Startup notification removed by user request.
