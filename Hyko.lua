@@ -1,5 +1,7 @@
 --============================================================--
---  Hyko · iOS UI  v10 FINAL + Key System
+--  Hyko · iOS UI  v10 FINAL
+--  · Lucide icons (bag / shield)
+--  · Bottom-right notifications (progress bar, no side bar)
 --============================================================--
 
 local Players      = game:GetService("Players")
@@ -8,9 +10,6 @@ local RunService   = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Lighting     = game:GetService("Lighting")
 local LP           = Players.LocalPlayer
-
-local UNLOCK_KEY   = "Huy"
-local unlocked     = false
 
 local function mountGui(g)
     g.ResetOnSpawn = false
@@ -33,17 +32,16 @@ local function mountGui(g)
 end
 
 --============================================================--
--- ICON REGISTRY
+-- ICON REGISTRY  (Lucide style)
 --============================================================--
 local ICONS = {
     info    = "rbxassetid://6031075931",
     check   = "rbxassetid://6031094678",
     gear    = "rbxassetid://6031280882",
     back    = "rbxassetid://6031091004",
-    shield  = "rbxassetid://10709810948",   -- khiên Lucide
-    loot    = "rbxassetid://6035052010",    -- rương kho báu
+    shield  = "rbxassetid://10709810948",   -- Lucide Shield (Anti-Ragdoll)
+    loot    = "rbxassetid://10709811110",   -- Lucide Bag    (Fast Loot)
     sparkle = "rbxassetid://6031094678",
-    lock    = "rbxassetid://6031091004",
 }
 
 --============================================================--
@@ -733,7 +731,7 @@ screen.DisplayOrder = 100
 mountGui(screen)
 
 --============================================================--
--- NOTIFICATION SYSTEM (optimized, dedupe + debounce)
+-- NOTIFICATION SYSTEM (dedupe + debounce)
 --============================================================--
 local notifHost = Instance.new("Frame")
 notifHost.Name = "HykoNotifs"
@@ -742,15 +740,13 @@ notifHost.Position = UDim2.new(1, -20, 1, -20)
 notifHost.Size = UDim2.fromOffset(280, 600)
 notifHost.BackgroundTransparency = 1
 notifHost.ZIndex = 200
-notifHost.Visible = false
 notifHost.Parent = screen
 
 local notifStack = {}
-local activeByTitle = {}     -- dedupe: title -> entry
+local activeByTitle = {}
 local NOTIF_W, NOTIF_H, NOTIF_GAP = 264, 68, 8
 local MAX_NOTIFS = 3
 
--- debounce: gom nhiều lần refresh trong 1 frame thành 1 lần duy nhất
 local refreshQueued = false
 local function refreshNotifPositions()
     if refreshQueued then return end
@@ -811,7 +807,7 @@ local function pushNotif(opts)
     local icon     = opts.icon     or ICONS.info
     local duration = opts.duration or 3
 
-    -- ==== DEDUPE: nếu title đã có và chưa dismiss → reset timer + đổi message
+    -- dedupe: cùng title → reset timer + đổi message
     local existing = activeByTitle[title]
     if existing and not existing.dismissed and existing.frame.Parent then
         existing.messageLabel.Text = message
@@ -828,14 +824,10 @@ local function pushNotif(opts)
         return
     end
 
-    -- cap stack
     while #notifStack >= MAX_NOTIFS do
         dismissNotif(notifStack[#notifStack])
     end
 
-    ---------------------------------------------------------
-    -- CARD (không có shadow frame → giảm 1 draw + 2 instance)
-    ---------------------------------------------------------
     local card = Instance.new("Frame")
     card.Name = "HykoNotif"
     card.AnchorPoint = Vector2.new(1, 1)
@@ -854,7 +846,6 @@ local function pushNotif(opts)
     cs.Parent = card
     regBg(cs, "Color", "stroke")
 
-    -- icon tile
     local tile = Instance.new("Frame")
     tile.Size = UDim2.fromOffset(34, 34)
     tile.Position = UDim2.fromOffset(14, 14)
@@ -905,7 +896,6 @@ local function pushNotif(opts)
     ml.Parent = card
     regBg(ml, "TextColor3", "sub")
 
-    -- bottom progress bar
     local progTrack = Instance.new("Frame")
     progTrack.Size = UDim2.new(1, -20, 0, 3)
     progTrack.Position = UDim2.new(0, 10, 1, -8)
@@ -954,231 +944,6 @@ local function pushNotif(opts)
 end
 
 --============================================================--
--- KEY SYSTEM
---============================================================--
-local keyOverlay = Instance.new("Frame")
-keyOverlay.Name = "KeyOverlay"
-keyOverlay.Size = UDim2.fromScale(1, 1)
-keyOverlay.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
-keyOverlay.BackgroundTransparency = 0.15
-keyOverlay.BorderSizePixel = 0
-keyOverlay.ZIndex = 500
-keyOverlay.Parent = screen
-
--- blur
-local blur = Instance.new("BlurEffect")
-blur.Size = 18
-blur.Parent = Lighting
-
-local keyCard = Instance.new("CanvasGroup")
-keyCard.Size = UDim2.fromOffset(320, 300)
-keyCard.AnchorPoint = Vector2.new(0.5, 0.5)
-keyCard.Position = UDim2.fromScale(0.5, 0.5)
-keyCard.BackgroundColor3 = Color3.fromRGB(28, 30, 38)
-keyCard.BorderSizePixel = 0
-keyCard.ZIndex = 510
-keyCard.GroupTransparency = 0
-keyCard.Parent = keyOverlay
-
-local kcCorner = Instance.new("UICorner")
-kcCorner.CornerRadius = UDim.new(0, 24); kcCorner.Parent = keyCard
-
-local kcStroke = Instance.new("UIStroke")
-kcStroke.Color = Color3.fromRGB(70, 74, 88)
-kcStroke.Thickness = 1; kcStroke.Transparency = 0.3
-kcStroke.Parent = keyCard
-
--- lock icon
-local lockTile = Instance.new("Frame")
-lockTile.Size = UDim2.fromOffset(56, 56)
-lockTile.Position = UDim2.new(0.5, -28, 0, 30)
-lockTile.BackgroundColor3 = Color3.fromRGB(10, 132, 255)
-lockTile.BorderSizePixel = 0
-lockTile.ZIndex = 512
-lockTile.Parent = keyCard
-
-local ltCorner = Instance.new("UICorner")
-ltCorner.CornerRadius = UDim.new(0, 18); ltCorner.Parent = lockTile
-
-local lockImg = Instance.new("ImageLabel")
-lockImg.Size = UDim2.fromOffset(30, 30)
-lockImg.Position = UDim2.fromOffset(13, 13)
-lockImg.BackgroundTransparency = 1
-lockImg.Image = ICONS.lock
-lockImg.ImageColor3 = Color3.fromRGB(255, 255, 255)
-lockImg.ZIndex = 513
-lockImg.Parent = lockTile
-
--- title
-local kTitle = Instance.new("TextLabel")
-kTitle.Size = UDim2.new(1, 0, 0, 24)
-kTitle.Position = UDim2.fromOffset(0, 100)
-kTitle.BackgroundTransparency = 1
-kTitle.Text = "Hyko · Authentication"
-kTitle.TextColor3 = Color3.fromRGB(245, 245, 247)
-kTitle.Font = Enum.Font.GothamBold
-kTitle.TextSize = 17
-kTitle.ZIndex = 512
-kTitle.Parent = keyCard
-
-local kSub = Instance.new("TextLabel")
-kSub.Size = UDim2.new(1, 0, 0, 16)
-kSub.Position = UDim2.fromOffset(0, 124)
-kSub.BackgroundTransparency = 1
-kSub.Text = "Nhập key để tiếp tục"
-kSub.TextColor3 = Color3.fromRGB(150, 152, 158)
-kSub.Font = Enum.Font.GothamMedium
-kSub.TextSize = 11
-kSub.ZIndex = 512
-kSub.Parent = keyCard
-
--- input
-local kInput = Instance.new("TextBox")
-kInput.Size = UDim2.new(1, -60, 0, 42)
-kInput.Position = UDim2.fromOffset(30, 156)
-kInput.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
-kInput.BorderSizePixel = 0
-kInput.Text = ""
-kInput.PlaceholderText = "Nhập key..."
-kInput.PlaceholderColor3 = Color3.fromRGB(110, 114, 124)
-kInput.TextColor3 = Color3.fromRGB(245, 245, 247)
-kInput.Font = Enum.Font.GothamBold
-kInput.TextSize = 14
-kInput.ClearTextOnFocus = false
-kInput.ZIndex = 512
-kInput.Parent = keyCard
-
-local kiCorner = Instance.new("UICorner")
-kiCorner.CornerRadius = UDim.new(0, 12); kiCorner.Parent = kInput
-
-local kiStroke = Instance.new("UIStroke")
-kiStroke.Color = Color3.fromRGB(70, 74, 88)
-kiStroke.Thickness = 1; kiStroke.Transparency = 0.3
-kiStroke.Parent = kInput
-
--- submit button
-local kBtn = Instance.new("TextButton")
-kBtn.Size = UDim2.new(1, -60, 0, 42)
-kBtn.Position = UDim2.fromOffset(30, 210)
-kBtn.BackgroundColor3 = Color3.fromRGB(10, 132, 255)
-kBtn.BorderSizePixel = 0
-kBtn.Text = "Unlock"
-kBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-kBtn.Font = Enum.Font.GothamBold
-kBtn.TextSize = 14
-kBtn.AutoButtonColor = false
-kBtn.ZIndex = 512
-kBtn.Parent = keyCard
-
-local kbCorner = Instance.new("UICorner")
-kbCorner.CornerRadius = UDim.new(0, 12); kbCorner.Parent = kBtn
-
--- error label
-local kError = Instance.new("TextLabel")
-kError.Size = UDim2.new(1, -60, 0, 16)
-kError.Position = UDim2.fromOffset(30, 258)
-kError.BackgroundTransparency = 1
-kError.Text = ""
-kError.TextColor3 = Color3.fromRGB(255, 69, 58)
-kError.Font = Enum.Font.GothamBold
-kError.TextSize = 11
-kError.ZIndex = 512
-kError.Parent = keyCard
-
--- focus input
-task.defer(function()
-    if kInput and kInput.Parent then
-        pcall(function() kInput:CaptureFocus() end)
-    end
-end)
-
--- shake helper
-local kBaseX, kBaseY = 0.5, 0.5
-local function shakeKeyCard()
-    local offsets = { 10, -10, 8, -8, 5, -5, 2, 0 }
-    for i, x in ipairs(offsets) do
-        task.delay((i - 1) * 0.04, function()
-            if not keyCard or not keyCard.Parent then return end
-            TweenService:Create(keyCard, EASE.quick, {
-                Position = UDim2.new(kBaseX, x, kBaseY, 0)
-            }):Play()
-        end)
-    end
-end
-
-local function tryUnlock()
-    if unlocked then return end
-    local entered = (kInput.Text or ""):gsub("%s+", "")
-
-    if entered == UNLOCK_KEY then
-        unlocked = true
-        kError.Text = ""
-        kBtn.Text = "✓ Access Granted"
-        kBtn.BackgroundColor3 = Color3.fromRGB(52, 199, 89)
-
-        task.wait(0.25)
-
-        TweenService:Create(keyOverlay, TweenInfo.new(0.4, Enum.EasingStyle.Quart),
-            { BackgroundTransparency = 1 }):Play()
-        TweenService:Create(keyCard, TweenInfo.new(0.4, Enum.EasingStyle.Quart),
-            { GroupTransparency = 1 }):Play()
-
-        task.wait(0.42)
-
-        keyOverlay:Destroy()
-        pcall(function() blur:Destroy() end)
-
-        -- reveal UI
-        notifHost.Visible = true
-        main.Visible = true
-
-        task.spawn(function()
-            task.wait(0.15)
-            pushNotif({
-                title   = "Hyko Loaded",
-                message = "Welcome, " .. LP.DisplayName,
-                color   = COL.accent,
-                icon    = ICONS.info,
-                duration = 3.5,
-            })
-            task.wait(0.4)
-            pushNotif({
-                title   = "Ready",
-                message = "Tap the card to open features",
-                color   = COL.green,
-                icon    = ICONS.check,
-                duration = 3,
-            })
-        end)
-    else
-        kError.Text = "Sai key, thử lại!"
-        shakeKeyCard()
-
-        TweenService:Create(kiStroke, EASE.quick,
-            { Color = Color3.fromRGB(255, 69, 58), Transparency = 0 }):Play()
-        task.delay(1.2, function()
-            TweenService:Create(kiStroke, EASE.quick,
-                { Color = Color3.fromRGB(70, 74, 88), Transparency = 0.3 }):Play()
-        end)
-    end
-end
-
-kBtn.MouseEnter:Connect(function()
-    if unlocked then return end
-    TweenService:Create(kBtn, EASE.quick,
-        { BackgroundColor3 = Color3.fromRGB(48, 154, 255) }):Play()
-end)
-kBtn.MouseLeave:Connect(function()
-    if unlocked then return end
-    TweenService:Create(kBtn, EASE.quick,
-        { BackgroundColor3 = Color3.fromRGB(10, 132, 255) }):Play()
-end)
-kBtn.MouseButton1Click:Connect(tryUnlock)
-kInput.FocusLost:Connect(function(enter)
-    if enter then tryUnlock() end
-end)
-
---============================================================--
 -- MAIN CARD
 --============================================================--
 local main = Instance.new("Frame")
@@ -1190,7 +955,6 @@ main.BackgroundTransparency = 0.02
 main.BorderSizePixel = 0
 main.ClipsDescendants = false
 main.ZIndex = 10
-main.Visible = false
 main.Parent = screen
 regBg(main, "BackgroundColor3", "bg")
 
@@ -2158,4 +1922,23 @@ end)
 --============================================================--
 setExpanded(true)
 
-print("[Hyko] v10 · Key System active · Notifications optimized")
+task.spawn(function()
+    task.wait(0.35)
+    pushNotif({
+        title = "Hyko Loaded",
+        message = "Welcome, " .. LP.DisplayName,
+        color = COL.accent,
+        icon = ICONS.info,
+        duration = 3.5,
+    })
+    task.wait(0.4)
+    pushNotif({
+        title = "Ready",
+        message = "Tap the card to open features",
+        color = COL.green,
+        icon = ICONS.check,
+        duration = 3,
+    })
+end)
+
+print("[Hyko] v10 FINAL · Lucide icons active")
