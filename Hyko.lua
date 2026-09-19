@@ -39,8 +39,8 @@ local ICONS = {
     check   = "rbxassetid://6031094678",  -- checkmark circle
     gear    = "rbxassetid://6031280882",  -- settings gear
     back    = "rbxassetid://6031091004",  -- back chevron
-    shield  = "rbxassetid://6031227817",  -- shield  (Anti-Ragdoll)
-    loot    = "rbxassetid://6034287458",  -- bag     (Fast Loot)
+    shield  = "rbxassetid://10709810948",  -- shield  (Anti-Ragdoll)
+    loot    = "rbxassetid://10709811110",  -- bag     (Fast Loot)
     sparkle = "rbxassetid://6031094678",  -- generic sparkle
 }
 
