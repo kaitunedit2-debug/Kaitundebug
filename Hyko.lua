@@ -1,7 +1,7 @@
 --============================================================--
---  Hyko · iOS UI  v7
---  · New shield icon (Lucide, verified)
---  · Background theme: Light / Dark
+--  Hyko · iOS UI  v10 FINAL
+--  · Roblox shield icon (asset ID)
+--  · Bottom-right notifications
 --============================================================--
 
 local Players      = game:GetService("Players")
@@ -59,14 +59,25 @@ end
 -- ANTI-RAGDOLL
 --============================================================--
 local antiOn, antiSpeed = false, 60
-local antiConn, antiPost, antiAdded
-local realHum, fakeHum, velCon, velAtt
-local lastSafeY
+local antiConn, antiPost, antiAdded, antiJumpConn, antiStateConn
+local realHum, fakeHum
+local moveAtt, moveVel, faceAtt, faceAlign
+local lastSafeY, housekeeping = nil, 0
 local bodySnap = {}
 
 local rayP = RaycastParams.new()
 rayP.FilterType = Enum.RaycastFilterType.Exclude
 rayP.IgnoreWater = true
+
+local KILL_UP, ABOVE_GROUND, UPRIGHT_THRESHOLD = 40, 12, 0.85
+
+local BAD_STATES = {
+    [Enum.HumanoidStateType.Ragdoll]          = true,
+    [Enum.HumanoidStateType.FallingDown]      = true,
+    [Enum.HumanoidStateType.Physics]          = true,
+    [Enum.HumanoidStateType.PlatformStanding] = true,
+    [Enum.HumanoidStateType.GettingUp]        = true,
+}
 
 local function isMover(d)
     return d:IsA("BodyVelocity") or d:IsA("BodyAngularVelocity")
@@ -86,34 +97,35 @@ local function buildFakeHum()
     h.BreakJointsOnDeath = false; h.RequiresNeck = false
     h.EvaluateStateMachine = false
     pcall(function()
-        h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-        h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-        h:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+        for name, enabled in pairs({
+            Ragdoll = false, FallingDown = false, Physics = false,
+            PlatformStanding = false, GettingUp = false,
+            Climbing = false, Swimming = false,
+        }) do
+            h:SetStateEnabled(Enum.HumanoidStateType[name], enabled)
+        end
     end)
     return h
 end
 
-local function snap(p)
+local function snapPart(p)
     if bodySnap[p] then return end
     bodySnap[p] = { cc = p.CanCollide, m = p.Massless }
 end
 
-local function neutralize(char, root)
+local function neutralizeBodyPart(p)
+    snapPart(p)
+    pcall(function()
+        if p.CanCollide then p.CanCollide = false end
+        if not p.Massless then p.Massless = true end
+        p.AssemblyLinearVelocity = Vector3.zero
+        p.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
+local function buildBodyCache(char, root)
     for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            if p ~= root then
-                snap(p)
-                pcall(function()
-                    if p.CanCollide then p.CanCollide = false end
-                    if not p.Massless then p.Massless = true end
-                    p.AssemblyLinearVelocity = Vector3.zero
-                    p.AssemblyAngularVelocity = Vector3.zero
-                end)
-            end
-            pcall(function() p.AssemblyAngularVelocity = Vector3.zero end)
-        elseif isMover(p) and p.Name ~= "HykoVel" then
-            pcall(function() p:Destroy() end)
-        end
+        if p:IsA("BasePart") and p ~= root then neutralizeBodyPart(p) end
     end
 end
 
@@ -135,44 +147,67 @@ local function restore(char)
     end
 end
 
-local function makeVelCon(hrp)
-    if velCon then pcall(function() velCon:Destroy() end) end
-    if velAtt then pcall(function() velAtt:Destroy() end) end
-    local a = Instance.new("Attachment")
-    a.Name = "HykoAtt"; a.Parent = hrp; velAtt = a
+local function makeConstraints(root)
+    if moveAtt then pcall(function() moveAtt:Destroy() end) end
+    if moveVel then pcall(function() moveVel:Destroy() end) end
+    if faceAtt then pcall(function() faceAtt:Destroy() end) end
+    if faceAlign then pcall(function() faceAlign:Destroy() end) end
+
+    local mAtt = Instance.new("Attachment")
+    mAtt.Name = "HykoMoveAtt"; mAtt.Parent = root; moveAtt = mAtt
+
     local lv = Instance.new("LinearVelocity")
-    lv.Name = "HykoVel"; lv.Attachment0 = a
+    lv.Name = "HykoMoveVel"; lv.Attachment0 = mAtt
     lv.RelativeTo = Enum.ActuatorRelativeTo.World
     lv.VectorVelocity = Vector3.zero
     lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
     lv.MaxAxesForce = Vector3.new(1e6, 0, 1e6)
     pcall(function() lv.ForceLimitsEnabled = true end)
-    lv.Parent = hrp; velCon = lv
+    lv.Parent = root; moveVel = lv
+
+    local fAtt = Instance.new("Attachment")
+    fAtt.Name = "HykoFaceAtt"; fAtt.Parent = root; faceAtt = fAtt
+
+    local ao = Instance.new("AlignOrientation")
+    ao.Name = "HykoFaceAlign"; ao.Attachment0 = fAtt
+    ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    ao.PrimaryAxisOnly = true; ao.RigidityEnabled = true
+    ao.MaxTorque = 1e7; ao.Responsiveness = 100
+    ao.Parent = root; faceAlign = ao
 end
 
-local function killVelCon()
-    if velCon then pcall(function() velCon:Destroy() end) end
-    if velAtt then pcall(function() velAtt:Destroy() end) end
-    velCon, velAtt = nil, nil
+local function killConstraints()
+    if moveAtt then pcall(function() moveAtt:Destroy() end) end
+    if moveVel then pcall(function() moveVel:Destroy() end) end
+    if faceAtt then pcall(function() faceAtt:Destroy() end) end
+    if faceAlign then pcall(function() faceAlign:Destroy() end) end
+    moveAtt, moveVel, faceAtt, faceAlign = nil, nil, nil, nil
 end
 
-local function healthy()
+local function resetState()
     if not fakeHum or not fakeHum.Parent then return end
     pcall(function()
         if fakeHum.PlatformStand then fakeHum.PlatformStand = false end
         if fakeHum.Sit then fakeHum.Sit = false end
-        fakeHum.AutoRotate = true
-        local st = fakeHum:GetState()
-        if st == Enum.HumanoidStateType.Ragdoll
-            or st == Enum.HumanoidStateType.FallingDown
-            or st == Enum.HumanoidStateType.Physics
-            or st == Enum.HumanoidStateType.PlatformStanding then
+        fakeHum.AutoRotate = false
+        if BAD_STATES[fakeHum:GetState()] then
             fakeHum:ChangeState(Enum.HumanoidStateType.Running)
         end
     end)
 end
 
-local function heartbeat()
+local function forceUpright(root, cam)
+    if root.CFrame.UpVector.Y < UPRIGHT_THRESHOLD then
+        local look = cam.CFrame.LookVector
+        local flat = Vector3.new(look.X, 0, look.Z)
+        if flat.Magnitude > 0.01 then
+            root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
+        end
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
+local function heartbeat(dt)
     local ch = LP.Character; if not ch then return end
     local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
     local cam = workspace.CurrentCamera; if not cam then return end
@@ -180,85 +215,80 @@ local function heartbeat()
     if not fakeHum or fakeHum.Parent ~= ch then
         fakeHum = buildFakeHum(); fakeHum.Parent = ch
     end
-    if fakeHum.WalkSpeed ~= 600 then
-        pcall(function() fakeHum.WalkSpeed = 600 end)
-    end
     if realHum and realHum.Parent == ch then
         pcall(function() realHum.Parent = nil end)
     end
 
-    healthy()
-    neutralize(ch, root)
-    if not velCon or not velCon.Parent then makeVelCon(root) end
-    pcall(function() root:SetNetworkOwner(LP) end)
+    if not moveVel or not moveVel.Parent or not faceAlign or not faceAlign.Parent then
+        makeConstraints(root)
+    end
+
+    forceUpright(root, cam)
 
     local look = cam.CFrame.LookVector
     local flat = Vector3.new(look.X, 0, look.Z)
     if flat.Magnitude > 0.01 then
-        root.CFrame = CFrame.new(root.Position, root.Position + flat.Unit)
-    end
-    root.AssemblyAngularVelocity = Vector3.zero
-
-    rayP.FilterDescendantsInstances = {ch}
-    local origin = root.Position + Vector3.new(0, 4, 0)
-    local res = workspace:Raycast(origin, Vector3.new(0, -120, 0), rayP)
-    local gy
-    if res then gy = res.Position.Y + 3.5; lastSafeY = gy end
-
-    local vel = root.AssemblyLinearVelocity
-    if vel.Y > 40 then
-        vel = Vector3.new(vel.X, 0, vel.Z)
-        root.AssemblyLinearVelocity = vel
-    end
-
-    if gy then
-        if root.Position.Y > gy + 12 then
-            root.CFrame = CFrame.new(root.Position.X, gy, root.Position.Z)
-                * (root.CFrame - root.Position)
-            root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
-        end
-    elseif lastSafeY and root.Position.Y > lastSafeY + 25 then
-        root.CFrame = CFrame.new(root.Position.X, lastSafeY, root.Position.Z)
-            * (root.CFrame - root.Position)
-        root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+        faceAlign.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
     end
 
     local mv = readMove()
-    local target
-    if mv.Magnitude < 0.05 then
-        target = Vector3.zero
-    else
+    local target = Vector3.zero
+    if mv.Magnitude > 0.05 then
         local wd = cam.CFrame.LookVector * (-mv.Z) + cam.CFrame.RightVector * mv.X
         wd = Vector3.new(wd.X, 0, wd.Z)
-        target = wd.Magnitude > 0.01 and wd.Unit * antiSpeed or Vector3.zero
+        if wd.Magnitude > 0.01 then target = wd.Unit * antiSpeed end
+    end
+    moveVel.VectorVelocity = target
+
+    local vel = root.AssemblyLinearVelocity
+    if vel.Y > KILL_UP then
+        root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
     end
 
-    if velCon and velCon.Parent then
-        velCon.VectorVelocity = target
-    else
-        root.AssemblyLinearVelocity =
-            target + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
-    end
-
-    if gy then
-        local delta = gy - root.Position.Y
-        if math.abs(delta) < 8 then
-            root.CFrame = CFrame.new(root.Position.X, gy, root.Position.Z)
-                * (root.CFrame - root.Position)
-            local cv = root.AssemblyLinearVelocity
-            root.AssemblyLinearVelocity = Vector3.new(cv.X, 0, cv.Z)
+    housekeeping = housekeeping + dt
+    if housekeeping >= 0.1 then
+        housekeeping = 0
+        resetState()
+        for _, d in ipairs(ch:GetDescendants()) do
+            if isMover(d) and d ~= moveVel and d ~= faceAlign then
+                pcall(function() d:Destroy() end)
+            end
         end
     end
 end
 
 local function postSim()
-    if not velCon or not velCon.Parent then return end
-    local c = LP.Character; if not c then return end
-    local root = c:FindFirstChild("HumanoidRootPart"); if not root then return end
-    local want, cur = velCon.VectorVelocity, root.AssemblyLinearVelocity
-    local dx, dz = cur.X - want.X, cur.Z - want.Z
-    if (dx*dx + dz*dz) > 4 then
-        root.AssemblyLinearVelocity = Vector3.new(want.X, cur.Y, want.Z)
+    if not antiOn then return end
+    local ch = LP.Character; if not ch then return end
+    local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
+    rayP.FilterDescendantsInstances = {ch}
+    local origin = root.Position + Vector3.new(0, 4, 0)
+    local res = workspace:Raycast(origin, Vector3.new(0, -120, 0), rayP)
+    if res then
+        local gy = res.Position.Y + 3.5
+        lastSafeY = gy
+        if root.Position.Y > gy + ABOVE_GROUND then
+            local vel = root.AssemblyLinearVelocity
+            root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+            if root.Position.Y > gy + ABOVE_GROUND + 20 then
+                root.CFrame = CFrame.new(root.Position.X, gy, root.Position.Z)
+                    * (root.CFrame - root.Position)
+            end
+        end
+    elseif lastSafeY and root.Position.Y > lastSafeY + 30 then
+        local vel = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+    end
+end
+
+local function doJump()
+    if not antiOn then return end
+    local ch = LP.Character; if not ch then return end
+    local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
+    rayP.FilterDescendantsInstances = {ch}
+    if workspace:Raycast(root.Position, Vector3.new(0, -4, 0), rayP) then
+        local vel = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.new(vel.X, 55, vel.Z)
     end
 end
 
@@ -273,44 +303,56 @@ local function startAnti()
     pcall(function() realHum.Parent = nil end)
     fakeHum = buildFakeHum(); fakeHum.Parent = c
 
+    antiStateConn = fakeHum.StateChanged:Connect(function(_, newState)
+        if not antiOn then return end
+        if BAD_STATES[newState] then
+            task.defer(function()
+                if antiOn and fakeHum and fakeHum.Parent then
+                    pcall(function()
+                        fakeHum:ChangeState(Enum.HumanoidStateType.Running)
+                    end)
+                end
+            end)
+        end
+    end)
+
     pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
     pcall(function() hrp:SetNetworkOwner(LP) end)
 
-    lastSafeY = hrp.Position.Y
+    lastSafeY = hrp.Position.Y; housekeeping = 0
     bodySnap = {}
-    neutralize(c, hrp)
-    makeVelCon(hrp)
+    buildBodyCache(c, hrp)
+    makeConstraints(hrp)
 
     antiAdded = c.DescendantAdded:Connect(function(d)
         if not antiOn then return end
         if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
             task.defer(function()
-                if antiOn and d.Parent then
-                    snap(d)
-                    pcall(function()
-                        if d.CanCollide then d.CanCollide = false end
-                        if not d.Massless then d.Massless = true end
-                        d.AssemblyLinearVelocity = Vector3.zero
-                        d.AssemblyAngularVelocity = Vector3.zero
-                    end)
-                end
+                if antiOn and d.Parent then neutralizeBodyPart(d) end
             end)
-        elseif isMover(d) and d.Name ~= "HykoVel" then
+        elseif isMover(d) and d ~= moveVel and d ~= faceAlign then
             task.defer(function()
                 if antiOn then pcall(function() d:Destroy() end) end
             end)
         end
     end)
 
-    antiConn = (RunService.PreSimulation or RunService.Heartbeat):Connect(heartbeat)
-    antiPost = (RunService.PostSimulation or RunService.Stepped):Connect(postSim)
+    antiConn = RunService.Heartbeat:Connect(heartbeat)
+    antiPost = RunService.PostSimulation:Connect(postSim)
+    antiJumpConn = UIS.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == Enum.KeyCode.Space then doJump() end
+    end)
 end
 
 local function stopAnti()
     if antiAdded then antiAdded:Disconnect() antiAdded = nil end
     if antiConn then antiConn:Disconnect() antiConn = nil end
     if antiPost then antiPost:Disconnect() antiPost = nil end
-    killVelCon()
+    if antiJumpConn then antiJumpConn:Disconnect() antiJumpConn = nil end
+    if antiStateConn then antiStateConn:Disconnect() antiStateConn = nil end
+    killConstraints()
+
     local c = LP.Character
     if c then
         local hrp = c:FindFirstChild("HumanoidRootPart")
@@ -595,61 +637,37 @@ local function freeRAM()
 end
 
 --============================================================--
--- COLOR PALETTES (light + dark)
+-- PALETTES
 --============================================================--
 local LIGHT = {
-    bg      = Color3.fromRGB(255, 255, 255),
-    grad1   = Color3.fromRGB(255, 255, 255),
-    grad2   = Color3.fromRGB(247, 249, 252),
-    text    = Color3.fromRGB(15, 17, 22),
-    sub     = Color3.fromRGB(140, 145, 155),
-    divider = Color3.fromRGB(238, 240, 244),
-    track   = Color3.fromRGB(230, 232, 238),
-    stroke  = Color3.fromRGB(232, 234, 240),
-    btnBg   = Color3.fromRGB(247, 248, 251),
-    btnHov  = Color3.fromRGB(238, 241, 246),
-    iconBtn = Color3.fromRGB(243, 245, 249),
-    iconHov = Color3.fromRGB(232, 236, 242),
-    sliderV = Color3.fromRGB(240, 244, 250),
+    bg=Color3.fromRGB(255,255,255), grad1=Color3.fromRGB(255,255,255),
+    grad2=Color3.fromRGB(247,249,252), text=Color3.fromRGB(15,17,22),
+    sub=Color3.fromRGB(140,145,155), divider=Color3.fromRGB(238,240,244),
+    track=Color3.fromRGB(230,232,238), stroke=Color3.fromRGB(232,234,240),
+    btnBg=Color3.fromRGB(247,248,251), btnHov=Color3.fromRGB(238,241,246),
+    iconBtn=Color3.fromRGB(243,245,249), iconHov=Color3.fromRGB(232,236,242),
+    notifShadow=Color3.fromRGB(0,0,0),
 }
-
 local DARK = {
-    bg      = Color3.fromRGB(24, 24, 27),
-    grad1   = Color3.fromRGB(32, 32, 36),
-    grad2   = Color3.fromRGB(20, 20, 23),
-    text    = Color3.fromRGB(245, 245, 247),
-    sub     = Color3.fromRGB(150, 152, 158),
-    divider = Color3.fromRGB(52, 52, 56),
-    track   = Color3.fromRGB(60, 60, 64),
-    stroke  = Color3.fromRGB(58, 58, 62),
-    btnBg   = Color3.fromRGB(44, 44, 48),
-    btnHov  = Color3.fromRGB(56, 56, 60),
-    iconBtn = Color3.fromRGB(40, 40, 44),
-    iconHov = Color3.fromRGB(54, 54, 58),
-    sliderV = Color3.fromRGB(40, 44, 52),
+    bg=Color3.fromRGB(24,24,27), grad1=Color3.fromRGB(32,32,36),
+    grad2=Color3.fromRGB(20,20,23), text=Color3.fromRGB(245,245,247),
+    sub=Color3.fromRGB(150,152,158), divider=Color3.fromRGB(52,52,56),
+    track=Color3.fromRGB(60,60,64), stroke=Color3.fromRGB(58,58,62),
+    btnBg=Color3.fromRGB(44,44,48), btnHov=Color3.fromRGB(56,56,60),
+    iconBtn=Color3.fromRGB(40,40,44), iconHov=Color3.fromRGB(54,54,58),
+    notifShadow=Color3.fromRGB(0,0,0),
 }
 
 local COL = {}
 for k, v in pairs(LIGHT) do COL[k] = v end
-
 COL.accent = Color3.fromRGB(10, 132, 255)
 COL.green  = Color3.fromRGB(52, 199, 89)
 COL.red    = Color3.fromRGB(255, 69, 58)
+COL.amber  = Color3.fromRGB(255, 159, 10)
 
---============================================================--
--- REGISTRIES
---============================================================--
-local accentEls = {}
-local bgEls = {}
-
-local function regAccent(obj, prop)
-    if obj then table.insert(accentEls, { o = obj, p = prop }) end
-end
-
--- bg entries store { obj, prop, key }  where key is a LIGHT/DARK palette key
-local function regBg(obj, prop, key)
-    if obj then table.insert(bgEls, { o = obj, p = prop, k = key }) end
-end
+local accentEls, bgEls = {}, {}
+local function regAccent(o, p) if o then table.insert(accentEls, {o=o, p=p}) end end
+local function regBg(o, p, k) if o then table.insert(bgEls, {o=o, p=p, k=k}) end end
 
 local function applyTheme(t)
     COL.accent = t.Accent
@@ -659,7 +677,6 @@ local function applyTheme(t)
 end
 
 local isDark = false
-
 local function setDark(dark)
     isDark = dark
     local src = dark and DARK or LIGHT
@@ -669,23 +686,17 @@ local function setDark(dark)
     end
 end
 
---============================================================--
--- THEMES (accent)
---============================================================--
 local THEMES = {
-    { Accent = Color3.fromRGB(10, 132, 255)  },
-    { Accent = Color3.fromRGB(52, 199, 89)   },
-    { Accent = Color3.fromRGB(139, 92, 246)  },
-    { Accent = Color3.fromRGB(236, 72, 153)  },
-    { Accent = Color3.fromRGB(255, 69, 58)   },
-    { Accent = Color3.fromRGB(255, 159, 10)  },
-    { Accent = Color3.fromRGB(48, 176, 199)  },
-    { Accent = Color3.fromRGB(90, 100, 115)  },
+    { Name = "Blue",    Accent = Color3.fromRGB(10, 132, 255)  },
+    { Name = "Green",   Accent = Color3.fromRGB(52, 199, 89)   },
+    { Name = "Violet",  Accent = Color3.fromRGB(139, 92, 246)  },
+    { Name = "Rose",    Accent = Color3.fromRGB(236, 72, 153)  },
+    { Name = "Crimson", Accent = Color3.fromRGB(255, 69, 58)   },
+    { Name = "Amber",   Accent = Color3.fromRGB(255, 159, 10)  },
+    { Name = "Teal",    Accent = Color3.fromRGB(48, 176, 199)  },
+    { Name = "Slate",   Accent = Color3.fromRGB(90, 100, 115)  },
 }
 
---============================================================--
--- EASING
---============================================================--
 local EASE = {
     smooth = TweenInfo.new(0.42, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
     spring = TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
@@ -693,22 +704,208 @@ local EASE = {
     fade   = TweenInfo.new(0.28, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
     slide  = TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
     seg    = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+    notif  = TweenInfo.new(0.42, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
 }
 
---============================================================--
--- DIMENSIONS
---============================================================--
 local W_COL, H_COL = 104, 50
 local W_EXP, H_EXP = 300, 400
 
 --============================================================--
--- SCREEN
+-- SCREEN + NOTIFICATION SYSTEM
 --============================================================--
 local screen = Instance.new("ScreenGui")
 screen.Name = "HykoLite"
 screen.IgnoreGuiInset = true
+screen.DisplayOrder = 100
 mountGui(screen)
 
+local notifHost = Instance.new("Frame")
+notifHost.Name = "HykoNotifs"
+notifHost.AnchorPoint = Vector2.new(1, 1)
+notifHost.Position = UDim2.new(1, -20, 1, -20)
+notifHost.Size = UDim2.fromOffset(280, 600)
+notifHost.BackgroundTransparency = 1
+notifHost.ZIndex = 200
+notifHost.Parent = screen
+
+local notifStack = {}     -- { {frame, height} ... } ordered newest first
+local NOTIF_W, NOTIF_H, NOTIF_GAP = 264, 68, 10
+local MAX_NOTIFS = 5
+
+local function refreshNotifPositions()
+    local bottom = 0
+    for i, entry in ipairs(notifStack) do
+        local f = entry.frame
+        local targetY = bottom
+        TweenService:Create(f, EASE.notif, {
+            Position = UDim2.new(1, 0, 1, -targetY)
+        }):Play()
+        bottom = bottom + NOTIF_H + NOTIF_GAP
+    end
+end
+
+local function dismissNotif(entry)
+    if entry.dismissed then return end
+    entry.dismissed = true
+    local f = entry.frame
+    TweenService:Create(f, EASE.notif, {
+        Position = UDim2.new(1, NOTIF_W + 20, f.Position.Y.Scale,
+                             f.Position.Y.Offset),
+        BackgroundTransparency = 1,
+    }):Play()
+    for _, d in ipairs(f:GetDescendants()) do
+        if d:IsA("GuiObject") then
+            if d:IsA("TextLabel") then
+                TweenService:Create(d, EASE.notif, { TextTransparency = 1 }):Play()
+            elseif d:IsA("ImageLabel") then
+                TweenService:Create(d, EASE.notif, { ImageTransparency = 1 }):Play()
+            elseif d:IsA("Frame") then
+                TweenService:Create(d, EASE.notif,
+                    { BackgroundTransparency = 1 }):Play()
+            end
+        end
+    end
+    task.delay(0.42, function()
+        pcall(function() f:Destroy() end)
+        for i, e in ipairs(notifStack) do
+            if e == entry then
+                table.remove(notifStack, i)
+                break
+            end
+        end
+        refreshNotifPositions()
+    end)
+end
+
+local function pushNotif(opts)
+    opts = opts or {}
+    local title   = opts.title   or "Hyko"
+    local message = opts.message or ""
+    local color   = opts.color   or COL.accent
+    local icon    = opts.icon    or "rbxassetid://6031075931"
+    local duration= opts.duration or 3
+
+    while #notifStack >= MAX_NOTIFS do
+        local oldest = notifStack[#notifStack]
+        dismissNotif(oldest)
+    end
+
+    local card = Instance.new("Frame")
+    card.Name = "HykoNotif"
+    card.AnchorPoint = Vector2.new(1, 1)
+    card.Size = UDim2.fromOffset(NOTIF_W, NOTIF_H)
+    card.Position = UDim2.new(1, NOTIF_W + 20, 1, 0)
+    card.BackgroundColor3 = COL.bg
+    card.BorderSizePixel = 0
+    card.ZIndex = 201
+    card.Parent = notifHost
+
+    local cc = Instance.new("UICorner")
+    cc.CornerRadius = UDim.new(0, 16); cc.Parent = card
+
+    local cs = Instance.new("UIStroke")
+    cs.Color = COL.stroke; cs.Thickness = 1; cs.Transparency = 0.25
+    cs.Parent = card
+    regBg(cs, "Color", "stroke")
+
+    -- shadow
+    local shadow = Instance.new("Frame")
+    shadow.Size = UDim2.new(1, 6, 1, 6)
+    shadow.Position = UDim2.fromOffset(-3, -3)
+    shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.BackgroundTransparency = 0.9
+    shadow.BorderSizePixel = 0
+    shadow.ZIndex = 200
+    shadow.Parent = card
+
+    local shc = Instance.new("UICorner")
+    shc.CornerRadius = UDim.new(0, 16); shc.Parent = shadow
+
+    -- accent side bar
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(0, 4, 1, -20)
+    bar.Position = UDim2.fromOffset(9, 10)
+    bar.BackgroundColor3 = color
+    bar.BorderSizePixel = 0
+    bar.ZIndex = 203
+    bar.Parent = card
+
+    local bc = Instance.new("UICorner")
+    bc.CornerRadius = UDim.new(1, 0); bc.Parent = bar
+
+    -- icon tile
+    local tile = Instance.new("Frame")
+    tile.Size = UDim2.fromOffset(34, 34)
+    tile.Position = UDim2.fromOffset(20, 17)
+    tile.BackgroundColor3 = color
+    tile.BorderSizePixel = 0
+    tile.ZIndex = 203
+    tile.Parent = card
+
+    local tc = Instance.new("UICorner")
+    tc.CornerRadius = UDim.new(0, 10); tc.Parent = tile
+
+    local tgrad = Instance.new("UIGradient")
+    tgrad.Rotation = 135
+    tgrad.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 0.35),
+    })
+    tgrad.Parent = tile
+
+    local img = Instance.new("ImageLabel")
+    img.Size = UDim2.fromOffset(18, 18)
+    img.Position = UDim2.fromOffset(8, 8)
+    img.BackgroundTransparency = 1
+    img.Image = icon
+    img.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    img.ZIndex = 204
+    img.Parent = tile
+
+    -- title
+    local tl = Instance.new("TextLabel")
+    tl.Size = UDim2.new(1, -74, 0, 16)
+    tl.Position = UDim2.fromOffset(62, 17)
+    tl.BackgroundTransparency = 1
+    tl.Text = title
+    tl.TextColor3 = COL.text
+    tl.Font = Enum.Font.GothamBold
+    tl.TextSize = 13
+    tl.TextXAlignment = Enum.TextXAlignment.Left
+    tl.TextTruncate = Enum.TextTruncate.AtEnd
+    tl.ZIndex = 204
+    tl.Parent = card
+    regBg(tl, "TextColor3", "text")
+
+    -- message
+    local ml = Instance.new("TextLabel")
+    ml.Size = UDim2.new(1, -74, 0, 26)
+    ml.Position = UDim2.fromOffset(62, 34)
+    ml.BackgroundTransparency = 1
+    ml.Text = message
+    ml.TextColor3 = COL.sub
+    ml.Font = Enum.Font.GothamMedium
+    ml.TextSize = 11
+    ml.TextXAlignment = Enum.TextXAlignment.Left
+    ml.TextYAlignment = Enum.TextYAlignment.Top
+    ml.TextWrapped = true
+    ml.TextTruncate = Enum.TextTruncate.AtEnd
+    ml.ZIndex = 204
+    ml.Parent = card
+    regBg(ml, "TextColor3", "sub")
+
+    local entry = { frame = card, dismissed = false }
+    table.insert(notifStack, 1, entry)
+    refreshNotifPositions()
+
+    task.delay(duration, function()
+        if not entry.dismissed then dismissNotif(entry) end
+    end)
+end
+
+--============================================================--
+-- MAIN CARD
+--============================================================--
 local main = Instance.new("Frame")
 main.AnchorPoint = Vector2.new(1, 0)
 main.Position = UDim2.new(1, -20, 0, 20)
@@ -722,14 +919,11 @@ main.Parent = screen
 regBg(main, "BackgroundColor3", "bg")
 
 local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, H_COL / 2)
-corner.Parent = main
+corner.CornerRadius = UDim.new(0, H_COL / 2); corner.Parent = main
 
 local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = COL.stroke
-mainStroke.Thickness = 1
-mainStroke.Transparency = 0.25
-mainStroke.Parent = main
+mainStroke.Color = COL.stroke; mainStroke.Thickness = 1
+mainStroke.Transparency = 0.25; mainStroke.Parent = main
 regBg(mainStroke, "Color", "stroke")
 
 local mainGrad = Instance.new("UIGradient")
@@ -737,8 +931,7 @@ mainGrad.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, COL.grad1),
     ColorSequenceKeypoint.new(1, COL.grad2),
 })
-mainGrad.Rotation = 90
-mainGrad.Parent = main
+mainGrad.Rotation = 90; mainGrad.Parent = main
 
 local function updateGrad()
     local src = isDark and DARK or LIGHT
@@ -808,7 +1001,6 @@ local dotStroke = Instance.new("UIStroke")
 dotStroke.Color = Color3.fromRGB(255, 255, 255)
 dotStroke.Thickness = 2; dotStroke.Parent = statusDot
 
--- FPS
 local fpsWrap = Instance.new("Frame")
 fpsWrap.Size = UDim2.fromOffset(52, 30)
 fpsWrap.Position = UDim2.fromOffset(48, 10)
@@ -861,7 +1053,6 @@ do
     end)
 end
 
--- name + handle
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(0, 150, 0, 16)
 title.Position = UDim2.fromOffset(48, 11)
@@ -898,27 +1089,40 @@ regBg(subtitle, "TextColor3", "sub")
 local ICON_GEAR = "rbxassetid://6031280882"
 local ICON_BACK = "rbxassetid://6031091004"
 
-local setBtn = Instance.new("TextButton")
-setBtn.Size = UDim2.fromOffset(26, 26)
-setBtn.AnchorPoint = Vector2.new(1, 0)
-setBtn.Position = UDim2.new(1, -42, 0, 12)
-setBtn.BackgroundColor3 = COL.iconBtn
-setBtn.BorderSizePixel = 0
-setBtn.Text = ""
-setBtn.AutoButtonColor = false
-setBtn.ZIndex = 40
-setBtn.Visible = false
-setBtn.Parent = main
-regBg(setBtn, "BackgroundColor3", "iconBtn")
+local function makeHdrBtn(xoff)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.fromOffset(26, 26)
+    b.AnchorPoint = Vector2.new(1, 0)
+    b.Position = UDim2.new(1, xoff, 0, 12)
+    b.BackgroundColor3 = COL.iconBtn
+    b.BorderSizePixel = 0
+    b.Text = ""
+    b.AutoButtonColor = false
+    b.ZIndex = 40
+    b.Visible = false
+    b.Parent = main
+    regBg(b, "BackgroundColor3", "iconBtn")
 
-local setCorner = Instance.new("UICorner")
-setCorner.CornerRadius = UDim.new(1, 0); setCorner.Parent = setBtn
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0); c.Parent = b
 
-local setStroke = Instance.new("UIStroke")
-setStroke.Color = COL.stroke; setStroke.Thickness = 1
-setStroke.Transparency = 0.25; setStroke.Parent = setBtn
-regBg(setStroke, "Color", "stroke")
+    local s = Instance.new("UIStroke")
+    s.Color = COL.stroke; s.Thickness = 1; s.Transparency = 0.25
+    s.Parent = b
+    regBg(s, "Color", "stroke")
 
+    b.MouseEnter:Connect(function()
+        local src = isDark and DARK or LIGHT
+        TweenService:Create(b, EASE.quick, { BackgroundColor3 = src.iconHov }):Play()
+    end)
+    b.MouseLeave:Connect(function()
+        local src = isDark and DARK or LIGHT
+        TweenService:Create(b, EASE.quick, { BackgroundColor3 = src.iconBtn }):Play()
+    end)
+    return b
+end
+
+local setBtn = makeHdrBtn(-42)
 local setIcon = Instance.new("ImageLabel")
 setIcon.Size = UDim2.fromOffset(14, 14)
 setIcon.Position = UDim2.fromOffset(6, 6)
@@ -929,55 +1133,15 @@ setIcon.ZIndex = 41
 setIcon.Parent = setBtn
 regBg(setIcon, "ImageColor3", "text")
 
-setBtn.MouseEnter:Connect(function()
-    local src = isDark and DARK or LIGHT
-    TweenService:Create(setBtn, EASE.quick,
-        { BackgroundColor3 = src.iconHov }):Play()
-end)
-setBtn.MouseLeave:Connect(function()
-    local src = isDark and DARK or LIGHT
-    TweenService:Create(setBtn, EASE.quick,
-        { BackgroundColor3 = src.iconBtn }):Play()
-end)
-
-local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.fromOffset(26, 26)
-minBtn.AnchorPoint = Vector2.new(1, 0)
-minBtn.Position = UDim2.new(1, -10, 0, 12)
-minBtn.BackgroundColor3 = COL.iconBtn
-minBtn.BorderSizePixel = 0
+local minBtn = makeHdrBtn(-10)
 minBtn.Text = "−"
 minBtn.TextColor3 = COL.text
 minBtn.Font = Enum.Font.GothamBold
 minBtn.TextSize = 18
-minBtn.AutoButtonColor = false
-minBtn.ZIndex = 40
-minBtn.Visible = false
-minBtn.Parent = main
-regBg(minBtn, "BackgroundColor3", "iconBtn")
 regBg(minBtn, "TextColor3", "text")
 
-local minCorner = Instance.new("UICorner")
-minCorner.CornerRadius = UDim.new(1, 0); minCorner.Parent = minBtn
-
-local minStroke = Instance.new("UIStroke")
-minStroke.Color = COL.stroke; minStroke.Thickness = 1
-minStroke.Transparency = 0.25; minStroke.Parent = minBtn
-regBg(minStroke, "Color", "stroke")
-
-minBtn.MouseEnter:Connect(function()
-    local src = isDark and DARK or LIGHT
-    TweenService:Create(minBtn, EASE.quick,
-        { BackgroundColor3 = src.iconHov }):Play()
-end)
-minBtn.MouseLeave:Connect(function()
-    local src = isDark and DARK or LIGHT
-    TweenService:Create(minBtn, EASE.quick,
-        { BackgroundColor3 = src.iconBtn }):Play()
-end)
-
 --============================================================--
--- BODY + PAGES
+-- BODY
 --============================================================--
 local body = Instance.new("CanvasGroup")
 body.Size = UDim2.new(1, -24, 1, -72)
@@ -1003,7 +1167,7 @@ pageSettings.ZIndex = 11
 pageSettings.Parent = body
 
 --============================================================--
--- SHARED BUILDERS
+-- BUILDERS
 --============================================================--
 local function sectionLabel(parent, y, txt)
     local l = Instance.new("TextLabel")
@@ -1019,40 +1183,6 @@ local function sectionLabel(parent, y, txt)
     l.Parent = parent
     regBg(l, "TextColor3", "sub")
     return l
-end
-
-local function makeIconTile(parent, x, y, assetId, size)
-    size = size or 32
-    local tile = Instance.new("Frame")
-    tile.Size = UDim2.fromOffset(size, size)
-    tile.Position = UDim2.fromOffset(x, y)
-    tile.BackgroundColor3 = COL.accent
-    tile.BorderSizePixel = 0
-    tile.ZIndex = 13
-    tile.Parent = parent
-    regAccent(tile, "BackgroundColor3")
-
-    local tc = Instance.new("UICorner")
-    tc.CornerRadius = UDim.new(0, size * 0.32); tc.Parent = tile
-
-    local grad = Instance.new("UIGradient")
-    grad.Rotation = 135
-    grad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(1, 0.4),
-    })
-    grad.Parent = tile
-
-    local img = Instance.new("ImageLabel")
-    img.Size = UDim2.fromOffset(size * 0.56, size * 0.56)
-    img.Position = UDim2.fromOffset(size * 0.22, size * 0.22)
-    img.BackgroundTransparency = 1
-    img.Image = assetId
-    img.ImageColor3 = Color3.fromRGB(255, 255, 255)
-    img.ZIndex = 14
-    img.Parent = tile
-
-    return tile, img
 end
 
 local function makeSwitch(parent, xOff, y)
@@ -1205,8 +1335,7 @@ local function makeSlider(parent, y, min, max, default, onChange)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            TweenService:Create(knob, EASE.quick,
-                { Size = UDim2.fromOffset(24, 24) }):Play()
+            TweenService:Create(knob, EASE.quick, { Size = UDim2.fromOffset(24, 24) }):Play()
             update(input.Position.X)
         end
     end)
@@ -1221,18 +1350,14 @@ local function makeSlider(parent, y, min, max, default, onChange)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
-            TweenService:Create(knob, EASE.quick,
-                { Size = UDim2.fromOffset(20, 20) }):Play()
+            TweenService:Create(knob, EASE.quick, { Size = UDim2.fromOffset(20, 20) }):Play()
         end
     end)
 
     return { set = function(v) value = v apply(v) end, get = function() return value end }
 end
 
---============================================================--
--- FEATURE ROW BUILDER
---============================================================--
-local function featureRow(parent, y, tileAsset, titleTxt, subTxt, isShield)
+local function featureRow(parent, y, iconAsset, titleTxt, subTxt)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, 54)
     row.Position = UDim2.fromOffset(0, y)
@@ -1240,7 +1365,6 @@ local function featureRow(parent, y, tileAsset, titleTxt, subTxt, isShield)
     row.ZIndex = 12
     row.Parent = parent
 
-    -- icon tile
     local tile = Instance.new("Frame")
     tile.Size = UDim2.fromOffset(32, 32)
     tile.Position = UDim2.fromOffset(2, 11)
@@ -1261,64 +1385,25 @@ local function featureRow(parent, y, tileAsset, titleTxt, subTxt, isShield)
     })
     grad.Parent = tile
 
-    if isShield then
-        -- vector shield (100% offline, always renders)
-        local container = Instance.new("Frame")
-        container.Size = UDim2.fromOffset(20, 20)
-        container.Position = UDim2.fromOffset(6, 6)
-        container.BackgroundTransparency = 1
-        container.ZIndex = 14
-        container.Parent = tile
+    local sheen = Instance.new("Frame")
+    sheen.Size = UDim2.new(0.6, 0, 0.6, 0)
+    sheen.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    sheen.BackgroundTransparency = 0.85
+    sheen.BorderSizePixel = 0
+    sheen.ZIndex = 13
+    sheen.Parent = tile
 
-        -- top half — rounded square
-        local body = Instance.new("Frame")
-        body.Size = UDim2.new(1, 0, 0.62, 0)
-        body.Position = UDim2.fromOffset(0, 0)
-        body.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        body.BorderSizePixel = 0
-        body.ZIndex = 15
-        body.Parent = container
+    local sheenCorner = Instance.new("UICorner")
+    sheenCorner.CornerRadius = UDim.new(0, 8); sheenCorner.Parent = sheen
 
-        local bc = Instance.new("UICorner")
-        bc.CornerRadius = UDim.new(0, 6); bc.Parent = body
-
-        -- bottom point — rotated square (diamond) partially hidden
-        local point = Instance.new("Frame")
-        point.Size = UDim2.fromOffset(14, 14)
-        point.AnchorPoint = Vector2.new(0.5, 0.5)
-        point.Position = UDim2.new(0.5, 0, 0.72, 0)
-        point.Rotation = 45
-        point.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        point.BorderSizePixel = 0
-        point.ZIndex = 15
-        point.Parent = container
-
-        local pc = Instance.new("UICorner")
-        pc.CornerRadius = UDim.new(0, 2); pc.Parent = point
-
-        -- inner notch (a tiny accent circle to hint the "lock" look)
-        local notch = Instance.new("Frame")
-        notch.Size = UDim2.fromOffset(6, 6)
-        notch.AnchorPoint = Vector2.new(0.5, 0.5)
-        notch.Position = UDim2.new(0.5, 0, 0.42, 0)
-        notch.BackgroundColor3 = COL.accent
-        notch.BorderSizePixel = 0
-        notch.ZIndex = 17
-        notch.Parent = container
-        regAccent(notch, "BackgroundColor3")
-
-        local nc = Instance.new("UICorner")
-        nc.CornerRadius = UDim.new(1, 0); nc.Parent = notch
-    else
-        local img = Instance.new("ImageLabel")
-        img.Size = UDim2.fromOffset(18, 18)
-        img.Position = UDim2.fromOffset(7, 7)
-        img.BackgroundTransparency = 1
-        img.Image = tileAsset
-        img.ImageColor3 = Color3.fromRGB(255, 255, 255)
-        img.ZIndex = 14
-        img.Parent = tile
-    end
+    local img = Instance.new("ImageLabel")
+    img.Size = UDim2.fromOffset(18, 18)
+    img.Position = UDim2.fromOffset(7, 7)
+    img.BackgroundTransparency = 1
+    img.Image = iconAsset
+    img.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    img.ZIndex = 15
+    img.Parent = tile
 
     local t = Instance.new("TextLabel")
     t.Size = UDim2.new(1, -120, 0, 15)
@@ -1350,16 +1435,19 @@ local function featureRow(parent, y, tileAsset, titleTxt, subTxt, isShield)
 end
 
 --============================================================--
--- PAGE 1 : MAIN
+-- PAGE 1 : MAIN  (Anti-Ragdoll uses Roblox shield asset)
 --============================================================--
 sectionLabel(pageMain, 0, "FEATURES")
 
 featureRow(pageMain, 16, "rbxassetid://6031075931", "Fast Loot",
-    "Auto-collect · Key E", false)
+    "Auto-collect · Key E")
 local lootSwitch = makeSwitch(pageMain, -4, 30)
 
-featureRow(pageMain, 78, nil, "Anti-Ragdoll",
-    "Server-safe body", true)
+-- Roblox shield asset ID
+local ICON_SHIELD = "rbxassetid://6031227817"
+
+featureRow(pageMain, 78, ICON_SHIELD, "Anti-Ragdoll",
+    "Server-safe body · hard lock")
 local antiSwitch = makeSwitch(pageMain, -4, 92)
 
 sectionLabel(pageMain, 148, "SPEED CONTROL")
@@ -1424,24 +1512,31 @@ for i, th in ipairs(THEMES) do
     ss.Thickness = 2
     ss.Transparency = (i == 1) and 0 or 0.75
     ss.Parent = sw
-
     swatchStrokes[i] = ss
 
     sw.MouseEnter:Connect(function()
-        TweenService:Create(sw, EASE.quick,
-            { Size = UDim2.fromOffset(30, 30),
-              Position = UDim2.fromOffset((i - 1) * 33 - 2, -2) }):Play()
+        TweenService:Create(sw, EASE.quick, {
+            Size = UDim2.fromOffset(30, 30),
+            Position = UDim2.fromOffset((i - 1) * 33 - 2, -2),
+        }):Play()
     end)
     sw.MouseLeave:Connect(function()
-        TweenService:Create(sw, EASE.quick,
-            { Size = UDim2.fromOffset(26, 26),
-              Position = UDim2.fromOffset((i - 1) * 33, 0) }):Play()
+        TweenService:Create(sw, EASE.quick, {
+            Size = UDim2.fromOffset(26, 26),
+            Position = UDim2.fromOffset((i - 1) * 33, 0),
+        }):Play()
     end)
     sw.MouseButton1Click:Connect(function()
         applyTheme(th)
         for j, st in ipairs(swatchStrokes) do
             st.Transparency = (j == i) and 0 or 0.75
         end
+        pushNotif({
+            title = "Accent Color",
+            message = "Switched to " .. th.Name,
+            color = th.Accent,
+            icon = "rbxassetid://6031094678",
+        })
     end)
 end
 
@@ -1454,7 +1549,6 @@ div1.ZIndex = 12
 div1.Parent = pageSettings
 regBg(div1, "BackgroundColor3", "divider")
 
--- BACKGROUND THEME SECTION
 sectionLabel(pageSettings, 66, "BACKGROUND")
 
 local segWrap = Instance.new("Frame")
@@ -1469,7 +1563,6 @@ regBg(segWrap, "BackgroundColor3", "track")
 local segCorner = Instance.new("UICorner")
 segCorner.CornerRadius = UDim.new(0, 10); segCorner.Parent = segWrap
 
--- sliding indicator
 local segInd = Instance.new("Frame")
 segInd.Size = UDim2.new(0.5, -3, 1, -6)
 segInd.Position = UDim2.fromOffset(3, 3)
@@ -1496,7 +1589,6 @@ segIndShCorner.CornerRadius = UDim.new(0, 8); segIndShCorner.Parent = segIndShad
 
 local segLightBtn = Instance.new("TextButton")
 segLightBtn.Size = UDim2.new(0.5, 0, 1, 0)
-segLightBtn.Position = UDim2.fromOffset(0, 0)
 segLightBtn.BackgroundTransparency = 1
 segLightBtn.Text = "Light"
 segLightBtn.TextColor3 = COL.text
@@ -1532,16 +1624,23 @@ end
 
 segLightBtn.MouseButton1Click:Connect(function()
     if not isDark then return end
-    setDark(false)
-    setSegment(false)
-    updateGrad()
+    setDark(false); setSegment(false); updateGrad()
+    pushNotif({
+        title = "Background",
+        message = "Light mode enabled",
+        color = Color3.fromRGB(255, 255, 255),
+        icon = "rbxassetid://6031094678",
+    })
 end)
-
 segDarkBtn.MouseButton1Click:Connect(function()
     if isDark then return end
-    setDark(true)
-    setSegment(true)
-    updateGrad()
+    setDark(true); setSegment(true); updateGrad()
+    pushNotif({
+        title = "Background",
+        message = "Dark mode enabled",
+        color = Color3.fromRGB(30, 30, 34),
+        icon = "rbxassetid://6031094678",
+    })
 end)
 
 local div2 = Instance.new("Frame")
@@ -1553,12 +1652,10 @@ div2.ZIndex = 12
 div2.Parent = pageSettings
 regBg(div2, "BackgroundColor3", "divider")
 
--- FPS Boost row
 featureRow(pageSettings, 138, "rbxassetid://6031094678", "FPS Boost Ultra",
-    "Reduce graphics", false)
+    "Reduce graphics")
 local fpsSwitch = makeSwitch(pageSettings, -4, 152)
 
--- action buttons
 local function actionBtn(parent, y, txt, iconAsset)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(1, 0, 0, 36)
@@ -1604,13 +1701,11 @@ local function actionBtn(parent, y, txt, iconAsset)
 
     b.MouseEnter:Connect(function()
         local src = isDark and DARK or LIGHT
-        TweenService:Create(b, EASE.quick,
-            { BackgroundColor3 = src.btnHov }):Play()
+        TweenService:Create(b, EASE.quick, { BackgroundColor3 = src.btnHov }):Play()
     end)
     b.MouseLeave:Connect(function()
         local src = isDark and DARK or LIGHT
-        TweenService:Create(b, EASE.quick,
-            { BackgroundColor3 = src.btnBg }):Play()
+        TweenService:Create(b, EASE.quick, { BackgroundColor3 = src.btnBg }):Play()
     end)
 
     return b
@@ -1620,11 +1715,25 @@ local purgeBtn = actionBtn(pageSettings, 204, "Purge World Effects",
     "rbxassetid://6031094678")
 purgeBtn.MouseButton1Click:Connect(function()
     task.spawn(function() pcall(scanFX) end)
+    pushNotif({
+        title = "Effects Cleared",
+        message = "World effects purged",
+        color = COL.accent,
+        icon = "rbxassetid://6031094678",
+    })
 end)
 
 local ramBtn = actionBtn(pageSettings, 246, "Free Memory",
     "rbxassetid://6031075931")
-ramBtn.MouseButton1Click:Connect(freeRAM)
+ramBtn.MouseButton1Click:Connect(function()
+    freeRAM()
+    pushNotif({
+        title = "Memory",
+        message = "Garbage collected",
+        color = COL.green,
+        icon = "rbxassetid://6031075931",
+    })
+end)
 
 --============================================================--
 -- STATE
@@ -1638,6 +1747,12 @@ lootSwitch.button.Activated:Connect(function()
     lootSwitch.setState(s, true); lootOn = s
     if s then enableLoot() else disableLoot() end
     updateDot()
+    pushNotif({
+        title = "Fast Loot",
+        message = s and "Enabled · press E to grab" or "Disabled",
+        color = s and COL.green or COL.sub,
+        icon = "rbxassetid://6031075931",
+    })
 end)
 
 antiSwitch.button.Activated:Connect(function()
@@ -1645,6 +1760,12 @@ antiSwitch.button.Activated:Connect(function()
     antiSwitch.setState(s, true); antiOn = s
     if s then startAnti() else stopAnti() end
     updateDot()
+    pushNotif({
+        title = "Anti-Ragdoll",
+        message = s and "Hard lock engaged" or "Disabled · body restored",
+        color = s and COL.green or COL.sub,
+        icon = ICON_SHIELD,
+    })
 end)
 
 fpsSwitch.button.Activated:Connect(function()
@@ -1652,11 +1773,26 @@ fpsSwitch.button.Activated:Connect(function()
     fpsSwitch.setState(s, true)
     if s then
         local ok = pcall(enableBoost)
-        if not ok then fpsSwitch.setState(false, true) end
+        if not ok then
+            fpsSwitch.setState(false, true)
+            pushNotif({
+                title = "FPS Boost",
+                message = "Failed to enable",
+                color = COL.red,
+                icon = "rbxassetid://6031094678",
+            })
+            return
+        end
     else
         pcall(disableBoost)
     end
     updateDot()
+    pushNotif({
+        title = "FPS Boost Ultra",
+        message = s and "Graphics reduced · 240 cap" or "Disabled · restored",
+        color = s and COL.green or COL.sub,
+        icon = "rbxassetid://6031094678",
+    })
 end)
 
 --============================================================--
@@ -1674,15 +1810,14 @@ local function swapPage(toSettings)
     local fromPage = toSettings and pageMain or pageSettings
     local toPage   = toSettings and pageSettings or pageMain
 
-    local fromEnd   = UDim2.fromOffset(toSettings and -14 or 14, 0)
-    local toStart   = UDim2.fromOffset(toSettings and 14 or -14, 0)
-    local toEnd     = UDim2.fromOffset(0, 0)
+    local fromEnd = UDim2.fromOffset(toSettings and -14 or 14, 0)
+    local toStart = UDim2.fromOffset(toSettings and 14 or -14, 0)
 
     toPage.Position = toStart
     toPage.Visible = true
 
     TweenService:Create(toPage, EASE.slide, {
-        Position = toEnd,
+        Position = UDim2.fromOffset(0, 0),
         GroupTransparency = 0,
     }):Play()
     TweenService:Create(fromPage, EASE.slide, {
@@ -1722,8 +1857,7 @@ local function setExpanded(state)
 
     local tSize = state and UDim2.fromOffset(W_EXP, H_EXP)
                        or UDim2.fromOffset(W_COL, H_COL)
-    local tRadius = state and UDim.new(0, 22)
-                          or UDim.new(0, H_COL / 2)
+    local tRadius = state and UDim.new(0, 22) or UDim.new(0, H_COL / 2)
 
     TweenService:Create(main, EASE.spring, { Size = tSize }):Play()
     TweenService:Create(corner, EASE.spring, { CornerRadius = tRadius }):Play()
@@ -1751,11 +1885,9 @@ local function setExpanded(state)
 
     if state then
         body.Visible = true
-        TweenService:Create(body, EASE.smooth,
-            { GroupTransparency = 0 }):Play()
+        TweenService:Create(body, EASE.smooth, { GroupTransparency = 0 }):Play()
     else
-        TweenService:Create(body, EASE.smooth,
-            { GroupTransparency = 1 }):Play()
+        TweenService:Create(body, EASE.smooth, { GroupTransparency = 1 }):Play()
     end
 
     task.delay(0.6, function()
@@ -1816,10 +1948,7 @@ end)
 minBtn.MouseButton1Click:Connect(function() setExpanded(false) end)
 
 setBtn.MouseButton1Click:Connect(function()
-    if not expanded then
-        setExpanded(true)
-        return
-    end
+    if not expanded then setExpanded(true); return end
     swapPage(not showingSettings)
 end)
 
@@ -1829,9 +1958,9 @@ end)
 LP.CharacterAdded:Connect(function()
     task.wait(0.6)
     if antiOn then
-        antiConn, antiPost, antiAdded = nil, nil, nil
+        antiConn, antiPost, antiAdded, antiJumpConn, antiStateConn = nil, nil, nil, nil, nil
         fakeHum, realHum = nil, nil
-        velCon, velAtt = nil, nil
+        moveAtt, moveVel, faceAtt, faceAlign = nil, nil, nil, nil
         bodySnap = {}
         startAnti()
     end
@@ -1843,4 +1972,24 @@ end)
 --============================================================--
 setExpanded(true)
 
-print("[Hyko] v7 loaded · Vector shield · Light/Dark background")
+-- Welcome notification (staggered so it feels alive)
+task.spawn(function()
+    task.wait(0.35)
+    pushNotif({
+        title = "Hyko Loaded",
+        message = "Welcome, " .. LP.DisplayName,
+        color = COL.accent,
+        icon = "rbxassetid://6031075931",
+        duration = 3.5,
+    })
+    task.wait(0.4)
+    pushNotif({
+        title = "Ready",
+        message = "Tap the card to open features",
+        color = COL.green,
+        icon = "rbxassetid://6031094678",
+        duration = 3,
+    })
+end)
+
+print("[Hyko] v10 FINAL · Notifications active · Shield asset ID active")
