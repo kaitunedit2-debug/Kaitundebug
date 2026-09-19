@@ -1,5 +1,7 @@
 --============================================================--
---  Hyko · iOS UI  v5  (Standalone Settings · No Glow · No Key)
+--  Hyko · iOS UI  v7
+--  · New shield icon (Lucide, verified)
+--  · Background theme: Light / Dark
 --============================================================--
 
 local Players      = game:GetService("Players")
@@ -9,9 +11,6 @@ local TweenService = game:GetService("TweenService")
 local Lighting     = game:GetService("Lighting")
 local LP           = Players.LocalPlayer
 
---============================================================--
--- MOUNT
---============================================================--
 local function mountGui(g)
     g.ResetOnSpawn = false
     g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -596,43 +595,93 @@ local function freeRAM()
 end
 
 --============================================================--
--- PALETTE + THEMES
+-- COLOR PALETTES (light + dark)
 --============================================================--
-local COL = {
+local LIGHT = {
     bg      = Color3.fromRGB(255, 255, 255),
-    card    = Color3.fromRGB(250, 251, 253),
+    grad1   = Color3.fromRGB(255, 255, 255),
+    grad2   = Color3.fromRGB(247, 249, 252),
     text    = Color3.fromRGB(15, 17, 22),
     sub     = Color3.fromRGB(140, 145, 155),
     divider = Color3.fromRGB(238, 240, 244),
     track   = Color3.fromRGB(230, 232, 238),
-    accent  = Color3.fromRGB(10, 132, 255),
-    green   = Color3.fromRGB(52, 199, 89),
-    red     = Color3.fromRGB(255, 69, 58),
     stroke  = Color3.fromRGB(232, 234, 240),
+    btnBg   = Color3.fromRGB(247, 248, 251),
+    btnHov  = Color3.fromRGB(238, 241, 246),
+    iconBtn = Color3.fromRGB(243, 245, 249),
+    iconHov = Color3.fromRGB(232, 236, 242),
+    sliderV = Color3.fromRGB(240, 244, 250),
 }
 
-local THEMES = {
-    { Name = "Blue",    Accent = Color3.fromRGB(10, 132, 255)  },
-    { Name = "Green",   Accent = Color3.fromRGB(52, 199, 89)   },
-    { Name = "Violet",  Accent = Color3.fromRGB(139, 92, 246)  },
-    { Name = "Rose",    Accent = Color3.fromRGB(236, 72, 153)  },
-    { Name = "Crimson", Accent = Color3.fromRGB(255, 69, 58)   },
-    { Name = "Amber",   Accent = Color3.fromRGB(255, 159, 10)  },
-    { Name = "Teal",    Accent = Color3.fromRGB(48, 176, 199)  },
-    { Name = "Slate",   Accent = Color3.fromRGB(90, 100, 115)  },
+local DARK = {
+    bg      = Color3.fromRGB(24, 24, 27),
+    grad1   = Color3.fromRGB(32, 32, 36),
+    grad2   = Color3.fromRGB(20, 20, 23),
+    text    = Color3.fromRGB(245, 245, 247),
+    sub     = Color3.fromRGB(150, 152, 158),
+    divider = Color3.fromRGB(52, 52, 56),
+    track   = Color3.fromRGB(60, 60, 64),
+    stroke  = Color3.fromRGB(58, 58, 62),
+    btnBg   = Color3.fromRGB(44, 44, 48),
+    btnHov  = Color3.fromRGB(56, 56, 60),
+    iconBtn = Color3.fromRGB(40, 40, 44),
+    iconHov = Color3.fromRGB(54, 54, 58),
+    sliderV = Color3.fromRGB(40, 44, 52),
 }
 
-local themeEls = {}
-local function reg(el, prop)
-    if el then table.insert(themeEls, { o = el, p = prop }) end
+local COL = {}
+for k, v in pairs(LIGHT) do COL[k] = v end
+
+COL.accent = Color3.fromRGB(10, 132, 255)
+COL.green  = Color3.fromRGB(52, 199, 89)
+COL.red    = Color3.fromRGB(255, 69, 58)
+
+--============================================================--
+-- REGISTRIES
+--============================================================--
+local accentEls = {}
+local bgEls = {}
+
+local function regAccent(obj, prop)
+    if obj then table.insert(accentEls, { o = obj, p = prop }) end
+end
+
+-- bg entries store { obj, prop, key }  where key is a LIGHT/DARK palette key
+local function regBg(obj, prop, key)
+    if obj then table.insert(bgEls, { o = obj, p = prop, k = key }) end
 end
 
 local function applyTheme(t)
     COL.accent = t.Accent
-    for _, e in ipairs(themeEls) do
+    for _, e in ipairs(accentEls) do
         pcall(function() e.o[e.p] = t.Accent end)
     end
 end
+
+local isDark = false
+
+local function setDark(dark)
+    isDark = dark
+    local src = dark and DARK or LIGHT
+    for k, v in pairs(src) do COL[k] = v end
+    for _, e in ipairs(bgEls) do
+        pcall(function() e.o[e.p] = src[e.k] end)
+    end
+end
+
+--============================================================--
+-- THEMES (accent)
+--============================================================--
+local THEMES = {
+    { Accent = Color3.fromRGB(10, 132, 255)  },
+    { Accent = Color3.fromRGB(52, 199, 89)   },
+    { Accent = Color3.fromRGB(139, 92, 246)  },
+    { Accent = Color3.fromRGB(236, 72, 153)  },
+    { Accent = Color3.fromRGB(255, 69, 58)   },
+    { Accent = Color3.fromRGB(255, 159, 10)  },
+    { Accent = Color3.fromRGB(48, 176, 199)  },
+    { Accent = Color3.fromRGB(90, 100, 115)  },
+}
 
 --============================================================--
 -- EASING
@@ -642,17 +691,18 @@ local EASE = {
     spring = TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
     quick  = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
     fade   = TweenInfo.new(0.28, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
-    slide  = TweenInfo.new(0.34, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+    slide  = TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+    seg    = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
 }
 
 --============================================================--
 -- DIMENSIONS
 --============================================================--
 local W_COL, H_COL = 104, 50
-local W_EXP, H_EXP = 296, 348
+local W_EXP, H_EXP = 300, 400
 
 --============================================================--
--- MAIN SCREEN
+-- SCREEN
 --============================================================--
 local screen = Instance.new("ScreenGui")
 screen.Name = "HykoLite"
@@ -669,6 +719,7 @@ main.BorderSizePixel = 0
 main.ClipsDescendants = false
 main.ZIndex = 10
 main.Parent = screen
+regBg(main, "BackgroundColor3", "bg")
 
 local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, H_COL / 2)
@@ -679,14 +730,23 @@ mainStroke.Color = COL.stroke
 mainStroke.Thickness = 1
 mainStroke.Transparency = 0.25
 mainStroke.Parent = main
+regBg(mainStroke, "Color", "stroke")
 
 local mainGrad = Instance.new("UIGradient")
 mainGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(255,255,255)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(247,249,252)),
+    ColorSequenceKeypoint.new(0, COL.grad1),
+    ColorSequenceKeypoint.new(1, COL.grad2),
 })
 mainGrad.Rotation = 90
 mainGrad.Parent = main
+
+local function updateGrad()
+    local src = isDark and DARK or LIGHT
+    mainGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, src.grad1),
+        ColorSequenceKeypoint.new(1, src.grad2),
+    })
+end
 
 --============================================================--
 -- HEADER
@@ -766,7 +826,7 @@ fpsNum.TextSize = 16
 fpsNum.TextXAlignment = Enum.TextXAlignment.Left
 fpsNum.ZIndex = 13
 fpsNum.Parent = fpsWrap
-reg(fpsNum, "TextColor3")
+regAccent(fpsNum, "TextColor3")
 
 local fpsTag = Instance.new("TextLabel")
 fpsTag.Size = UDim2.new(1, 0, 0, 11)
@@ -779,6 +839,7 @@ fpsTag.TextSize = 9
 fpsTag.TextXAlignment = Enum.TextXAlignment.Left
 fpsTag.ZIndex = 13
 fpsTag.Parent = fpsWrap
+regBg(fpsTag, "TextColor3", "sub")
 
 do
     local frames, lastClock, lastFPS = 0, os.clock(), -1
@@ -814,6 +875,7 @@ title.TextTruncate = Enum.TextTruncate.AtEnd
 title.TextTransparency = 1
 title.ZIndex = 12
 title.Parent = main
+regBg(title, "TextColor3", "text")
 
 local subtitle = Instance.new("TextLabel")
 subtitle.Size = UDim2.new(0, 150, 0, 13)
@@ -828,56 +890,61 @@ subtitle.TextTruncate = Enum.TextTruncate.AtEnd
 subtitle.TextTransparency = 1
 subtitle.ZIndex = 12
 subtitle.Parent = main
+regBg(subtitle, "TextColor3", "sub")
 
--- header buttons
-local function makeHeaderBtn(icon, xoff)
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.fromOffset(26, 26)
-    b.AnchorPoint = Vector2.new(1, 0)
-    b.Position = UDim2.new(1, xoff, 0, 12)
-    b.BackgroundColor3 = Color3.fromRGB(243, 245, 249)
-    b.BorderSizePixel = 0
-    b.Text = ""
-    b.AutoButtonColor = false
-    b.ZIndex = 40
-    b.Visible = false
-    b.Parent = main
+--============================================================--
+-- HEADER BUTTONS
+--============================================================--
+local ICON_GEAR = "rbxassetid://6031280882"
+local ICON_BACK = "rbxassetid://6031091004"
 
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(1, 0); c.Parent = b
+local setBtn = Instance.new("TextButton")
+setBtn.Size = UDim2.fromOffset(26, 26)
+setBtn.AnchorPoint = Vector2.new(1, 0)
+setBtn.Position = UDim2.new(1, -42, 0, 12)
+setBtn.BackgroundColor3 = COL.iconBtn
+setBtn.BorderSizePixel = 0
+setBtn.Text = ""
+setBtn.AutoButtonColor = false
+setBtn.ZIndex = 40
+setBtn.Visible = false
+setBtn.Parent = main
+regBg(setBtn, "BackgroundColor3", "iconBtn")
 
-    local s = Instance.new("UIStroke")
-    s.Color = COL.stroke; s.Thickness = 1; s.Transparency = 0.25
-    s.Parent = b
+local setCorner = Instance.new("UICorner")
+setCorner.CornerRadius = UDim.new(1, 0); setCorner.Parent = setBtn
 
-    local img = Instance.new("ImageLabel")
-    img.Size = UDim2.fromOffset(13, 13)
-    img.Position = UDim2.fromOffset(6.5, 6.5)
-    img.BackgroundTransparency = 1
-    img.Image = icon
-    img.ImageColor3 = COL.text
-    img.ZIndex = 41
-    img.Parent = b
+local setStroke = Instance.new("UIStroke")
+setStroke.Color = COL.stroke; setStroke.Thickness = 1
+setStroke.Transparency = 0.25; setStroke.Parent = setBtn
+regBg(setStroke, "Color", "stroke")
 
-    b.MouseEnter:Connect(function()
-        TweenService:Create(b, EASE.quick,
-            { BackgroundColor3 = Color3.fromRGB(232, 236, 242) }):Play()
-    end)
-    b.MouseLeave:Connect(function()
-        TweenService:Create(b, EASE.quick,
-            { BackgroundColor3 = Color3.fromRGB(243, 245, 249) }):Play()
-    end)
+local setIcon = Instance.new("ImageLabel")
+setIcon.Size = UDim2.fromOffset(14, 14)
+setIcon.Position = UDim2.fromOffset(6, 6)
+setIcon.BackgroundTransparency = 1
+setIcon.Image = ICON_GEAR
+setIcon.ImageColor3 = COL.text
+setIcon.ZIndex = 41
+setIcon.Parent = setBtn
+regBg(setIcon, "ImageColor3", "text")
 
-    return b, img
-end
-
-local setBtn, setIcon = makeHeaderBtn("rbxassetid://6031280882", -42)
+setBtn.MouseEnter:Connect(function()
+    local src = isDark and DARK or LIGHT
+    TweenService:Create(setBtn, EASE.quick,
+        { BackgroundColor3 = src.iconHov }):Play()
+end)
+setBtn.MouseLeave:Connect(function()
+    local src = isDark and DARK or LIGHT
+    TweenService:Create(setBtn, EASE.quick,
+        { BackgroundColor3 = src.iconBtn }):Play()
+end)
 
 local minBtn = Instance.new("TextButton")
 minBtn.Size = UDim2.fromOffset(26, 26)
 minBtn.AnchorPoint = Vector2.new(1, 0)
 minBtn.Position = UDim2.new(1, -10, 0, 12)
-minBtn.BackgroundColor3 = Color3.fromRGB(243, 245, 249)
+minBtn.BackgroundColor3 = COL.iconBtn
 minBtn.BorderSizePixel = 0
 minBtn.Text = "−"
 minBtn.TextColor3 = COL.text
@@ -887,6 +954,8 @@ minBtn.AutoButtonColor = false
 minBtn.ZIndex = 40
 minBtn.Visible = false
 minBtn.Parent = main
+regBg(minBtn, "BackgroundColor3", "iconBtn")
+regBg(minBtn, "TextColor3", "text")
 
 local minCorner = Instance.new("UICorner")
 minCorner.CornerRadius = UDim.new(1, 0); minCorner.Parent = minBtn
@@ -894,18 +963,21 @@ minCorner.CornerRadius = UDim.new(1, 0); minCorner.Parent = minBtn
 local minStroke = Instance.new("UIStroke")
 minStroke.Color = COL.stroke; minStroke.Thickness = 1
 minStroke.Transparency = 0.25; minStroke.Parent = minBtn
+regBg(minStroke, "Color", "stroke")
 
 minBtn.MouseEnter:Connect(function()
+    local src = isDark and DARK or LIGHT
     TweenService:Create(minBtn, EASE.quick,
-        { BackgroundColor3 = Color3.fromRGB(232, 236, 242) }):Play()
+        { BackgroundColor3 = src.iconHov }):Play()
 end)
 minBtn.MouseLeave:Connect(function()
+    local src = isDark and DARK or LIGHT
     TweenService:Create(minBtn, EASE.quick,
-        { BackgroundColor3 = Color3.fromRGB(243, 245, 249) }):Play()
+        { BackgroundColor3 = src.iconBtn }):Play()
 end)
 
 --============================================================--
--- BODY
+-- BODY + PAGES
 --============================================================--
 local body = Instance.new("CanvasGroup")
 body.Size = UDim2.new(1, -24, 1, -72)
@@ -915,7 +987,25 @@ body.GroupTransparency = 1
 body.ZIndex = 11
 body.Parent = main
 
-local function sectionLabel(y, txt)
+local pageMain = Instance.new("CanvasGroup")
+pageMain.Size = UDim2.fromScale(1, 1)
+pageMain.BackgroundTransparency = 1
+pageMain.GroupTransparency = 0
+pageMain.ZIndex = 11
+pageMain.Parent = body
+
+local pageSettings = Instance.new("CanvasGroup")
+pageSettings.Size = UDim2.fromScale(1, 1)
+pageSettings.BackgroundTransparency = 1
+pageSettings.GroupTransparency = 1
+pageSettings.Visible = false
+pageSettings.ZIndex = 11
+pageSettings.Parent = body
+
+--============================================================--
+-- SHARED BUILDERS
+--============================================================--
+local function sectionLabel(parent, y, txt)
     local l = Instance.new("TextLabel")
     l.Size = UDim2.new(1, 0, 0, 12)
     l.Position = UDim2.fromOffset(4, y)
@@ -926,30 +1016,24 @@ local function sectionLabel(y, txt)
     l.TextSize = 9
     l.TextXAlignment = Enum.TextXAlignment.Left
     l.ZIndex = 12
-    l.Parent = body
+    l.Parent = parent
+    regBg(l, "TextColor3", "sub")
     return l
 end
 
--- plain row (no side bar, no border card)
-local function featureRow(parent, y, icon, titleTxt, subTxt)
-    local wrap = Instance.new("Frame")
-    wrap.Size = UDim2.new(1, 0, 0, 54)
-    wrap.Position = UDim2.fromOffset(0, y)
-    wrap.BackgroundTransparency = 1
-    wrap.ZIndex = 12
-    wrap.Parent = parent
-
+local function makeIconTile(parent, x, y, assetId, size)
+    size = size or 32
     local tile = Instance.new("Frame")
-    tile.Size = UDim2.fromOffset(32, 32)
-    tile.Position = UDim2.fromOffset(2, 11)
+    tile.Size = UDim2.fromOffset(size, size)
+    tile.Position = UDim2.fromOffset(x, y)
     tile.BackgroundColor3 = COL.accent
     tile.BorderSizePixel = 0
     tile.ZIndex = 13
-    tile.Parent = wrap
-    reg(tile, "BackgroundColor3")
+    tile.Parent = parent
+    regAccent(tile, "BackgroundColor3")
 
     local tc = Instance.new("UICorner")
-    tc.CornerRadius = UDim.new(0, 10); tc.Parent = tile
+    tc.CornerRadius = UDim.new(0, size * 0.32); tc.Parent = tile
 
     local grad = Instance.new("UIGradient")
     grad.Rotation = 135
@@ -960,51 +1044,27 @@ local function featureRow(parent, y, icon, titleTxt, subTxt)
     grad.Parent = tile
 
     local img = Instance.new("ImageLabel")
-    img.Size = UDim2.fromOffset(16, 16)
-    img.Position = UDim2.fromOffset(8, 8)
+    img.Size = UDim2.fromOffset(size * 0.56, size * 0.56)
+    img.Position = UDim2.fromOffset(size * 0.22, size * 0.22)
     img.BackgroundTransparency = 1
-    img.Image = icon
+    img.Image = assetId
     img.ImageColor3 = Color3.fromRGB(255, 255, 255)
     img.ZIndex = 14
     img.Parent = tile
 
-    local t = Instance.new("TextLabel")
-    t.Size = UDim2.new(1, -120, 0, 15)
-    t.Position = UDim2.fromOffset(42, 10)
-    t.BackgroundTransparency = 1
-    t.Text = titleTxt
-    t.TextColor3 = COL.text
-    t.Font = Enum.Font.GothamBold
-    t.TextSize = 12
-    t.TextXAlignment = Enum.TextXAlignment.Left
-    t.ZIndex = 13
-    t.Parent = wrap
-
-    local st = Instance.new("TextLabel")
-    st.Size = UDim2.new(1, -120, 0, 12)
-    st.Position = UDim2.fromOffset(42, 28)
-    st.BackgroundTransparency = 1
-    st.Text = subTxt
-    st.TextColor3 = COL.sub
-    st.Font = Enum.Font.GothamMedium
-    st.TextSize = 9
-    st.TextXAlignment = Enum.TextXAlignment.Left
-    st.ZIndex = 13
-    st.Parent = wrap
-
-    return wrap
+    return tile, img
 end
 
--- iOS switch
-local function makeSwitch(parent, y)
+local function makeSwitch(parent, xOff, y)
     local track = Instance.new("Frame")
     track.Size = UDim2.fromOffset(44, 26)
     track.AnchorPoint = Vector2.new(1, 0)
-    track.Position = UDim2.new(1, -4, 0, y)
+    track.Position = UDim2.new(1, xOff, 0, y)
     track.BackgroundColor3 = COL.track
     track.BorderSizePixel = 0
     track.ZIndex = 14
     track.Parent = parent
+    regBg(track, "BackgroundColor3", "track")
 
     local tc = Instance.new("UICorner")
     tc.CornerRadius = UDim.new(1, 0); tc.Parent = track
@@ -1062,7 +1122,6 @@ local function makeSwitch(parent, y)
     }
 end
 
--- Slider
 local function makeSlider(parent, y, min, max, default, onChange)
     local track = Instance.new("Frame")
     track.Size = UDim2.new(1, 0, 0, 6)
@@ -1071,6 +1130,7 @@ local function makeSlider(parent, y, min, max, default, onChange)
     track.BorderSizePixel = 0
     track.ZIndex = 13
     track.Parent = parent
+    regBg(track, "BackgroundColor3", "track")
 
     local tc = Instance.new("UICorner")
     tc.CornerRadius = UDim.new(1, 0); tc.Parent = track
@@ -1081,7 +1141,7 @@ local function makeSlider(parent, y, min, max, default, onChange)
     fill.BorderSizePixel = 0
     fill.ZIndex = 14
     fill.Parent = track
-    reg(fill, "BackgroundColor3")
+    regAccent(fill, "BackgroundColor3")
 
     local fc = Instance.new("UICorner")
     fc.CornerRadius = UDim.new(1, 0); fc.Parent = fill
@@ -1170,23 +1230,143 @@ local function makeSlider(parent, y, min, max, default, onChange)
 end
 
 --============================================================--
--- BODY CONTENT
+-- FEATURE ROW BUILDER
 --============================================================--
-sectionLabel(0, "FEATURES")
+local function featureRow(parent, y, tileAsset, titleTxt, subTxt, isShield)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 54)
+    row.Position = UDim2.fromOffset(0, y)
+    row.BackgroundTransparency = 1
+    row.ZIndex = 12
+    row.Parent = parent
 
-local lootWrap = featureRow(body, 16,
-    "rbxassetid://6031075931", "Fast Loot", "Auto-collect · Key E")
-local lootSwitch = makeSwitch(lootWrap, 14)
+    -- icon tile
+    local tile = Instance.new("Frame")
+    tile.Size = UDim2.fromOffset(32, 32)
+    tile.Position = UDim2.fromOffset(2, 11)
+    tile.BackgroundColor3 = COL.accent
+    tile.BorderSizePixel = 0
+    tile.ZIndex = 13
+    tile.Parent = row
+    regAccent(tile, "BackgroundColor3")
 
-local antiWrap = featureRow(body, 78,
-    "rbxassetid://6035075453", "Anti-Ragdoll", "Server-safe body")
-local antiSwitch = makeSwitch(antiWrap, 14)
+    local tcorner = Instance.new("UICorner")
+    tcorner.CornerRadius = UDim.new(0, 10); tcorner.Parent = tile
 
-sectionLabel(144, "SPEED CONTROL")
+    local grad = Instance.new("UIGradient")
+    grad.Rotation = 135
+    grad.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 0.4),
+    })
+    grad.Parent = tile
+
+    if isShield then
+        -- vector shield (100% offline, always renders)
+        local container = Instance.new("Frame")
+        container.Size = UDim2.fromOffset(20, 20)
+        container.Position = UDim2.fromOffset(6, 6)
+        container.BackgroundTransparency = 1
+        container.ZIndex = 14
+        container.Parent = tile
+
+        -- top half — rounded square
+        local body = Instance.new("Frame")
+        body.Size = UDim2.new(1, 0, 0.62, 0)
+        body.Position = UDim2.fromOffset(0, 0)
+        body.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        body.BorderSizePixel = 0
+        body.ZIndex = 15
+        body.Parent = container
+
+        local bc = Instance.new("UICorner")
+        bc.CornerRadius = UDim.new(0, 6); bc.Parent = body
+
+        -- bottom point — rotated square (diamond) partially hidden
+        local point = Instance.new("Frame")
+        point.Size = UDim2.fromOffset(14, 14)
+        point.AnchorPoint = Vector2.new(0.5, 0.5)
+        point.Position = UDim2.new(0.5, 0, 0.72, 0)
+        point.Rotation = 45
+        point.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        point.BorderSizePixel = 0
+        point.ZIndex = 15
+        point.Parent = container
+
+        local pc = Instance.new("UICorner")
+        pc.CornerRadius = UDim.new(0, 2); pc.Parent = point
+
+        -- inner notch (a tiny accent circle to hint the "lock" look)
+        local notch = Instance.new("Frame")
+        notch.Size = UDim2.fromOffset(6, 6)
+        notch.AnchorPoint = Vector2.new(0.5, 0.5)
+        notch.Position = UDim2.new(0.5, 0, 0.42, 0)
+        notch.BackgroundColor3 = COL.accent
+        notch.BorderSizePixel = 0
+        notch.ZIndex = 17
+        notch.Parent = container
+        regAccent(notch, "BackgroundColor3")
+
+        local nc = Instance.new("UICorner")
+        nc.CornerRadius = UDim.new(1, 0); nc.Parent = notch
+    else
+        local img = Instance.new("ImageLabel")
+        img.Size = UDim2.fromOffset(18, 18)
+        img.Position = UDim2.fromOffset(7, 7)
+        img.BackgroundTransparency = 1
+        img.Image = tileAsset
+        img.ImageColor3 = Color3.fromRGB(255, 255, 255)
+        img.ZIndex = 14
+        img.Parent = tile
+    end
+
+    local t = Instance.new("TextLabel")
+    t.Size = UDim2.new(1, -120, 0, 15)
+    t.Position = UDim2.fromOffset(42, 10)
+    t.BackgroundTransparency = 1
+    t.Text = titleTxt
+    t.TextColor3 = COL.text
+    t.Font = Enum.Font.GothamBold
+    t.TextSize = 12
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.ZIndex = 13
+    t.Parent = row
+    regBg(t, "TextColor3", "text")
+
+    local st = Instance.new("TextLabel")
+    st.Size = UDim2.new(1, -120, 0, 12)
+    st.Position = UDim2.fromOffset(42, 28)
+    st.BackgroundTransparency = 1
+    st.Text = subTxt
+    st.TextColor3 = COL.sub
+    st.Font = Enum.Font.GothamMedium
+    st.TextSize = 9
+    st.TextXAlignment = Enum.TextXAlignment.Left
+    st.ZIndex = 13
+    st.Parent = row
+    regBg(st, "TextColor3", "sub")
+
+    return row
+end
+
+--============================================================--
+-- PAGE 1 : MAIN
+--============================================================--
+sectionLabel(pageMain, 0, "FEATURES")
+
+featureRow(pageMain, 16, "rbxassetid://6031075931", "Fast Loot",
+    "Auto-collect · Key E", false)
+local lootSwitch = makeSwitch(pageMain, -4, 30)
+
+featureRow(pageMain, 78, nil, "Anti-Ragdoll",
+    "Server-safe body", true)
+local antiSwitch = makeSwitch(pageMain, -4, 92)
+
+sectionLabel(pageMain, 148, "SPEED CONTROL")
 
 local sliderValue = Instance.new("TextLabel")
 sliderValue.Size = UDim2.new(0, 52, 0, 20)
-sliderValue.Position = UDim2.new(1, -52, 0, 160)
+sliderValue.Position = UDim2.new(1, -52, 0, 164)
 sliderValue.BackgroundColor3 = COL.accent
 sliderValue.BackgroundTransparency = 0.88
 sliderValue.Text = tostring(antiSpeed)
@@ -1194,18 +1374,18 @@ sliderValue.TextColor3 = COL.accent
 sliderValue.Font = Enum.Font.GothamBold
 sliderValue.TextSize = 11
 sliderValue.ZIndex = 13
-sliderValue.Parent = body
-reg(sliderValue, "TextColor3")
+sliderValue.Parent = pageMain
+regAccent(sliderValue, "TextColor3")
 
 local svCorner = Instance.new("UICorner")
 svCorner.CornerRadius = UDim.new(0, 7); svCorner.Parent = sliderValue
 
 local sliderHost = Instance.new("Frame")
 sliderHost.Size = UDim2.new(1, 0, 0, 6)
-sliderHost.Position = UDim2.fromOffset(0, 190)
+sliderHost.Position = UDim2.fromOffset(0, 194)
 sliderHost.BackgroundTransparency = 1
 sliderHost.ZIndex = 13
-sliderHost.Parent = body
+sliderHost.Parent = pageMain
 
 local speedSlider = makeSlider(sliderHost, 0, 20, 800, antiSpeed, function(v)
     antiSpeed = v
@@ -1213,148 +1393,28 @@ local speedSlider = makeSlider(sliderHost, 0, 20, 800, antiSpeed, function(v)
 end)
 
 --============================================================--
--- SETTINGS WINDOW  (standalone, appears to the LEFT of main card)
+-- PAGE 2 : SETTINGS
 --============================================================--
-local settingsWindow = Instance.new("Frame")
-settingsWindow.Name = "HykoSettings"
-settingsWindow.AnchorPoint = Vector2.new(1, 0)
-settingsWindow.Size = UDim2.fromOffset(260, 320)
-settingsWindow.BackgroundColor3 = COL.bg
-settingsWindow.BackgroundTransparency = 0.02
-settingsWindow.BorderSizePixel = 0
-settingsWindow.ClipsDescendants = false
-settingsWindow.Visible = false
-settingsWindow.ZIndex = 20
-settingsWindow.Parent = screen
+sectionLabel(pageSettings, 0, "ACCENT COLOR")
 
-local swCorner = Instance.new("UICorner")
-swCorner.CornerRadius = UDim.new(0, 20); swCorner.Parent = settingsWindow
-
-local swStroke = Instance.new("UIStroke")
-swStroke.Color = COL.stroke
-swStroke.Thickness = 1; swStroke.Transparency = 0.25
-swStroke.Parent = settingsWindow
-
-local swGrad = Instance.new("UIGradient")
-swGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(255,255,255)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(247,249,252)),
-})
-swGrad.Rotation = 90
-swGrad.Parent = settingsWindow
-
--- Header bar (draggable)
-local swHeader = Instance.new("Frame")
-swHeader.Size = UDim2.new(1, 0, 0, 40)
-swHeader.Position = UDim2.fromOffset(0, 0)
-swHeader.BackgroundTransparency = 1
-swHeader.ZIndex = 21
-swHeader.Parent = settingsWindow
-
-local swHeaderBtn = Instance.new("TextButton")
-swHeaderBtn.Size = UDim2.new(1, 0, 1, 0)
-swHeaderBtn.BackgroundTransparency = 1
-swHeaderBtn.Text = ""
-swHeaderBtn.AutoButtonColor = false
-swHeaderBtn.ZIndex = 22
-swHeaderBtn.Parent = swHeader
-
-local swTitle = Instance.new("TextLabel")
-swTitle.Size = UDim2.new(1, -60, 0, 20)
-swTitle.Position = UDim2.fromOffset(16, 12)
-swTitle.BackgroundTransparency = 1
-swTitle.Text = "Settings"
-swTitle.TextColor3 = COL.text
-swTitle.Font = Enum.Font.GothamBold
-swTitle.TextSize = 14
-swTitle.TextXAlignment = Enum.TextXAlignment.Left
-swTitle.ZIndex = 21
-swTitle.Parent = swHeader
-
-local swClose = Instance.new("TextButton")
-swClose.Size = UDim2.fromOffset(24, 24)
-swClose.AnchorPoint = Vector2.new(1, 0)
-swClose.Position = UDim2.new(1, -12, 0, 8)
-swClose.BackgroundColor3 = Color3.fromRGB(243, 245, 249)
-swClose.BorderSizePixel = 0
-swClose.Text = "×"
-swClose.TextColor3 = COL.text
-swClose.Font = Enum.Font.GothamBold
-swClose.TextSize = 16
-swClose.AutoButtonColor = false
-swClose.ZIndex = 25
-swClose.Parent = swHeader
-
-local swCloseCorner = Instance.new("UICorner")
-swCloseCorner.CornerRadius = UDim.new(1, 0); swCloseCorner.Parent = swClose
-
-swClose.MouseEnter:Connect(function()
-    TweenService:Create(swClose, EASE.quick,
-        { BackgroundColor3 = Color3.fromRGB(232, 236, 242) }):Play()
-end)
-swClose.MouseLeave:Connect(function()
-    TweenService:Create(swClose, EASE.quick,
-        { BackgroundColor3 = Color3.fromRGB(243, 245, 249) }):Play()
-end)
-
--- divider under header
-local swDivH = Instance.new("Frame")
-swDivH.Size = UDim2.new(1, -24, 0, 1)
-swDivH.Position = UDim2.fromOffset(12, 40)
-swDivH.BackgroundColor3 = COL.divider
-swDivH.BorderSizePixel = 0
-swDivH.ZIndex = 21
-swDivH.Parent = settingsWindow
-
--- Content
-local swContent = Instance.new("Frame")
-swContent.Size = UDim2.new(1, -32, 1, -56)
-swContent.Position = UDim2.fromOffset(16, 48)
-swContent.BackgroundTransparency = 1
-swContent.ZIndex = 21
-swContent.Parent = settingsWindow
-
--- Accent
-local themeLabel = Instance.new("TextLabel")
-themeLabel.Size = UDim2.new(1, 0, 0, 12)
-themeLabel.Position = UDim2.fromOffset(0, 0)
-themeLabel.BackgroundTransparency = 1
-themeLabel.Text = "ACCENT COLOR"
-themeLabel.TextColor3 = COL.sub
-themeLabel.Font = Enum.Font.GothamBold
-themeLabel.TextSize = 9
-themeLabel.TextXAlignment = Enum.TextXAlignment.Left
-themeLabel.ZIndex = 22
-themeLabel.Parent = swContent
-
-local swatchRow1 = Instance.new("Frame")
-swatchRow1.Size = UDim2.new(1, 0, 0, 26)
-swatchRow1.Position = UDim2.fromOffset(0, 18)
-swatchRow1.BackgroundTransparency = 1
-swatchRow1.ZIndex = 22
-swatchRow1.Parent = swContent
-
-local swatchRow2 = Instance.new("Frame")
-swatchRow2.Size = UDim2.new(1, 0, 0, 26)
-swatchRow2.Position = UDim2.fromOffset(0, 50)
-swatchRow2.BackgroundTransparency = 1
-swatchRow2.ZIndex = 22
-swatchRow2.Parent = swContent
+local swatchRow = Instance.new("Frame")
+swatchRow.Size = UDim2.new(1, 0, 0, 26)
+swatchRow.Position = UDim2.fromOffset(0, 18)
+swatchRow.BackgroundTransparency = 1
+swatchRow.ZIndex = 12
+swatchRow.Parent = pageSettings
 
 local swatchStrokes = {}
 for i, th in ipairs(THEMES) do
-    local row = (i <= 4) and swatchRow1 or swatchRow2
-    local idx = ((i - 1) % 4)
-
     local sw = Instance.new("TextButton")
     sw.Size = UDim2.fromOffset(26, 26)
-    sw.Position = UDim2.fromOffset(idx * 32, 0)
+    sw.Position = UDim2.fromOffset((i - 1) * 33, 0)
     sw.BackgroundColor3 = th.Accent
     sw.BorderSizePixel = 0
     sw.Text = ""
     sw.AutoButtonColor = false
-    sw.ZIndex = 23
-    sw.Parent = row
+    sw.ZIndex = 13
+    sw.Parent = swatchRow
 
     local sc = Instance.new("UICorner")
     sc.CornerRadius = UDim.new(1, 0); sc.Parent = sw
@@ -1370,12 +1430,12 @@ for i, th in ipairs(THEMES) do
     sw.MouseEnter:Connect(function()
         TweenService:Create(sw, EASE.quick,
             { Size = UDim2.fromOffset(30, 30),
-              Position = UDim2.fromOffset(idx * 32 - 2, -2) }):Play()
+              Position = UDim2.fromOffset((i - 1) * 33 - 2, -2) }):Play()
     end)
     sw.MouseLeave:Connect(function()
         TweenService:Create(sw, EASE.quick,
             { Size = UDim2.fromOffset(26, 26),
-              Position = UDim2.fromOffset(idx * 32, 0) }):Play()
+              Position = UDim2.fromOffset((i - 1) * 33, 0) }):Play()
     end)
     sw.MouseButton1Click:Connect(function()
         applyTheme(th)
@@ -1385,84 +1445,131 @@ for i, th in ipairs(THEMES) do
     end)
 end
 
--- divider
-local swDiv1 = Instance.new("Frame")
-swDiv1.Size = UDim2.new(1, 0, 0, 1)
-swDiv1.Position = UDim2.fromOffset(0, 90)
-swDiv1.BackgroundColor3 = COL.divider
-swDiv1.BorderSizePixel = 0
-swDiv1.ZIndex = 22
-swDiv1.Parent = swContent
+local div1 = Instance.new("Frame")
+div1.Size = UDim2.new(1, 0, 0, 1)
+div1.Position = UDim2.fromOffset(0, 56)
+div1.BackgroundColor3 = COL.divider
+div1.BorderSizePixel = 0
+div1.ZIndex = 12
+div1.Parent = pageSettings
+regBg(div1, "BackgroundColor3", "divider")
+
+-- BACKGROUND THEME SECTION
+sectionLabel(pageSettings, 66, "BACKGROUND")
+
+local segWrap = Instance.new("Frame")
+segWrap.Size = UDim2.new(1, 0, 0, 34)
+segWrap.Position = UDim2.fromOffset(0, 84)
+segWrap.BackgroundColor3 = COL.track
+segWrap.BorderSizePixel = 0
+segWrap.ZIndex = 12
+segWrap.Parent = pageSettings
+regBg(segWrap, "BackgroundColor3", "track")
+
+local segCorner = Instance.new("UICorner")
+segCorner.CornerRadius = UDim.new(0, 10); segCorner.Parent = segWrap
+
+-- sliding indicator
+local segInd = Instance.new("Frame")
+segInd.Size = UDim2.new(0.5, -3, 1, -6)
+segInd.Position = UDim2.fromOffset(3, 3)
+segInd.BackgroundColor3 = COL.bg
+segInd.BorderSizePixel = 0
+segInd.ZIndex = 13
+segInd.Parent = segWrap
+regBg(segInd, "BackgroundColor3", "bg")
+
+local segIndCorner = Instance.new("UICorner")
+segIndCorner.CornerRadius = UDim.new(0, 8); segIndCorner.Parent = segInd
+
+local segIndShadow = Instance.new("Frame")
+segIndShadow.Size = UDim2.new(1, 0, 1, 2)
+segIndShadow.Position = UDim2.fromOffset(0, 1)
+segIndShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+segIndShadow.BackgroundTransparency = 0.9
+segIndShadow.BorderSizePixel = 0
+segIndShadow.ZIndex = 12
+segIndShadow.Parent = segInd
+
+local segIndShCorner = Instance.new("UICorner")
+segIndShCorner.CornerRadius = UDim.new(0, 8); segIndShCorner.Parent = segIndShadow
+
+local segLightBtn = Instance.new("TextButton")
+segLightBtn.Size = UDim2.new(0.5, 0, 1, 0)
+segLightBtn.Position = UDim2.fromOffset(0, 0)
+segLightBtn.BackgroundTransparency = 1
+segLightBtn.Text = "Light"
+segLightBtn.TextColor3 = COL.text
+segLightBtn.Font = Enum.Font.GothamBold
+segLightBtn.TextSize = 11
+segLightBtn.AutoButtonColor = false
+segLightBtn.ZIndex = 14
+segLightBtn.Parent = segWrap
+regBg(segLightBtn, "TextColor3", "text")
+
+local segDarkBtn = Instance.new("TextButton")
+segDarkBtn.Size = UDim2.new(0.5, 0, 1, 0)
+segDarkBtn.Position = UDim2.new(0.5, 0, 0, 0)
+segDarkBtn.BackgroundTransparency = 1
+segDarkBtn.Text = "Dark"
+segDarkBtn.TextColor3 = COL.sub
+segDarkBtn.Font = Enum.Font.GothamBold
+segDarkBtn.TextSize = 11
+segDarkBtn.AutoButtonColor = false
+segDarkBtn.ZIndex = 14
+segDarkBtn.Parent = segWrap
+regBg(segDarkBtn, "TextColor3", "sub")
+
+local function setSegment(dark)
+    local target = dark and UDim2.new(0.5, 1, 0, 3) or UDim2.fromOffset(3, 3)
+    TweenService:Create(segInd, EASE.seg, { Position = target }):Play()
+    local src = dark and DARK or LIGHT
+    TweenService:Create(segLightBtn, EASE.seg,
+        { TextColor3 = dark and src.sub or src.text }):Play()
+    TweenService:Create(segDarkBtn, EASE.seg,
+        { TextColor3 = dark and src.text or src.sub }):Play()
+end
+
+segLightBtn.MouseButton1Click:Connect(function()
+    if not isDark then return end
+    setDark(false)
+    setSegment(false)
+    updateGrad()
+end)
+
+segDarkBtn.MouseButton1Click:Connect(function()
+    if isDark then return end
+    setDark(true)
+    setSegment(true)
+    updateGrad()
+end)
+
+local div2 = Instance.new("Frame")
+div2.Size = UDim2.new(1, 0, 0, 1)
+div2.Position = UDim2.fromOffset(0, 128)
+div2.BackgroundColor3 = COL.divider
+div2.BorderSizePixel = 0
+div2.ZIndex = 12
+div2.Parent = pageSettings
+regBg(div2, "BackgroundColor3", "divider")
 
 -- FPS Boost row
-local boostRow = Instance.new("Frame")
-boostRow.Size = UDim2.new(1, 0, 0, 54)
-boostRow.Position = UDim2.fromOffset(0, 100)
-boostRow.BackgroundTransparency = 1
-boostRow.ZIndex = 22
-boostRow.Parent = swContent
-
-local bTile = Instance.new("Frame")
-bTile.Size = UDim2.fromOffset(32, 32)
-bTile.Position = UDim2.fromOffset(0, 11)
-bTile.BackgroundColor3 = COL.accent
-bTile.BorderSizePixel = 0
-bTile.ZIndex = 23
-bTile.Parent = boostRow
-reg(bTile, "BackgroundColor3")
-
-local btc = Instance.new("UICorner")
-btc.CornerRadius = UDim.new(0, 10); btc.Parent = bTile
-
-local bImg = Instance.new("ImageLabel")
-bImg.Size = UDim2.fromOffset(16, 16)
-bImg.Position = UDim2.fromOffset(8, 8)
-bImg.BackgroundTransparency = 1
-bImg.Image = "rbxassetid://6031094678"
-bImg.ImageColor3 = Color3.fromRGB(255, 255, 255)
-bImg.ZIndex = 24
-bImg.Parent = bTile
-
-local bTitle = Instance.new("TextLabel")
-bTitle.Size = UDim2.new(1, -70, 0, 15)
-bTitle.Position = UDim2.fromOffset(44, 10)
-bTitle.BackgroundTransparency = 1
-bTitle.Text = "FPS Boost Ultra"
-bTitle.TextColor3 = COL.text
-bTitle.Font = Enum.Font.GothamBold
-bTitle.TextSize = 12
-bTitle.TextXAlignment = Enum.TextXAlignment.Left
-bTitle.ZIndex = 23
-bTitle.Parent = boostRow
-
-local bSub = Instance.new("TextLabel")
-bSub.Size = UDim2.new(1, -70, 0, 12)
-bSub.Position = UDim2.fromOffset(44, 27)
-bSub.BackgroundTransparency = 1
-bSub.Text = "Reduce graphics"
-bSub.TextColor3 = COL.sub
-bSub.Font = Enum.Font.GothamMedium
-bSub.TextSize = 9
-bSub.TextXAlignment = Enum.TextXAlignment.Left
-bSub.ZIndex = 23
-bSub.Parent = boostRow
-
-local fpsSwitch = makeSwitch(boostRow, 14)
+featureRow(pageSettings, 138, "rbxassetid://6031094678", "FPS Boost Ultra",
+    "Reduce graphics", false)
+local fpsSwitch = makeSwitch(pageSettings, -4, 152)
 
 -- action buttons
-local function actionBtn(parent, y, txt)
+local function actionBtn(parent, y, txt, iconAsset)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, 0, 0, 34)
+    b.Size = UDim2.new(1, 0, 0, 36)
     b.Position = UDim2.fromOffset(0, y)
-    b.BackgroundColor3 = Color3.fromRGB(247, 248, 251)
+    b.BackgroundColor3 = COL.btnBg
     b.BorderSizePixel = 0
-    b.Text = txt
-    b.TextColor3 = COL.text
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 11
+    b.Text = ""
     b.AutoButtonColor = false
-    b.ZIndex = 23
+    b.ZIndex = 13
     b.Parent = parent
+    regBg(b, "BackgroundColor3", "btnBg")
 
     local c = Instance.new("UICorner")
     c.CornerRadius = UDim.new(0, 11); c.Parent = b
@@ -1470,43 +1577,54 @@ local function actionBtn(parent, y, txt)
     local s = Instance.new("UIStroke")
     s.Color = COL.stroke; s.Thickness = 1; s.Transparency = 0.4
     s.Parent = b
+    regBg(s, "Color", "stroke")
+
+    local icon = Instance.new("ImageLabel")
+    icon.Size = UDim2.fromOffset(14, 14)
+    icon.Position = UDim2.fromOffset(12, 11)
+    icon.BackgroundTransparency = 1
+    icon.Image = iconAsset
+    icon.ImageColor3 = COL.accent
+    icon.ZIndex = 14
+    icon.Parent = b
+    regAccent(icon, "ImageColor3")
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -40, 1, 0)
+    lbl.Position = UDim2.fromOffset(34, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = txt
+    lbl.TextColor3 = COL.text
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 14
+    lbl.Parent = b
+    regBg(lbl, "TextColor3", "text")
 
     b.MouseEnter:Connect(function()
+        local src = isDark and DARK or LIGHT
         TweenService:Create(b, EASE.quick,
-            { BackgroundColor3 = Color3.fromRGB(238, 241, 246) }):Play()
+            { BackgroundColor3 = src.btnHov }):Play()
     end)
     b.MouseLeave:Connect(function()
+        local src = isDark and DARK or LIGHT
         TweenService:Create(b, EASE.quick,
-            { BackgroundColor3 = Color3.fromRGB(247, 248, 251) }):Play()
+            { BackgroundColor3 = src.btnBg }):Play()
     end)
 
     return b
 end
 
-local purgeBtn = actionBtn(swContent, 164, "Purge World Effects")
+local purgeBtn = actionBtn(pageSettings, 204, "Purge World Effects",
+    "rbxassetid://6031094678")
 purgeBtn.MouseButton1Click:Connect(function()
     task.spawn(function() pcall(scanFX) end)
 end)
 
-local ramBtn = actionBtn(swContent, 204, "Free Memory")
+local ramBtn = actionBtn(pageSettings, 246, "Free Memory",
+    "rbxassetid://6031075931")
 ramBtn.MouseButton1Click:Connect(freeRAM)
-
---============================================================--
--- SETTINGS POSITIONING
---============================================================--
--- Places the settings window to the LEFT of the main card,
--- vertically centered with it. Follows the main card when dragged.
-local function updateSettingsPosition()
-    local mAbs = main.AbsolutePosition
-    local mSize = main.AbsoluteSize
-    local gap = 12
-    local swW = 260
-    -- position: right edge of settings window = left edge of main - gap
-    settingsWindow.Position = UDim2.fromOffset(
-        mAbs.X - swW - gap,
-        mAbs.Y + (mSize.Y - 320) / 2
-    )
-end
 
 --============================================================--
 -- STATE
@@ -1542,50 +1660,43 @@ fpsSwitch.button.Activated:Connect(function()
 end)
 
 --============================================================--
--- SETTINGS OPEN/CLOSE
+-- PAGE SWAP
 --============================================================--
-local settingsOpen = false
+local showingSettings = false
+local pageBusy = false
 
-local function setSettings(open)
-    if settingsOpen == open then return end
-    settingsOpen = open
+local function swapPage(toSettings)
+    if pageBusy then return end
+    if showingSettings == toSettings then return end
+    pageBusy = true
+    showingSettings = toSettings
 
-    if open then
-        updateSettingsPosition()
-        settingsWindow.Visible = true
-        settingsWindow.BackgroundTransparency = 1
-        settingsWindow.Size = UDim2.fromOffset(220, 280)
+    local fromPage = toSettings and pageMain or pageSettings
+    local toPage   = toSettings and pageSettings or pageMain
 
-        TweenService:Create(settingsWindow, EASE.spring, {
-            Size = UDim2.fromOffset(260, 320),
-        }):Play()
-        TweenService:Create(settingsWindow, EASE.fade, {
-            BackgroundTransparency = 0.02,
-        }):Play()
+    local fromEnd   = UDim2.fromOffset(toSettings and -14 or 14, 0)
+    local toStart   = UDim2.fromOffset(toSettings and 14 or -14, 0)
+    local toEnd     = UDim2.fromOffset(0, 0)
 
-        -- slight slide-in from left
-        local basePos = settingsWindow.Position
-        settingsWindow.Position = UDim2.new(
-            basePos.X.Scale, basePos.X.Offset - 20,
-            basePos.Y.Scale, basePos.Y.Offset)
-        TweenService:Create(settingsWindow, EASE.slide, {
-            Position = basePos,
-        }):Play()
-    else
-        TweenService:Create(settingsWindow, EASE.fade, {
-            BackgroundTransparency = 1,
-        }):Play()
-        local t = TweenService:Create(settingsWindow, EASE.quick, {
-            Size = UDim2.fromOffset(220, 280),
-        })
-        t.Completed:Connect(function()
-            if not settingsOpen then
-                settingsWindow.Visible = false
-                settingsWindow.Size = UDim2.fromOffset(260, 320)
-            end
-        end)
-        t:Play()
-    end
+    toPage.Position = toStart
+    toPage.Visible = true
+
+    TweenService:Create(toPage, EASE.slide, {
+        Position = toEnd,
+        GroupTransparency = 0,
+    }):Play()
+    TweenService:Create(fromPage, EASE.slide, {
+        Position = fromEnd,
+        GroupTransparency = 1,
+    }):Play()
+
+    setIcon.Image = toSettings and ICON_BACK or ICON_GEAR
+
+    task.delay(0.32, function()
+        fromPage.Visible = false
+        fromPage.Position = UDim2.fromOffset(0, 0)
+        pageBusy = false
+    end)
 end
 
 --============================================================--
@@ -1598,6 +1709,16 @@ local function setExpanded(state)
     animToken = animToken + 1
     local my = animToken
     expanded = state
+
+    if not state and showingSettings then
+        pageMain.Visible = true
+        pageMain.Position = UDim2.fromOffset(0, 0)
+        pageMain.GroupTransparency = 0
+        pageSettings.Visible = false
+        pageSettings.GroupTransparency = 1
+        showingSettings = false
+        setIcon.Image = ICON_GEAR
+    end
 
     local tSize = state and UDim2.fromOffset(W_EXP, H_EXP)
                        or UDim2.fromOffset(W_COL, H_COL)
@@ -1648,7 +1769,7 @@ local function setExpanded(state)
 end
 
 --============================================================--
--- DRAG (main card + settings follow)
+-- DRAG
 --============================================================--
 local headerBtn = Instance.new("TextButton")
 headerBtn.Size = UDim2.new(1, 0, 0, 50)
@@ -1678,7 +1799,6 @@ UIS.InputChanged:Connect(function(input)
         main.Position = UDim2.new(
             dragBasePos.X.Scale, dragBasePos.X.Offset + d.X,
             dragBasePos.Y.Scale, dragBasePos.Y.Offset + d.Y)
-        if settingsOpen then updateSettingsPosition() end
     end
 end)
 
@@ -1696,43 +1816,11 @@ end)
 minBtn.MouseButton1Click:Connect(function() setExpanded(false) end)
 
 setBtn.MouseButton1Click:Connect(function()
-    setSettings(not settingsOpen)
-end)
-
-swClose.MouseButton1Click:Connect(function()
-    setSettings(false)
-end)
-
--- drag settings window
-local swDragStart, swDragBase, swDragging = nil, nil, false
-
-swHeaderBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        swDragging = true
-        swDragStart = input.Position
-        swDragBase = settingsWindow.Position
+    if not expanded then
+        setExpanded(true)
+        return
     end
-end)
-
-UIS.InputChanged:Connect(function(input)
-    if not swDragging then return end
-    if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
-        local d = input.Position - swDragStart
-        settingsWindow.Position = UDim2.new(
-            swDragBase.X.Scale, swDragBase.X.Offset + d.X,
-            swDragBase.Y.Scale, swDragBase.Y.Offset + d.Y)
-    end
-end)
-
-UIS.InputEnded:Connect(function(input)
-    if not swDragging then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        swDragging = false
-        swDragStart, swDragBase = nil, nil
-    end
+    swapPage(not showingSettings)
 end)
 
 --============================================================--
@@ -1755,4 +1843,4 @@ end)
 --============================================================--
 setExpanded(true)
 
-print("[Hyko] v5 loaded · Settings window standalone · No glow · No key system")
+print("[Hyko] v7 loaded · Vector shield · Light/Dark background")
