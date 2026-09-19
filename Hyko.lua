@@ -1,7 +1,5 @@
 --============================================================--
---  Hyko · iOS UI  v10 FINAL
---  · Roblox shield icon (asset ID)
---  · Bottom-right notifications (progress bar, no side bar)
+--  Hyko · iOS UI  v10 FINAL + Key System
 --============================================================--
 
 local Players      = game:GetService("Players")
@@ -10,6 +8,9 @@ local RunService   = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Lighting     = game:GetService("Lighting")
 local LP           = Players.LocalPlayer
+
+local UNLOCK_KEY   = "Huy"
+local unlocked     = false
 
 local function mountGui(g)
     g.ResetOnSpawn = false
@@ -32,16 +33,17 @@ local function mountGui(g)
 end
 
 --============================================================--
--- ICON REGISTRY  (Roblox official asset IDs)
+-- ICON REGISTRY
 --============================================================--
 local ICONS = {
-    info    = "rbxassetid://6031075931",  -- info / bell
-    check   = "rbxassetid://6031094678",  -- checkmark circle
-    gear    = "rbxassetid://6031280882",  -- settings gear
-    back    = "rbxassetid://6031091004",  -- back chevron
-    shield  = "rbxassetid://10709810948",  -- shield  (Anti-Ragdoll)
-    loot    = "rbxassetid://10709811110",  -- bag     (Fast Loot)
-    sparkle = "rbxassetid://6031094678",  -- generic sparkle
+    info    = "rbxassetid://6031075931",
+    check   = "rbxassetid://6031094678",
+    gear    = "rbxassetid://6031280882",
+    back    = "rbxassetid://6031091004",
+    shield  = "rbxassetid://10709810948",   -- khiên Lucide
+    loot    = "rbxassetid://6035052010",    -- rương kho báu
+    sparkle = "rbxassetid://6031094678",
+    lock    = "rbxassetid://6031091004",
 }
 
 --============================================================--
@@ -659,7 +661,6 @@ local LIGHT = {
     track=Color3.fromRGB(230,232,238), stroke=Color3.fromRGB(232,234,240),
     btnBg=Color3.fromRGB(247,248,251), btnHov=Color3.fromRGB(238,241,246),
     iconBtn=Color3.fromRGB(243,245,249), iconHov=Color3.fromRGB(232,236,242),
-    notifShadow=Color3.fromRGB(0,0,0),
 }
 local DARK = {
     bg=Color3.fromRGB(24,24,27), grad1=Color3.fromRGB(32,32,36),
@@ -668,7 +669,6 @@ local DARK = {
     track=Color3.fromRGB(60,60,64), stroke=Color3.fromRGB(58,58,62),
     btnBg=Color3.fromRGB(44,44,48), btnHov=Color3.fromRGB(56,56,60),
     iconBtn=Color3.fromRGB(40,40,44), iconHov=Color3.fromRGB(54,54,58),
-    notifShadow=Color3.fromRGB(0,0,0),
 }
 
 local COL = {}
@@ -717,14 +717,14 @@ local EASE = {
     fade   = TweenInfo.new(0.28, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
     slide  = TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
     seg    = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-    notif  = TweenInfo.new(0.42, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+    notif  = TweenInfo.new(0.38, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
 }
 
 local W_COL, H_COL = 104, 50
 local W_EXP, H_EXP = 300, 400
 
 --============================================================--
--- SCREEN + NOTIFICATION SYSTEM  (progress-bar style)
+-- SCREEN
 --============================================================--
 local screen = Instance.new("ScreenGui")
 screen.Name = "HykoLite"
@@ -732,6 +732,9 @@ screen.IgnoreGuiInset = true
 screen.DisplayOrder = 100
 mountGui(screen)
 
+--============================================================--
+-- NOTIFICATION SYSTEM (optimized, dedupe + debounce)
+--============================================================--
 local notifHost = Instance.new("Frame")
 notifHost.Name = "HykoNotifs"
 notifHost.AnchorPoint = Vector2.new(1, 1)
@@ -739,28 +742,41 @@ notifHost.Position = UDim2.new(1, -20, 1, -20)
 notifHost.Size = UDim2.fromOffset(280, 600)
 notifHost.BackgroundTransparency = 1
 notifHost.ZIndex = 200
+notifHost.Visible = false
 notifHost.Parent = screen
 
 local notifStack = {}
-local NOTIF_W, NOTIF_H, NOTIF_GAP = 264, 72, 10
-local MAX_NOTIFS = 5
+local activeByTitle = {}     -- dedupe: title -> entry
+local NOTIF_W, NOTIF_H, NOTIF_GAP = 264, 68, 8
+local MAX_NOTIFS = 3
 
+-- debounce: gom nhiều lần refresh trong 1 frame thành 1 lần duy nhất
+local refreshQueued = false
 local function refreshNotifPositions()
-    local bottom = 0
-    for _, entry in ipairs(notifStack) do
-        local f = entry.frame
-        if f and f.Parent then
-            TweenService:Create(f, EASE.notif, {
-                Position = UDim2.new(1, 0, 1, -bottom)
-            }):Play()
+    if refreshQueued then return end
+    refreshQueued = true
+    RunService.Heartbeat:Once(function()
+        refreshQueued = false
+        local bottom = 0
+        for _, entry in ipairs(notifStack) do
+            local f = entry.frame
+            if f and f.Parent then
+                TweenService:Create(f, EASE.notif, {
+                    Position = UDim2.new(1, 0, 1, -bottom)
+                }):Play()
+            end
+            bottom = bottom + NOTIF_H + NOTIF_GAP
         end
-        bottom = bottom + NOTIF_H + NOTIF_GAP
-    end
+    end)
 end
 
 local function dismissNotif(entry)
-    if entry.dismissed then return end
+    if not entry or entry.dismissed then return end
     entry.dismissed = true
+
+    if entry.title and activeByTitle[entry.title] == entry then
+        activeByTitle[entry.title] = nil
+    end
 
     if entry.progressTween then
         pcall(function() entry.progressTween:Cancel() end)
@@ -770,13 +786,12 @@ local function dismissNotif(entry)
     local f = entry.frame
     if not f or not f.Parent then return end
 
-    -- 1 tween duy nhất: trượt ra ngoài phải, không lag
     TweenService:Create(f, EASE.notif, {
         Position = UDim2.new(1, NOTIF_W + 40,
                              f.Position.Y.Scale, f.Position.Y.Offset),
     }):Play()
 
-    task.delay(0.42, function()
+    task.delay(0.4, function()
         pcall(function() f:Destroy() end)
         for i, e in ipairs(notifStack) do
             if e == entry then
@@ -796,10 +811,31 @@ local function pushNotif(opts)
     local icon     = opts.icon     or ICONS.info
     local duration = opts.duration or 3
 
+    -- ==== DEDUPE: nếu title đã có và chưa dismiss → reset timer + đổi message
+    local existing = activeByTitle[title]
+    if existing and not existing.dismissed and existing.frame.Parent then
+        existing.messageLabel.Text = message
+        if existing.progressTween then
+            pcall(function() existing.progressTween:Cancel() end)
+        end
+        existing.progressFill.Size = UDim2.fromScale(1, 1)
+        existing.progressTween = TweenService:Create(
+            existing.progressFill,
+            TweenInfo.new(duration, Enum.EasingStyle.Linear),
+            { Size = UDim2.fromScale(0, 1) }
+        )
+        existing.progressTween:Play()
+        return
+    end
+
+    -- cap stack
     while #notifStack >= MAX_NOTIFS do
         dismissNotif(notifStack[#notifStack])
     end
 
+    ---------------------------------------------------------
+    -- CARD (không có shadow frame → giảm 1 draw + 2 instance)
+    ---------------------------------------------------------
     local card = Instance.new("Frame")
     card.Name = "HykoNotif"
     card.AnchorPoint = Vector2.new(1, 1)
@@ -818,22 +854,10 @@ local function pushNotif(opts)
     cs.Parent = card
     regBg(cs, "Color", "stroke")
 
-    local shadow = Instance.new("Frame")
-    shadow.Size = UDim2.new(1, 6, 1, 6)
-    shadow.Position = UDim2.fromOffset(-3, -3)
-    shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    shadow.BackgroundTransparency = 0.9
-    shadow.BorderSizePixel = 0
-    shadow.ZIndex = 200
-    shadow.Parent = card
-
-    local shc = Instance.new("UICorner")
-    shc.CornerRadius = UDim.new(0, 16); shc.Parent = shadow
-
-    -- icon tile (không còn side bar)
+    -- icon tile
     local tile = Instance.new("Frame")
     tile.Size = UDim2.fromOffset(34, 34)
-    tile.Position = UDim2.fromOffset(14, 15)
+    tile.Position = UDim2.fromOffset(14, 14)
     tile.BackgroundColor3 = color
     tile.BorderSizePixel = 0
     tile.ZIndex = 203
@@ -841,14 +865,6 @@ local function pushNotif(opts)
 
     local tc = Instance.new("UICorner")
     tc.CornerRadius = UDim.new(0, 10); tc.Parent = tile
-
-    local tgrad = Instance.new("UIGradient")
-    tgrad.Rotation = 135
-    tgrad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(1, 0.35),
-    })
-    tgrad.Parent = tile
 
     local img = Instance.new("ImageLabel")
     img.Size = UDim2.fromOffset(18, 18)
@@ -861,7 +877,7 @@ local function pushNotif(opts)
 
     local tl = Instance.new("TextLabel")
     tl.Size = UDim2.new(1, -66, 0, 16)
-    tl.Position = UDim2.fromOffset(56, 14)
+    tl.Position = UDim2.fromOffset(56, 12)
     tl.BackgroundTransparency = 1
     tl.Text = title
     tl.TextColor3 = COL.text
@@ -874,8 +890,8 @@ local function pushNotif(opts)
     regBg(tl, "TextColor3", "text")
 
     local ml = Instance.new("TextLabel")
-    ml.Size = UDim2.new(1, -66, 0, 24)
-    ml.Position = UDim2.fromOffset(56, 30)
+    ml.Size = UDim2.new(1, -66, 0, 22)
+    ml.Position = UDim2.fromOffset(56, 28)
     ml.BackgroundTransparency = 1
     ml.Text = message
     ml.TextColor3 = COL.sub
@@ -889,9 +905,8 @@ local function pushNotif(opts)
     ml.Parent = card
     regBg(ml, "TextColor3", "sub")
 
-    -- bottom progress bar (bo tròn, đồng bộ UI)
+    -- bottom progress bar
     local progTrack = Instance.new("Frame")
-    progTrack.Name = "ProgressTrack"
     progTrack.Size = UDim2.new(1, -20, 0, 3)
     progTrack.Position = UDim2.new(0, 10, 1, -8)
     progTrack.BackgroundColor3 = COL.track
@@ -905,7 +920,6 @@ local function pushNotif(opts)
     ptc.CornerRadius = UDim.new(1, 0); ptc.Parent = progTrack
 
     local progFill = Instance.new("Frame")
-    progFill.Name = "ProgressFill"
     progFill.Size = UDim2.fromScale(1, 1)
     progFill.BackgroundColor3 = color
     progFill.BorderSizePixel = 0
@@ -924,10 +938,13 @@ local function pushNotif(opts)
 
     local entry = {
         frame = card,
+        title = title,
+        messageLabel = ml,
         dismissed = false,
         progressTween = progTween,
         progressFill = progFill,
     }
+    activeByTitle[title] = entry
     table.insert(notifStack, 1, entry)
     refreshNotifPositions()
 
@@ -935,6 +952,231 @@ local function pushNotif(opts)
         if not entry.dismissed then dismissNotif(entry) end
     end)
 end
+
+--============================================================--
+-- KEY SYSTEM
+--============================================================--
+local keyOverlay = Instance.new("Frame")
+keyOverlay.Name = "KeyOverlay"
+keyOverlay.Size = UDim2.fromScale(1, 1)
+keyOverlay.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
+keyOverlay.BackgroundTransparency = 0.15
+keyOverlay.BorderSizePixel = 0
+keyOverlay.ZIndex = 500
+keyOverlay.Parent = screen
+
+-- blur
+local blur = Instance.new("BlurEffect")
+blur.Size = 18
+blur.Parent = Lighting
+
+local keyCard = Instance.new("CanvasGroup")
+keyCard.Size = UDim2.fromOffset(320, 300)
+keyCard.AnchorPoint = Vector2.new(0.5, 0.5)
+keyCard.Position = UDim2.fromScale(0.5, 0.5)
+keyCard.BackgroundColor3 = Color3.fromRGB(28, 30, 38)
+keyCard.BorderSizePixel = 0
+keyCard.ZIndex = 510
+keyCard.GroupTransparency = 0
+keyCard.Parent = keyOverlay
+
+local kcCorner = Instance.new("UICorner")
+kcCorner.CornerRadius = UDim.new(0, 24); kcCorner.Parent = keyCard
+
+local kcStroke = Instance.new("UIStroke")
+kcStroke.Color = Color3.fromRGB(70, 74, 88)
+kcStroke.Thickness = 1; kcStroke.Transparency = 0.3
+kcStroke.Parent = keyCard
+
+-- lock icon
+local lockTile = Instance.new("Frame")
+lockTile.Size = UDim2.fromOffset(56, 56)
+lockTile.Position = UDim2.new(0.5, -28, 0, 30)
+lockTile.BackgroundColor3 = Color3.fromRGB(10, 132, 255)
+lockTile.BorderSizePixel = 0
+lockTile.ZIndex = 512
+lockTile.Parent = keyCard
+
+local ltCorner = Instance.new("UICorner")
+ltCorner.CornerRadius = UDim.new(0, 18); ltCorner.Parent = lockTile
+
+local lockImg = Instance.new("ImageLabel")
+lockImg.Size = UDim2.fromOffset(30, 30)
+lockImg.Position = UDim2.fromOffset(13, 13)
+lockImg.BackgroundTransparency = 1
+lockImg.Image = ICONS.lock
+lockImg.ImageColor3 = Color3.fromRGB(255, 255, 255)
+lockImg.ZIndex = 513
+lockImg.Parent = lockTile
+
+-- title
+local kTitle = Instance.new("TextLabel")
+kTitle.Size = UDim2.new(1, 0, 0, 24)
+kTitle.Position = UDim2.fromOffset(0, 100)
+kTitle.BackgroundTransparency = 1
+kTitle.Text = "Hyko · Authentication"
+kTitle.TextColor3 = Color3.fromRGB(245, 245, 247)
+kTitle.Font = Enum.Font.GothamBold
+kTitle.TextSize = 17
+kTitle.ZIndex = 512
+kTitle.Parent = keyCard
+
+local kSub = Instance.new("TextLabel")
+kSub.Size = UDim2.new(1, 0, 0, 16)
+kSub.Position = UDim2.fromOffset(0, 124)
+kSub.BackgroundTransparency = 1
+kSub.Text = "Nhập key để tiếp tục"
+kSub.TextColor3 = Color3.fromRGB(150, 152, 158)
+kSub.Font = Enum.Font.GothamMedium
+kSub.TextSize = 11
+kSub.ZIndex = 512
+kSub.Parent = keyCard
+
+-- input
+local kInput = Instance.new("TextBox")
+kInput.Size = UDim2.new(1, -60, 0, 42)
+kInput.Position = UDim2.fromOffset(30, 156)
+kInput.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
+kInput.BorderSizePixel = 0
+kInput.Text = ""
+kInput.PlaceholderText = "Nhập key..."
+kInput.PlaceholderColor3 = Color3.fromRGB(110, 114, 124)
+kInput.TextColor3 = Color3.fromRGB(245, 245, 247)
+kInput.Font = Enum.Font.GothamBold
+kInput.TextSize = 14
+kInput.ClearTextOnFocus = false
+kInput.ZIndex = 512
+kInput.Parent = keyCard
+
+local kiCorner = Instance.new("UICorner")
+kiCorner.CornerRadius = UDim.new(0, 12); kiCorner.Parent = kInput
+
+local kiStroke = Instance.new("UIStroke")
+kiStroke.Color = Color3.fromRGB(70, 74, 88)
+kiStroke.Thickness = 1; kiStroke.Transparency = 0.3
+kiStroke.Parent = kInput
+
+-- submit button
+local kBtn = Instance.new("TextButton")
+kBtn.Size = UDim2.new(1, -60, 0, 42)
+kBtn.Position = UDim2.fromOffset(30, 210)
+kBtn.BackgroundColor3 = Color3.fromRGB(10, 132, 255)
+kBtn.BorderSizePixel = 0
+kBtn.Text = "Unlock"
+kBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+kBtn.Font = Enum.Font.GothamBold
+kBtn.TextSize = 14
+kBtn.AutoButtonColor = false
+kBtn.ZIndex = 512
+kBtn.Parent = keyCard
+
+local kbCorner = Instance.new("UICorner")
+kbCorner.CornerRadius = UDim.new(0, 12); kbCorner.Parent = kBtn
+
+-- error label
+local kError = Instance.new("TextLabel")
+kError.Size = UDim2.new(1, -60, 0, 16)
+kError.Position = UDim2.fromOffset(30, 258)
+kError.BackgroundTransparency = 1
+kError.Text = ""
+kError.TextColor3 = Color3.fromRGB(255, 69, 58)
+kError.Font = Enum.Font.GothamBold
+kError.TextSize = 11
+kError.ZIndex = 512
+kError.Parent = keyCard
+
+-- focus input
+task.defer(function()
+    if kInput and kInput.Parent then
+        pcall(function() kInput:CaptureFocus() end)
+    end
+end)
+
+-- shake helper
+local kBaseX, kBaseY = 0.5, 0.5
+local function shakeKeyCard()
+    local offsets = { 10, -10, 8, -8, 5, -5, 2, 0 }
+    for i, x in ipairs(offsets) do
+        task.delay((i - 1) * 0.04, function()
+            if not keyCard or not keyCard.Parent then return end
+            TweenService:Create(keyCard, EASE.quick, {
+                Position = UDim2.new(kBaseX, x, kBaseY, 0)
+            }):Play()
+        end)
+    end
+end
+
+local function tryUnlock()
+    if unlocked then return end
+    local entered = (kInput.Text or ""):gsub("%s+", "")
+
+    if entered == UNLOCK_KEY then
+        unlocked = true
+        kError.Text = ""
+        kBtn.Text = "✓ Access Granted"
+        kBtn.BackgroundColor3 = Color3.fromRGB(52, 199, 89)
+
+        task.wait(0.25)
+
+        TweenService:Create(keyOverlay, TweenInfo.new(0.4, Enum.EasingStyle.Quart),
+            { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(keyCard, TweenInfo.new(0.4, Enum.EasingStyle.Quart),
+            { GroupTransparency = 1 }):Play()
+
+        task.wait(0.42)
+
+        keyOverlay:Destroy()
+        pcall(function() blur:Destroy() end)
+
+        -- reveal UI
+        notifHost.Visible = true
+        main.Visible = true
+
+        task.spawn(function()
+            task.wait(0.15)
+            pushNotif({
+                title   = "Hyko Loaded",
+                message = "Welcome, " .. LP.DisplayName,
+                color   = COL.accent,
+                icon    = ICONS.info,
+                duration = 3.5,
+            })
+            task.wait(0.4)
+            pushNotif({
+                title   = "Ready",
+                message = "Tap the card to open features",
+                color   = COL.green,
+                icon    = ICONS.check,
+                duration = 3,
+            })
+        end)
+    else
+        kError.Text = "Sai key, thử lại!"
+        shakeKeyCard()
+
+        TweenService:Create(kiStroke, EASE.quick,
+            { Color = Color3.fromRGB(255, 69, 58), Transparency = 0 }):Play()
+        task.delay(1.2, function()
+            TweenService:Create(kiStroke, EASE.quick,
+                { Color = Color3.fromRGB(70, 74, 88), Transparency = 0.3 }):Play()
+        end)
+    end
+end
+
+kBtn.MouseEnter:Connect(function()
+    if unlocked then return end
+    TweenService:Create(kBtn, EASE.quick,
+        { BackgroundColor3 = Color3.fromRGB(48, 154, 255) }):Play()
+end)
+kBtn.MouseLeave:Connect(function()
+    if unlocked then return end
+    TweenService:Create(kBtn, EASE.quick,
+        { BackgroundColor3 = Color3.fromRGB(10, 132, 255) }):Play()
+end)
+kBtn.MouseButton1Click:Connect(tryUnlock)
+kInput.FocusLost:Connect(function(enter)
+    if enter then tryUnlock() end
+end)
 
 --============================================================--
 -- MAIN CARD
@@ -948,6 +1190,7 @@ main.BackgroundTransparency = 0.02
 main.BorderSizePixel = 0
 main.ClipsDescendants = false
 main.ZIndex = 10
+main.Visible = false
 main.Parent = screen
 regBg(main, "BackgroundColor3", "bg")
 
@@ -1229,18 +1472,6 @@ local function makeSwitch(parent, xOff, y)
     local tc = Instance.new("UICorner")
     tc.CornerRadius = UDim.new(1, 0); tc.Parent = track
 
-    local knobShadow = Instance.new("Frame")
-    knobShadow.Size = UDim2.fromOffset(22, 22)
-    knobShadow.Position = UDim2.fromOffset(2, 2.5)
-    knobShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    knobShadow.BackgroundTransparency = 0.85
-    knobShadow.BorderSizePixel = 0
-    knobShadow.ZIndex = 14
-    knobShadow.Parent = track
-
-    local ksc = Instance.new("UICorner")
-    ksc.CornerRadius = UDim.new(1, 0); ksc.Parent = knobShadow
-
     local knob = Instance.new("Frame")
     knob.Size = UDim2.fromOffset(22, 22)
     knob.Position = UDim2.fromOffset(2, 2)
@@ -1264,13 +1495,11 @@ local function makeSwitch(parent, xOff, y)
     local function apply(anim)
         local bg  = state and COL.green or COL.track
         local pos = state and UDim2.new(1, -24, 0, 2) or UDim2.fromOffset(2, 2)
-        local spos = state and UDim2.new(1, -24, 0, 2.5) or UDim2.fromOffset(2, 2.5)
         if anim then
             TweenService:Create(track, EASE.quick, { BackgroundColor3 = bg }):Play()
             TweenService:Create(knob, EASE.quick, { Position = pos }):Play()
-            TweenService:Create(knobShadow, EASE.quick, { Position = spos }):Play()
         else
-            track.BackgroundColor3 = bg; knob.Position = pos; knobShadow.Position = spos
+            track.BackgroundColor3 = bg; knob.Position = pos
         end
     end
     apply(false)
@@ -1306,19 +1535,6 @@ local function makeSlider(parent, y, min, max, default, onChange)
     local fc = Instance.new("UICorner")
     fc.CornerRadius = UDim.new(1, 0); fc.Parent = fill
 
-    local knobShadow = Instance.new("Frame")
-    knobShadow.Size = UDim2.fromOffset(20, 20)
-    knobShadow.AnchorPoint = Vector2.new(0.5, 0.5)
-    knobShadow.Position = UDim2.new(0, 0, 0.5, 1.5)
-    knobShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    knobShadow.BackgroundTransparency = 0.82
-    knobShadow.BorderSizePixel = 0
-    knobShadow.ZIndex = 14
-    knobShadow.Parent = track
-
-    local ksc = Instance.new("UICorner")
-    ksc.CornerRadius = UDim.new(1, 0); ksc.Parent = knobShadow
-
     local knob = Instance.new("Frame")
     knob.Size = UDim2.fromOffset(20, 20)
     knob.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1346,7 +1562,6 @@ local function makeSlider(parent, y, min, max, default, onChange)
         local t = math.clamp((v - min) / (max - min), 0, 1)
         fill.Size = UDim2.new(t, 0, 1, 0)
         knob.Position = UDim2.new(t, 0, 0.5, 0)
-        knobShadow.Position = UDim2.new(t, 0, 0.5, 1.5)
     end
     apply(value)
 
@@ -1407,25 +1622,6 @@ local function featureRow(parent, y, iconAsset, titleTxt, subTxt)
     local tcorner = Instance.new("UICorner")
     tcorner.CornerRadius = UDim.new(0, 10); tcorner.Parent = tile
 
-    local grad = Instance.new("UIGradient")
-    grad.Rotation = 135
-    grad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(1, 0.4),
-    })
-    grad.Parent = tile
-
-    local sheen = Instance.new("Frame")
-    sheen.Size = UDim2.new(0.6, 0, 0.6, 0)
-    sheen.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    sheen.BackgroundTransparency = 0.85
-    sheen.BorderSizePixel = 0
-    sheen.ZIndex = 13
-    sheen.Parent = tile
-
-    local sheenCorner = Instance.new("UICorner")
-    sheenCorner.CornerRadius = UDim.new(0, 8); sheenCorner.Parent = sheen
-
     local img = Instance.new("ImageLabel")
     img.Size = UDim2.fromOffset(18, 18)
     img.Position = UDim2.fromOffset(7, 7)
@@ -1469,11 +1665,9 @@ end
 --============================================================--
 sectionLabel(pageMain, 0, "FEATURES")
 
--- Fast Loot (bag icon)
 featureRow(pageMain, 16, ICONS.loot, "Fast Loot", "Auto-collect · Key E")
 local lootSwitch = makeSwitch(pageMain, -4, 30)
 
--- Anti-Ragdoll (Roblox shield icon)
 featureRow(pageMain, 78, ICONS.shield, "Anti-Ragdoll",
     "Server-safe body · hard lock")
 local antiSwitch = makeSwitch(pageMain, -4, 92)
@@ -1542,18 +1736,6 @@ for i, th in ipairs(THEMES) do
     ss.Parent = sw
     swatchStrokes[i] = ss
 
-    sw.MouseEnter:Connect(function()
-        TweenService:Create(sw, EASE.quick, {
-            Size = UDim2.fromOffset(30, 30),
-            Position = UDim2.fromOffset((i - 1) * 33 - 2, -2),
-        }):Play()
-    end)
-    sw.MouseLeave:Connect(function()
-        TweenService:Create(sw, EASE.quick, {
-            Size = UDim2.fromOffset(26, 26),
-            Position = UDim2.fromOffset((i - 1) * 33, 0),
-        }):Play()
-    end)
     sw.MouseButton1Click:Connect(function()
         applyTheme(th)
         for j, st in ipairs(swatchStrokes) do
@@ -1602,18 +1784,6 @@ regBg(segInd, "BackgroundColor3", "bg")
 
 local segIndCorner = Instance.new("UICorner")
 segIndCorner.CornerRadius = UDim.new(0, 8); segIndCorner.Parent = segInd
-
-local segIndShadow = Instance.new("Frame")
-segIndShadow.Size = UDim2.new(1, 0, 1, 2)
-segIndShadow.Position = UDim2.fromOffset(0, 1)
-segIndShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-segIndShadow.BackgroundTransparency = 0.9
-segIndShadow.BorderSizePixel = 0
-segIndShadow.ZIndex = 12
-segIndShadow.Parent = segInd
-
-local segIndShCorner = Instance.new("UICorner")
-segIndShCorner.CornerRadius = UDim.new(0, 8); segIndShCorner.Parent = segIndShadow
 
 local segLightBtn = Instance.new("TextButton")
 segLightBtn.Size = UDim2.new(0.5, 0, 1, 0)
@@ -1680,8 +1850,7 @@ div2.ZIndex = 12
 div2.Parent = pageSettings
 regBg(div2, "BackgroundColor3", "divider")
 
-featureRow(pageSettings, 138, ICONS.sparkle, "FPS Boost Ultra",
-    "Reduce graphics")
+featureRow(pageSettings, 138, ICONS.sparkle, "FPS Boost Ultra", "Reduce graphics")
 local fpsSwitch = makeSwitch(pageSettings, -4, 152)
 
 local function actionBtn(parent, y, txt, iconAsset)
@@ -1727,20 +1896,10 @@ local function actionBtn(parent, y, txt, iconAsset)
     lbl.Parent = b
     regBg(lbl, "TextColor3", "text")
 
-    b.MouseEnter:Connect(function()
-        local src = isDark and DARK or LIGHT
-        TweenService:Create(b, EASE.quick, { BackgroundColor3 = src.btnHov }):Play()
-    end)
-    b.MouseLeave:Connect(function()
-        local src = isDark and DARK or LIGHT
-        TweenService:Create(b, EASE.quick, { BackgroundColor3 = src.btnBg }):Play()
-    end)
-
     return b
 end
 
-local purgeBtn = actionBtn(pageSettings, 204, "Purge World Effects",
-    ICONS.sparkle)
+local purgeBtn = actionBtn(pageSettings, 204, "Purge World Effects", ICONS.sparkle)
 purgeBtn.MouseButton1Click:Connect(function()
     task.spawn(function() pcall(scanFX) end)
     pushNotif({
@@ -1999,23 +2158,4 @@ end)
 --============================================================--
 setExpanded(true)
 
-task.spawn(function()
-    task.wait(0.35)
-    pushNotif({
-        title = "Hyko Loaded",
-        message = "Welcome, " .. LP.DisplayName,
-        color = COL.accent,
-        icon = ICONS.info,
-        duration = 3.5,
-    })
-    task.wait(0.4)
-    pushNotif({
-        title = "Ready",
-        message = "Tap the card to open features",
-        color = COL.green,
-        icon = ICONS.check,
-        duration = 3,
-    })
-end)
-
-print("[Hyko] v10 FINAL · Notifications active · Shield + Bag icons active")
+print("[Hyko] v10 · Key System active · Notifications optimized")
