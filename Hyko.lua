@@ -1,13 +1,14 @@
 --============================================================--
---  Hyko Lite · iOS Dropdown UI + Key System (T)
---  Features : Fast Loot  ·  Anti-Ragdoll (Server-safe body)
---  Header   : Avatar + FPS counter
+--  Hyko Lite · iOS Dropdown UI v2
+--  Features : Fast Loot · Anti-Ragdoll · FPS Boost · Themes
+--  Key      : "Hyko"
 --============================================================--
 
 local Players      = game:GetService("Players")
 local UIS          = game:GetService("UserInputService")
 local RunService   = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local Lighting     = game:GetService("Lighting")
 local LP           = Players.LocalPlayer
 
 --============================================================--
@@ -17,8 +18,7 @@ local function mountGui(gui)
     gui.ResetOnSpawn = false
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     local ok = pcall(function()
-        if gethui then
-            gui.Parent = gethui()
+        if gethui then gui.Parent = gethui()
         elseif syn and syn.protect_gui then
             syn.protect_gui(gui)
             gui.Parent = game:GetService("CoreGui")
@@ -60,26 +60,19 @@ local function readMove()
 end
 
 --============================================================--
--- [3] ANTI-RAGDOLL ENGINE  (body stays alive → server-safe)
+-- [3] ANTI-RAGDOLL ENGINE
 --============================================================--
 local antiOn        = false
 local antiSpeed     = 60
 local fakeWalkSpeed = 600
-local antiConn      = nil
-local antiPost      = nil
-local antiAdded     = nil
-local realHum       = nil
-local fakeHum       = nil
+local antiConn, antiPost, antiAdded
+local realHum, fakeHum
+local velConstraint, velAttachment
+local lastSafeY
+local KILL_UP_VELOCITY  = 40
+local MAX_ABOVE_GROUND  = 12
+local MAX_ABOVE_SAFE    = 25
 
-local velConstraint = nil
-local velAttachment = nil
-
-local lastSafeY          = nil
-local KILL_UP_VELOCITY   = 40
-local MAX_ABOVE_GROUND   = 12
-local MAX_ABOVE_SAFE     = 25
-
--- snapshot of original body state so we can restore perfectly
 local bodySnapshot = {}
 
 local rayParams = RaycastParams.new()
@@ -116,16 +109,11 @@ local function buildFakeHumanoid()
     return h
 end
 
--- Save original CanCollide/Massless so we can revert exactly
 local function snapshotPart(p)
     if bodySnapshot[p] then return end
-    bodySnapshot[p] = {
-        CanCollide = p.CanCollide,
-        Massless   = p.Massless,
-    }
+    bodySnapshot[p] = { CanCollide = p.CanCollide, Massless = p.Massless }
 end
 
--- "Lừa server": giữ nguyên body, chỉ neutralize physics
 local function neutralizeBody(char, root)
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
@@ -147,20 +135,17 @@ local function neutralizeBody(char, root)
     end
 end
 
--- Restore original body state cleanly
 local function restoreBody(char)
     if not char then return end
-    for p, state in pairs(bodySnapshot) do
+    for p, st in pairs(bodySnapshot) do
         if p and p.Parent then
             pcall(function()
-                p.CanCollide = state.CanCollide
-                p.Massless   = state.Massless
+                p.CanCollide = st.CanCollide
+                p.Massless   = st.Massless
             end)
         end
     end
     bodySnapshot = {}
-
-    -- also ensure limbs are zeroed so they don't jolt when toggled off
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
             pcall(function()
@@ -174,12 +159,10 @@ end
 local function createVelConstraint(hrp)
     if velConstraint then pcall(function() velConstraint:Destroy() end) end
     if velAttachment then pcall(function() velAttachment:Destroy() end) end
-
     local att = Instance.new("Attachment")
     att.Name = "HykoAntiFlingAttach"
     att.Parent = hrp
     velAttachment = att
-
     local lv = Instance.new("LinearVelocity")
     lv.Name = "HykoAntiFlingVel"
     lv.Attachment0 = att
@@ -193,14 +176,9 @@ local function createVelConstraint(hrp)
 end
 
 local function destroyVelConstraint()
-    if velConstraint then
-        pcall(function() velConstraint:Destroy() end)
-        velConstraint = nil
-    end
-    if velAttachment then
-        pcall(function() velAttachment:Destroy() end)
-        velAttachment = nil
-    end
+    if velConstraint then pcall(function() velConstraint:Destroy() end) end
+    if velAttachment then pcall(function() velAttachment:Destroy() end) end
+    velConstraint, velAttachment = nil, nil
 end
 
 local function forceHealthy()
@@ -256,14 +234,13 @@ local function antiHeartbeat()
     rayParams.FilterDescendantsInstances = {ch}
     local origin = root.Position + Vector3.new(0, 4, 0)
     local result = workspace:Raycast(origin, Vector3.new(0, -120, 0), rayParams)
-    local groundY = nil
+    local groundY
     if result then
         groundY = result.Position.Y + 3.5
         lastSafeY = groundY
     end
 
     local vel = root.AssemblyLinearVelocity
-
     if vel.Y > KILL_UP_VELOCITY then
         vel = Vector3.new(vel.X, 0, vel.Z)
         root.AssemblyLinearVelocity = vel
@@ -321,8 +298,7 @@ local function antiPostSim()
     if not root then return end
     local want = velConstraint.VectorVelocity
     local cur = root.AssemblyLinearVelocity
-    local dx = cur.X - want.X
-    local dz = cur.Z - want.Z
+    local dx, dz = cur.X - want.X, cur.Z - want.Z
     if (dx * dx + dz * dz) > 4 then
         root.AssemblyLinearVelocity = Vector3.new(want.X, cur.Y, want.Z)
     end
@@ -388,9 +364,7 @@ local function stopAnti()
             hrp.AssemblyLinearVelocity = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
         end
-        -- restore exact original body state
         restoreBody(c)
-
         if fakeHum and fakeHum.Parent then
             pcall(function() fakeHum:Destroy() end)
         end
@@ -411,10 +385,8 @@ end
 --============================================================--
 -- [4] FAST LOOT ENGINE
 --============================================================--
-local lootOn     = false
-local lootConn   = nil
-local promptAdd  = nil
-local savedHold  = {}
+local lootOn, lootConn, promptAdd
+local savedHold = {}
 
 local function applyFastPrompt(p)
     if not p:IsA("ProximityPrompt") then return end
@@ -442,9 +414,7 @@ local function enableLoot()
         end
     end)
     promptAdd = workspace.DescendantAdded:Connect(function(d)
-        if lootOn and d:IsA("ProximityPrompt") then
-            applyFastPrompt(d)
-        end
+        if lootOn and d:IsA("ProximityPrompt") then applyFastPrompt(d) end
     end)
     lootConn = UIS.InputBegan:Connect(function(input, gpe)
         if not lootOn or gpe then return end
@@ -469,8 +439,7 @@ local function enableLoot()
                     for _, d in ipairs(att:GetChildren()) do
                         if d:IsA("ProximityPrompt") and d.Enabled then
                             local dist = (part.Position - hrp.Position).Magnitude
-                            if dist <= d.MaxActivationDistance + 4
-                                and dist < bestDist then
+                            if dist <= d.MaxActivationDistance + 4 and dist < bestDist then
                                 best, bestDist = d, dist
                             end
                         end
@@ -489,7 +458,232 @@ local function disableLoot()
 end
 
 --============================================================--
--- [5] PALETTE
+-- [5] FPS BOOST ENGINE
+--============================================================--
+local fpsBoostOn      = false
+local fpsBoostConn    = nil
+local savedQuality    = nil
+local savedCap        = nil
+local origLighting    = nil
+local savedAtmos      = {}
+local disabledLights  = {}
+
+local function isHykoObj(d)
+    if not d or not d.Name then return false end
+    return string.sub(d.Name, 1, 4) == "Hyko"
+end
+
+local function isSafeToRemove(d)
+    if isHykoObj(d) then return false end
+    local c = LP.Character
+    if c and d:IsDescendantOf(c) then return false end
+    for _, pl in ipairs(Players:GetPlayers()) do
+        local pc = pl.Character
+        if pc and d:IsDescendantOf(pc) then return false end
+    end
+    return true
+end
+
+local function isEffect(d)
+    return d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam")
+        or d:IsA("Smoke") or d:IsA("Fire") or d:IsA("Sparkles")
+        or d:IsA("Explosion") or d:IsA("SurfaceAppearance")
+        or d:IsA("Decal") or d:IsA("Texture")
+end
+
+local function killEffect(d)
+    if not d or not d.Parent then return end
+    if not isSafeToRemove(d) then return end
+    pcall(function() d:Destroy() end)
+end
+
+local function disableLight(l)
+    if disabledLights[l] ~= nil then return end
+    local ok, val = pcall(function() return l.Enabled end)
+    if not ok then return end
+    disabledLights[l] = val
+    pcall(function() l.Enabled = false end)
+end
+
+local function saveLighting()
+    origLighting = {
+        Ambient = Lighting.Ambient,
+        OutdoorAmbient = Lighting.OutdoorAmbient,
+        Brightness = Lighting.Brightness,
+        GlobalShadows = Lighting.GlobalShadows,
+        Shadows = Lighting.Shadows,
+        FogEnd = Lighting.FogEnd,
+        FogStart = Lighting.FogStart,
+        FogColor = Lighting.FogColor,
+        EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
+        EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
+        ExposureCompensation = Lighting.ExposureCompensation,
+        ShadowSoftness = Lighting.ShadowSoftness,
+    }
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.Shadows = false
+        Lighting.Brightness = 0.5
+        Lighting.EnvironmentDiffuseScale = 0
+        Lighting.EnvironmentSpecularScale = 0
+        Lighting.ExposureCompensation = -0.6
+        Lighting.ShadowSoftness = 0
+        Lighting.Ambient = Color3.fromRGB(235, 235, 240)
+        Lighting.OutdoorAmbient = Color3.fromRGB(235, 235, 240)
+        Lighting.FogColor = Color3.fromRGB(240, 240, 245)
+        Lighting.FogStart = 55
+        Lighting.FogEnd = 210
+    end)
+end
+
+local function restoreLighting()
+    if not origLighting then return end
+    pcall(function()
+        Lighting.Ambient = origLighting.Ambient
+        Lighting.OutdoorAmbient = origLighting.OutdoorAmbient
+        Lighting.Brightness = origLighting.Brightness
+        Lighting.GlobalShadows = origLighting.GlobalShadows
+        Lighting.Shadows = origLighting.Shadows
+        Lighting.FogEnd = origLighting.FogEnd
+        Lighting.FogStart = origLighting.FogStart
+        Lighting.FogColor = origLighting.FogColor
+        Lighting.EnvironmentDiffuseScale = origLighting.EnvironmentDiffuseScale
+        Lighting.EnvironmentSpecularScale = origLighting.EnvironmentSpecularScale
+        Lighting.ExposureCompensation = origLighting.ExposureCompensation
+        if origLighting.ShadowSoftness then
+            Lighting.ShadowSoftness = origLighting.ShadowSoftness
+        end
+    end)
+    for a, st in pairs(savedAtmos) do
+        if a and a.Parent then
+            pcall(function()
+                a.Density = st.Density
+                a.Haze = st.Haze
+                a.Glare = st.Glare
+                a.Color = st.Color
+                a.Decay = st.Decay
+            end)
+        end
+    end
+    savedAtmos = {}
+    for l, state in pairs(disabledLights) do
+        if l and l.Parent then pcall(function() l.Enabled = state end) end
+    end
+    disabledLights = {}
+    origLighting = nil
+end
+
+local function stripLighting()
+    for _, d in ipairs(Lighting:GetChildren()) do
+        if d:IsA("Atmosphere") then
+            savedAtmos[d] = { Density = d.Density, Haze = d.Haze, Glare = d.Glare }
+            pcall(function()
+                d.Density = 0
+                d.Haze = 0
+                d.Glare = 0
+            end)
+        elseif d:IsA("PostEffect") then
+            disableLightInstance(d)
+        elseif d:IsA("Sky") then
+            for _, child in ipairs(d:GetChildren()) do
+                pcall(function() child:Destroy() end)
+            end
+        elseif d:IsA("Clouds") then
+            pcall(function() d.Cover = 0; d.Density = 0 end)
+        end
+    end
+end
+
+local function disableLightInstance(l)
+    if disabledLights[l] ~= nil then return end
+    local ok, val = pcall(function() return l.Enabled end)
+    if not ok then return end
+    disabledLights[l] = val
+    pcall(function() l.Enabled = false end)
+end
+
+local function scanAndStrip()
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if isEffect(d) then
+            killEffect(d)
+        elseif d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") then
+            disableLightInstance(d)
+        elseif d:IsA("Highlight") and not isHykoObj(d) then
+            killEffect(d)
+        end
+    end
+end
+
+local function enableFPSBoost()
+    if fpsBoostOn then return end
+    fpsBoostOn = true
+
+    pcall(function()
+        local r = settings().Rendering
+        savedQuality = r.QualityLevel
+        r.QualityLevel = Enum.QualityLevel.Level01
+    end)
+    pcall(function()
+        local r = settings().Rendering
+        savedCap = r.FramerateCap
+        r.FramerateCap = 240
+    end)
+
+    pcall(saveLighting)
+    pcall(stripLighting)
+
+    pcall(function()
+        local T = workspace.Terrain
+        T.WaterWaveSize = 0
+        T.WaterWaveSpeed = 0
+        T.WaterReflectance = 0
+        T.WaterTransparency = 1
+        T.Decoration = false
+    end)
+
+    task.spawn(function() pcall(scanAndStrip) end)
+
+    fpsBoostConn = workspace.DescendantAdded:Connect(function(d)
+        if not fpsBoostOn or isHykoObj(d) then return end
+        if isEffect(d) then
+            task.defer(function() if fpsBoostOn then killEffect(d) end end)
+        elseif d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") then
+            task.defer(function() if fpsBoostOn then disableLightInstance(d) end end)
+        elseif d:IsA("Highlight") and not isHykoObj(d) then
+            task.defer(function() if fpsBoostOn then killEffect(d) end end)
+        end
+    end)
+end
+
+local function disableFPSBoost()
+    if not fpsBoostOn then return end
+    fpsBoostOn = false
+    if fpsBoostConn then fpsBoostConn:Disconnect() fpsBoostConn = nil end
+    pcall(function()
+        if savedQuality then
+            settings().Rendering.QualityLevel = savedQuality
+            savedQuality = nil
+        end
+    end)
+    pcall(function()
+        if savedCap then
+            settings().Rendering.FramerateCap = savedCap
+            savedCap = nil
+        end
+    end)
+    pcall(restoreLighting)
+end
+
+local function freeRAM()
+    for _ = 1, 3 do
+        pcall(function()
+            if collectgarbage then collectgarbage("collect") end
+        end)
+    end
+end
+
+--============================================================--
+-- [6] PALETTE + THEMES
 --============================================================--
 local COL = {
     bg      = Color3.fromRGB(255, 255, 255),
@@ -503,8 +697,32 @@ local COL = {
     stroke  = Color3.fromRGB(230, 232, 236),
 }
 
+local THEMES = {
+    { Name = "Ocean",   Accent = Color3.fromRGB(64, 128, 232) },
+    { Name = "Forest",  Accent = Color3.fromRGB(52, 199, 89)  },
+    { Name = "Violet",  Accent = Color3.fromRGB(139, 92, 246) },
+    { Name = "Rose",    Accent = Color3.fromRGB(236, 72, 153) },
+    { Name = "Crimson", Accent = Color3.fromRGB(239, 68, 68)  },
+    { Name = "Amber",   Accent = Color3.fromRGB(249, 115, 22) },
+    { Name = "Teal",    Accent = Color3.fromRGB(6, 182, 212)  },
+    { Name = "Slate",   Accent = Color3.fromRGB(75, 85, 99)   },
+}
+
+local themeEls = {}
+
+local function registerTheme(el, prop)
+    if el then table.insert(themeEls, { obj = el, prop = prop }) end
+end
+
+local function applyTheme(theme)
+    COL.accent = theme.Accent
+    for _, e in ipairs(themeEls) do
+        pcall(function() e.obj[e.prop] = theme.Accent end)
+    end
+end
+
 --============================================================--
--- [6] DIMENSIONS
+-- [7] DIMENSIONS
 --============================================================--
 local W_COL = 108
 local H_COL = 56
@@ -512,9 +730,9 @@ local W_EXP = 300
 local H_EXP = 260
 
 --============================================================--
--- [7] KEY SYSTEM (key = "T")
+-- [8] KEY SYSTEM  (Key = "Hyko")
 --============================================================--
-local VALID_KEY = "t"  -- case-insensitive
+local VALID_KEY = "hyko"
 
 local keyGui = Instance.new("ScreenGui")
 keyGui.Name = "HykoKeySystem"
@@ -522,7 +740,6 @@ keyGui.IgnoreGuiInset = true
 keyGui.DisplayOrder = 999
 mountGui(keyGui)
 
--- dim background
 local backdrop = Instance.new("Frame")
 backdrop.Size = UDim2.fromScale(1, 1)
 backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -534,7 +751,7 @@ backdrop.Parent = keyGui
 local keyCard = Instance.new("Frame")
 keyCard.AnchorPoint = Vector2.new(0.5, 0.5)
 keyCard.Position = UDim2.fromScale(0.5, 0.5)
-keyCard.Size = UDim2.fromOffset(320, 230)
+keyCard.Size = UDim2.fromOffset(320, 250)
 keyCard.BackgroundColor3 = COL.bg
 keyCard.BackgroundTransparency = 0.02
 keyCard.BorderSizePixel = 0
@@ -552,26 +769,23 @@ kcStroke.Transparency = 0.3
 kcStroke.Parent = keyCard
 
 do
-    for i = 1, 2 do
-        local g = Instance.new("Frame")
-        g.BackgroundTransparency = 1
-        g.BorderSizePixel = 0
-        g.Size     = UDim2.new(1, i * 8, 1, i * 8)
-        g.Position = UDim2.new(0, -i * 4, 0, -i * 4)
-        g.ZIndex   = 2 - i
-        g.Parent   = keyCard
-        local c = Instance.new("UICorner")
-        c.CornerRadius = UDim.new(0, 22 + i * 4)
-        c.Parent = g
-        local s = Instance.new("UIStroke")
-        s.Color = Color3.fromRGB(255, 255, 255)
-        s.Thickness = 1.4
-        s.Transparency = 0.55 + (i - 1) * 0.15
-        s.Parent = g
-    end
+    local g = Instance.new("Frame")
+    g.BackgroundTransparency = 1
+    g.BorderSizePixel = 0
+    g.Size = UDim2.new(1, 10, 1, 10)
+    g.Position = UDim2.new(0, -5, 0, -5)
+    g.ZIndex = 1
+    g.Parent = keyCard
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 27)
+    c.Parent = g
+    local s = Instance.new("UIStroke")
+    s.Color = Color3.fromRGB(255, 255, 255)
+    s.Thickness = 1.2
+    s.Transparency = 0.55
+    s.Parent = g
 end
 
--- avatar in card
 local kAvatarWrap = Instance.new("Frame")
 kAvatarWrap.Size = UDim2.fromOffset(46, 46)
 kAvatarWrap.Position = UDim2.fromOffset(24, 22)
@@ -693,7 +907,7 @@ local kHint = Instance.new("TextLabel")
 kHint.Size = UDim2.new(1, -48, 0, 16)
 kHint.Position = UDim2.fromOffset(24, 152)
 kHint.BackgroundTransparency = 1
-kHint.Text = "Hint: single letter — the toggle key"
+kHint.Text = "Hint: name of this tool"
 kHint.TextColor3 = COL.sub
 kHint.Font = Enum.Font.GothamMedium
 kHint.TextSize = 10
@@ -718,9 +932,11 @@ local kButtonCorner = Instance.new("UICorner")
 kButtonCorner.CornerRadius = UDim.new(0, 12)
 kButtonCorner.Parent = kButton
 
+registerTheme(kButton, "BackgroundColor3")
+
 local kStatus = Instance.new("TextLabel")
 kStatus.Size = UDim2.new(1, -48, 0, 14)
-kStatus.Position = UDim2.fromOffset(24, 220)
+kStatus.Position = UDim2.fromOffset(24, 224)
 kStatus.BackgroundTransparency = 1
 kStatus.Text = ""
 kStatus.TextColor3 = COL.red
@@ -731,7 +947,7 @@ kStatus.ZIndex = 3
 kStatus.Parent = keyCard
 
 --============================================================--
--- [8] SCREEN + ROOT (main UI, hidden until unlocked)
+-- [9] MAIN SCREEN (hidden until unlock)
 --============================================================--
 local screen = Instance.new("ScreenGui")
 screen.Name = "HykoLite"
@@ -742,12 +958,12 @@ mountGui(screen)
 local main = Instance.new("Frame")
 main.Name = "HykoLiteMain"
 main.AnchorPoint = Vector2.new(1, 0)
-main.Position    = UDim2.new(1, -22, 0, 22)
-main.Size        = UDim2.fromOffset(W_COL, H_COL)
-main.BackgroundColor3     = COL.bg
+main.Position = UDim2.new(1, -22, 0, 22)
+main.Size = UDim2.fromOffset(W_COL, H_COL)
+main.BackgroundColor3 = COL.bg
 main.BackgroundTransparency = 0.03
-main.BorderSizePixel      = 0
-main.ClipsDescendants     = false
+main.BorderSizePixel = 0
+main.ClipsDescendants = false
 main.ZIndex = 10
 main.Parent = screen
 
@@ -761,31 +977,29 @@ stroke.Thickness = 1
 stroke.Transparency = 0.35
 stroke.Parent = main
 
+-- single glow layer (optimized)
 do
-    for i = 1, 2 do
-        local g = Instance.new("Frame")
-        g.BackgroundTransparency = 1
-        g.BorderSizePixel = 0
-        g.Size     = UDim2.new(1, i * 7, 1, i * 7)
-        g.Position = UDim2.new(0, -i * 3.5, 0, -i * 3.5)
-        g.ZIndex   = 10 - i
-        g.Parent   = main
-        local c = Instance.new("UICorner")
-        c.CornerRadius = UDim.new(0, H_COL / 2 + i * 4)
-        c.Parent = g
-        local s = Instance.new("UIStroke")
-        s.Color = Color3.fromRGB(255, 255, 255)
-        s.Thickness = 1.2
-        s.Transparency = 0.6 + (i - 1) * 0.15
-        s.Parent = g
-    end
+    local g = Instance.new("Frame")
+    g.BackgroundTransparency = 1
+    g.BorderSizePixel = 0
+    g.Size = UDim2.new(1, 8, 1, 8)
+    g.Position = UDim2.new(0, -4, 0, -4)
+    g.ZIndex = 9
+    g.Parent = main
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, H_COL / 2 + 4)
+    c.Parent = g
+    local s = Instance.new("UIStroke")
+    s.Color = Color3.fromRGB(255, 255, 255)
+    s.Thickness = 1.2
+    s.Transparency = 0.6
+    s.Parent = g
 end
 
 --============================================================--
--- [9] HEADER AVATAR
+-- [10] HEADER AVATAR
 --============================================================--
 local avatarWrap = Instance.new("Frame")
-avatarWrap.Name = "AvatarWrap"
 avatarWrap.Size = UDim2.fromOffset(30, 30)
 avatarWrap.Position = UDim2.fromOffset(13, 13)
 avatarWrap.BackgroundColor3 = Color3.fromRGB(240, 242, 245)
@@ -813,13 +1027,10 @@ avatarStroke.Thickness = 2
 avatarStroke.Transparency = 0.2
 avatarStroke.Parent = avatarWrap
 
-local function loadAvatar()
+task.spawn(function()
     local ok, img = pcall(function()
         return Players:GetUserThumbnailAsync(
-            LP.UserId,
-            Enum.ThumbnailType.HeadShot,
-            Enum.ThumbnailSize.Size150x150
-        )
+            LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
     end)
     if ok and img and img ~= "" then
         avatarImg.Image = img
@@ -827,19 +1038,9 @@ local function loadAvatar()
     end
     local ok2, img2 = pcall(function()
         return Players:GetUserThumbnailAsync(
-            LP.UserId,
-            Enum.ThumbnailType.AvatarBust,
-            Enum.ThumbnailSize.Size150x150
-        )
+            LP.UserId, Enum.ThumbnailType.AvatarBust, Enum.ThumbnailSize.Size150x150)
     end)
-    if ok2 and img2 and img2 ~= "" then
-        avatarImg.Image = img2
-    end
-end
-
-task.spawn(function()
-    task.wait(0.2)
-    loadAvatar()
+    if ok2 and img2 and img2 ~= "" then avatarImg.Image = img2 end
 end)
 
 local statusDot = Instance.new("Frame")
@@ -862,10 +1063,9 @@ dotStroke.Thickness = 2
 dotStroke.Parent = statusDot
 
 --============================================================--
--- [10] FPS COUNTER
+-- [11] FPS COUNTER
 --============================================================--
 local fpsWrap = Instance.new("Frame")
-fpsWrap.Name = "FPSWrap"
 fpsWrap.Size = UDim2.fromOffset(50, 34)
 fpsWrap.Position = UDim2.fromOffset(50, 11)
 fpsWrap.BackgroundTransparency = 1
@@ -874,7 +1074,6 @@ fpsWrap.Parent = main
 
 local fpsNum = Instance.new("TextLabel")
 fpsNum.Size = UDim2.new(1, 0, 0, 22)
-fpsNum.Position = UDim2.fromOffset(0, 0)
 fpsNum.BackgroundTransparency = 1
 fpsNum.Text = "60"
 fpsNum.TextColor3 = COL.accent
@@ -899,15 +1098,17 @@ fpsTag.Parent = fpsWrap
 do
     local frames = 0
     local lastClock = os.clock()
+    local lastVal = -1
     RunService.RenderStepped:Connect(function()
-        frames += 1
+        frames = frames + 1
         local now = os.clock()
         local elapsed = now - lastClock
-        if elapsed >= 0.5 then
+        if elapsed >= 0.75 then
             local fps = math.floor(frames / elapsed + 0.5)
             frames = 0
             lastClock = now
-            if fpsNum.Parent then
+            if fps ~= lastVal and fpsNum.Parent then
+                lastVal = fps
                 fpsNum.Text = tostring(fps)
                 if fps >= 45 then
                     fpsNum.TextColor3 = COL.green
@@ -922,7 +1123,7 @@ do
 end
 
 --============================================================--
--- [11] HEADER TEXT
+-- [12] HEADER TEXT
 --============================================================--
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(0, 160, 0, 18)
@@ -953,8 +1154,45 @@ subtitle.ZIndex = 12
 subtitle.Parent = main
 
 --============================================================--
--- [12] MINIMIZE BUTTON
+-- [13] HEADER BUTTONS (settings + minimize)
 --============================================================--
+local function makeIconButton(iconAsset)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(26, 26)
+    btn.AnchorPoint = Vector2.new(1, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(245, 246, 248)
+    btn.BorderSizePixel = 0
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.ZIndex = 40
+    btn.Visible = false
+    btn.Parent = main
+
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = btn
+
+    local s = Instance.new("UIStroke")
+    s.Color = COL.stroke
+    s.Thickness = 1
+    s.Transparency = 0.3
+    s.Parent = btn
+
+    local img = Instance.new("ImageLabel")
+    img.Size = UDim2.fromOffset(14, 14)
+    img.Position = UDim2.fromOffset(6, 6)
+    img.BackgroundTransparency = 1
+    img.Image = iconAsset
+    img.ImageColor3 = COL.text
+    img.ZIndex = 41
+    img.Parent = btn
+
+    return btn, img
+end
+
+local setBtn, setIcon = makeIconButton("rbxassetid://6031280882")
+setBtn.Position = UDim2.new(1, -48, 0, 14)
+
 local minBtn = Instance.new("TextButton")
 minBtn.Size = UDim2.fromOffset(26, 26)
 minBtn.AnchorPoint = Vector2.new(1, 0)
@@ -981,7 +1219,7 @@ minStroke.Transparency = 0.3
 minStroke.Parent = minBtn
 
 --============================================================--
--- [13] BODY
+-- [14] BODY
 --============================================================--
 local body = Instance.new("CanvasGroup")
 body.Size = UDim2.new(1, -32, 1, -78)
@@ -992,7 +1230,7 @@ body.ZIndex = 11
 body.Parent = main
 
 --============================================================--
--- [14] WIDGET BUILDERS
+-- [15] WIDGET BUILDERS
 --============================================================--
 local function makeRowGlyph(parent, y, glyphType)
     local wrap = Instance.new("Frame")
@@ -1007,6 +1245,7 @@ local function makeRowGlyph(parent, y, glyphType)
     c.CornerRadius = UDim.new(0, 9)
     c.Parent = wrap
 
+    local colorTarget
     if glyphType == "loot" then
         local img = Instance.new("ImageLabel")
         img.Size = UDim2.fromOffset(16, 16)
@@ -1016,6 +1255,7 @@ local function makeRowGlyph(parent, y, glyphType)
         img.ImageColor3 = COL.accent
         img.ZIndex = 14
         img.Parent = wrap
+        colorTarget = { obj = img, prop = "ImageColor3" }
     elseif glyphType == "shield" then
         local sh = Instance.new("Frame")
         sh.Size = UDim2.fromOffset(16, 16)
@@ -1041,7 +1281,9 @@ local function makeRowGlyph(parent, y, glyphType)
         local nc = Instance.new("UICorner")
         nc.CornerRadius = UDim.new(1, 0)
         nc.Parent = notch
+        colorTarget = { obj = sh, prop = "BackgroundColor3" }
     end
+    if colorTarget then table.insert(themeEls, colorTarget) end
 end
 
 local function makeRowLabel(parent, y, titleTxt, subTxt)
@@ -1137,7 +1379,7 @@ local function makeSwitch(parent, y)
     apply(false)
 
     return {
-        button   = btn,
+        button = btn,
         setState = function(v, anim) state = v apply(anim) end,
         getState = function() return state end,
     }
@@ -1197,7 +1439,6 @@ local function makeSlider(parent, y, min, max, default, onChange)
     btn.Parent = track
 
     local value = default
-
     local function apply(v)
         local t = math.clamp((v - min) / (max - min), 0, 1)
         fill.Size = UDim2.new(t, 0, 1, 0)
@@ -1237,6 +1478,7 @@ local function makeSlider(parent, y, min, max, default, onChange)
         end
     end)
 
+    registerTheme(fill, "BackgroundColor3")
     return {
         set = function(v) value = v apply(v) end,
         get = function() return value end,
@@ -1244,7 +1486,7 @@ local function makeSlider(parent, y, min, max, default, onChange)
 end
 
 --============================================================--
--- [15] BODY CONTENT
+-- [16] BODY CONTENT
 --============================================================--
 makeRowGlyph(body, 8, "loot")
 makeRowLabel(body, 8, "Fast Loot", "Auto-collect prompts · Key E")
@@ -1281,6 +1523,7 @@ sliderValueLbl.TextSize = 12
 sliderValueLbl.TextXAlignment = Enum.TextXAlignment.Right
 sliderValueLbl.ZIndex = 13
 sliderValueLbl.Parent = body
+registerTheme(sliderValueLbl, "TextColor3")
 
 local speedSlider = makeSlider(body, 164, 20, 800, antiSpeed, function(v)
     antiSpeed = v
@@ -1300,10 +1543,162 @@ note.ZIndex = 13
 note.Parent = body
 
 --============================================================--
--- [16] STATE
+-- [17] SETTINGS PANEL (child of main, appears below)
+--============================================================--
+local settingsPanel = Instance.new("Frame")
+settingsPanel.Name = "HykoSettings"
+settingsPanel.Size = UDim2.new(1, 0, 0, 244)
+settingsPanel.Position = UDim2.new(0, 0, 1, 8)
+settingsPanel.BackgroundColor3 = COL.bg
+settingsPanel.BackgroundTransparency = 0.03
+settingsPanel.BorderSizePixel = 0
+settingsPanel.ZIndex = 15
+settingsPanel.Visible = false
+settingsPanel.Parent = main
+
+local spCorner = Instance.new("UICorner")
+spCorner.CornerRadius = UDim.new(0, 22)
+spCorner.Parent = settingsPanel
+
+local spStroke = Instance.new("UIStroke")
+spStroke.Color = COL.stroke
+spStroke.Thickness = 1
+spStroke.Transparency = 0.35
+spStroke.Parent = settingsPanel
+
+-- Theme section
+local themeLabel = Instance.new("TextLabel")
+themeLabel.Size = UDim2.new(1, -32, 0, 16)
+themeLabel.Position = UDim2.fromOffset(16, 16)
+themeLabel.BackgroundTransparency = 1
+themeLabel.Text = "Accent Color"
+themeLabel.TextColor3 = COL.text
+themeLabel.Font = Enum.Font.GothamBold
+themeLabel.TextSize = 12
+themeLabel.TextXAlignment = Enum.TextXAlignment.Left
+themeLabel.ZIndex = 16
+themeLabel.Parent = settingsPanel
+
+local swatchRow = Instance.new("Frame")
+swatchRow.Size = UDim2.new(1, -32, 0, 28)
+swatchRow.Position = UDim2.fromOffset(16, 40)
+swatchRow.BackgroundTransparency = 1
+swatchRow.ZIndex = 16
+swatchRow.Parent = settingsPanel
+
+local swatchRefs = {}
+
+for i, theme in ipairs(THEMES) do
+    local sw = Instance.new("TextButton")
+    sw.Size = UDim2.fromOffset(28, 28)
+    sw.Position = UDim2.fromOffset((i - 1) * 34, 0)
+    sw.BackgroundColor3 = theme.Accent
+    sw.BorderSizePixel = 0
+    sw.Text = ""
+    sw.AutoButtonColor = false
+    sw.ZIndex = 17
+    sw.Parent = swatchRow
+
+    local sc = Instance.new("UICorner")
+    sc.CornerRadius = UDim.new(1, 0)
+    sc.Parent = sw
+
+    local ss = Instance.new("UIStroke")
+    ss.Color = Color3.fromRGB(255, 255, 255)
+    ss.Thickness = 2
+    ss.Transparency = (i == 1) and 0 or 0.7
+    ss.Parent = sw
+
+    swatchRefs[i] = ss
+
+    sw.MouseButton1Click:Connect(function()
+        applyTheme(theme)
+        for j, s in ipairs(swatchRefs) do
+            s.Transparency = (j == i) and 0 or 0.7
+        end
+    end)
+end
+
+local spDiv1 = Instance.new("Frame")
+spDiv1.Size = UDim2.new(1, -32, 0, 1)
+spDiv1.Position = UDim2.fromOffset(16, 84)
+spDiv1.BackgroundColor3 = COL.divider
+spDiv1.BorderSizePixel = 0
+spDiv1.ZIndex = 16
+spDiv1.Parent = settingsPanel
+
+-- FPS Boost row
+local fpsTitle = Instance.new("TextLabel")
+fpsTitle.Size = UDim2.new(1, -100, 0, 16)
+fpsTitle.Position = UDim2.fromOffset(16, 98)
+fpsTitle.BackgroundTransparency = 1
+fpsTitle.Text = "FPS Boost Ultra"
+fpsTitle.TextColor3 = COL.text
+fpsTitle.Font = Enum.Font.GothamBold
+fpsTitle.TextSize = 13
+fpsTitle.TextXAlignment = Enum.TextXAlignment.Left
+fpsTitle.ZIndex = 16
+fpsTitle.Parent = settingsPanel
+
+local fpsSub = Instance.new("TextLabel")
+fpsSub.Size = UDim2.new(1, -100, 0, 13)
+fpsSub.Position = UDim2.fromOffset(16, 114)
+fpsSub.BackgroundTransparency = 1
+fpsSub.Text = "Reduce graphics · strip effects"
+fpsSub.TextColor3 = COL.sub
+fpsSub.Font = Enum.Font.GothamMedium
+fpsSub.TextSize = 10
+fpsSub.TextXAlignment = Enum.TextXAlignment.Left
+fpsSub.ZIndex = 16
+fpsSub.Parent = settingsPanel
+
+local fpsSwitch = makeSwitch(settingsPanel, 100)
+fpsSwitch.button.Parent.Position = UDim2.new(1, -16, 0, 100)
+fpsSwitch.button.Parent.Parent = settingsPanel
+
+-- action buttons
+local function makeActionButton(parent, y, text)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -32, 0, 38)
+    b.Position = UDim2.fromOffset(16, y)
+    b.BackgroundColor3 = Color3.fromRGB(247, 248, 250)
+    b.BorderSizePixel = 0
+    b.Text = text
+    b.TextColor3 = COL.text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.AutoButtonColor = false
+    b.ZIndex = 16
+    b.Parent = parent
+
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 11)
+    c.Parent = b
+
+    local s = Instance.new("UIStroke")
+    s.Color = COL.stroke
+    s.Thickness = 1
+    s.Transparency = 0.35
+    s.Parent = b
+
+    return b
+end
+
+local purgeBtn = makeActionButton(settingsPanel, 148, "Purge World Effects")
+purgeBtn.MouseButton1Click:Connect(function()
+    task.spawn(function() pcall(scanAndStrip) end)
+end)
+
+local ramBtn = makeActionButton(settingsPanel, 194, "Free Memory")
+ramBtn.MouseButton1Click:Connect(function()
+    freeRAM()
+end)
+
+--============================================================--
+-- [18] STATE
 --============================================================--
 local function updateStatusDot()
-    statusDot.Visible = antiOn or lootOn
+    statusDot.Visible = antiOn or lootOn or fpsBoostOn
 end
 
 local function toggleAnti()
@@ -1325,22 +1720,57 @@ end
 lootSwitch.button.Activated:Connect(toggleLoot)
 antiSwitch.button.Activated:Connect(toggleAnti)
 
+fpsSwitch.button.Activated:Connect(function()
+    local s = not fpsBoostOn
+    fpsSwitch.setState(s, true)
+    if s then
+        local ok = pcall(enableFPSBoost)
+        if not ok then fpsSwitch.setState(false, true) end
+    else
+        pcall(disableFPSBoost)
+    end
+    updateStatusDot()
+end)
+
 --============================================================--
--- [17] EXPAND / COLLAPSE
+-- [19] EXPAND / COLLAPSE + SETTINGS PANEL
 --============================================================--
-local expanded  = false
+local expanded = false
 local animating = false
+local settingsOpen = false
+
+local function setSettings(open)
+    if settingsOpen == open then return end
+    settingsOpen = open
+    if open then
+        settingsPanel.Visible = true
+        settingsPanel.Position = UDim2.new(0, 0, 1, -6)
+        TweenService:Create(settingsPanel,
+            TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+            { Position = UDim2.new(0, 0, 1, 8) }):Play()
+    else
+        local t = TweenService:Create(settingsPanel,
+            TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+            { Position = UDim2.new(0, 0, 1, -6) })
+        t.Completed:Connect(function()
+            if not settingsOpen then settingsPanel.Visible = false end
+        end)
+        t:Play()
+    end
+end
 
 local function setExpanded(state)
     if animating then return end
     animating = true
     expanded = state
 
+    if not state then setSettings(false) end
+
     local targetSize   = state and UDim2.fromOffset(W_EXP, H_EXP)
                               or UDim2.fromOffset(W_COL, H_COL)
     local targetRadius = state and UDim.new(0, 22)
                               or UDim.new(0, H_COL / 2)
-    local info = TweenInfo.new(0.36, Enum.EasingStyle.Quart,
+    local info = TweenInfo.new(0.34, Enum.EasingStyle.Quart,
                                 Enum.EasingDirection.Out)
 
     TweenService:Create(main,   info, { Size = targetSize }):Play()
@@ -1355,9 +1785,16 @@ local function setExpanded(state)
         { TextTransparency = state and 1 or 0 }):Play()
 
     minBtn.Visible = true
+    setBtn.Visible = true
     TweenService:Create(minBtn, info, {
         BackgroundTransparency = state and 0 or 1,
         TextTransparency       = state and 0 or 1,
+    }):Play()
+    TweenService:Create(setBtn, info, {
+        BackgroundTransparency = state and 0 or 1,
+    }):Play()
+    TweenService:Create(setIcon, info, {
+        ImageTransparency = state and 0 or 1,
     }):Play()
 
     if state then
@@ -1367,17 +1804,18 @@ local function setExpanded(state)
         TweenService:Create(body, info, { GroupTransparency = 1 }):Play()
     end
 
-    task.delay(0.36, function()
+    task.delay(0.34, function()
         animating = false
         if not expanded then
             body.Visible = false
             minBtn.Visible = false
+            setBtn.Visible = false
         end
     end)
 end
 
 --============================================================--
--- [18] HEADER DRAG + TAP
+-- [20] HEADER DRAG + TAP
 --============================================================--
 local headerBtn = Instance.new("TextButton")
 headerBtn.Name = "HeaderButton"
@@ -1429,34 +1867,36 @@ minBtn.MouseButton1Click:Connect(function()
     if not animating then setExpanded(false) end
 end)
 
+setBtn.MouseButton1Click:Connect(function()
+    if not expanded then
+        setExpanded(true)
+        task.wait(0.36)
+    end
+    setSettings(not settingsOpen)
+end)
+
 --============================================================--
--- [19] RESPAWN SAFETY
+-- [21] RESPAWN SAFETY
 --============================================================--
 LP.CharacterAdded:Connect(function()
     task.wait(0.6)
     if antiOn then
-        antiConn = nil
-        antiPost = nil
-        antiAdded = nil
-        fakeHum = nil
-        realHum = nil
-        velConstraint = nil
-        velAttachment = nil
+        antiConn, antiPost, antiAdded = nil, nil, nil
+        fakeHum, realHum = nil, nil
+        velConstraint, velAttachment = nil, nil
         bodySnapshot = {}
         startAnti()
     end
-    if lootOn then
-        disableLoot()
-        enableLoot()
-    end
+    if lootOn then disableLoot() enableLoot() end
 end)
 
 --============================================================--
--- [20] KEY SYSTEM LOGIC
+-- [22] KEY SYSTEM LOGIC
 --============================================================--
 local unlocked = false
 
 local function tryUnlock()
+    if unlocked then return end
     local typed = string.lower(kInput.Text or "")
     typed = string.gsub(typed, "%s", "")
     if typed == VALID_KEY then
@@ -1467,15 +1907,11 @@ local function tryUnlock()
         kButton.BackgroundColor3 = COL.green
         kButton.Text = "Unlocked"
 
-        -- tween card out
-        local outInfo = TweenInfo.new(0.32, Enum.EasingStyle.Quart,
-                                       Enum.EasingDirection.Out)
-        TweenService:Create(keyCard, outInfo, {
-            Size = UDim2.fromOffset(260, 200),
-        }):Play()
-        TweenService:Create(keyGui, TweenInfo.new(0.32), {}):Play()
+        TweenService:Create(keyCard,
+            TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+            { Size = UDim2.fromOffset(260, 200) }):Play()
 
-        task.wait(0.32)
+        task.wait(0.3)
         keyGui.Enabled = false
         screen.Enabled = true
         setExpanded(true)
@@ -1483,13 +1919,11 @@ local function tryUnlock()
         kStatus.Text = "Invalid key"
         kStatus.TextColor3 = COL.red
         kInput.Text = ""
-        -- shake
         local basePos = keyCard.Position
         for _, off in ipairs({ -8, 8, -6, 6, -3, 3, 0 }) do
             keyCard.Position = UDim2.new(
                 basePos.X.Scale, basePos.X.Offset + off,
-                basePos.Y.Scale, basePos.Y.Offset
-            )
+                basePos.Y.Scale, basePos.Y.Offset)
             task.wait(0.03)
         end
         keyCard.Position = basePos
@@ -1501,18 +1935,20 @@ kInput.FocusLost:Connect(function(enter)
     if enter then tryUnlock() end
 end)
 
---============================================================--
--- [21] BOOT
---============================================================--
--- main UI starts hidden, key system shows first
-main.Visible = true
-screen.Enabled = false
-keyGui.Enabled = true
+task.spawn(function()
+    task.wait(0.5)
+    pcall(function() kInput:CaptureFocus() end)
+end)
 
--- entrance animation on key card
-keyCard.Size = UDim2.fromOffset(280, 210)
+--============================================================--
+-- [23] BOOT
+--============================================================--
+keyGui.Enabled = true
+screen.Enabled = false
+
+keyCard.Size = UDim2.fromOffset(280, 230)
 TweenService:Create(keyCard,
     TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-    { Size = UDim2.fromOffset(320, 230) }):Play()
+    { Size = UDim2.fromOffset(320, 250) }):Play()
 
-print("[Hyko Lite] Loaded · Player: " .. LP.Name .. " · Key = T")
+print("[Hyko Lite] Loaded · Player: " .. LP.Name .. " · Key: Hyko")
