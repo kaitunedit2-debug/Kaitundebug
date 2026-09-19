@@ -35,14 +35,18 @@ end
 -- ICON REGISTRY  (Lucide style)
 --============================================================--
 local ICONS = {
-    info    = "rbxassetid://6031075931",
-    check   = "rbxassetid://6031094678",
-    gear    = "rbxassetid://6031280882",
-    back    = "rbxassetid://6031091004",
-    shield  = "rbxassetid://10709810948",   -- Lucide Shield (Anti-Ragdoll)
-    loot    = "rbxassetid://10709811110",   -- Lucide Bag    (Fast Loot)
-    sparkle = "rbxassetid://6031094678",
-    users   = "rbxassetid://10709799842",
+    info    = "rbxassetid://10734818717", -- lucide-info
+    check   = "rbxassetid://10734804256", -- lucide-check
+    gear    = "rbxassetid://10734950309", -- lucide-settings
+    back    = "rbxassetid://10734788491", -- lucide-arrow-left
+    shield  = "rbxassetid://10734951847", -- lucide-shield
+    loot    = "rbxassetid://10734898820", -- lucide-shopping-bag
+    sparkle = "rbxassetid://10734961038", -- lucide-sparkles
+    users   = "rbxassetid://85332511060401", -- lucide-users
+    scan    = "rbxassetid://125367266780285", -- lucide-scan
+    user    = "rbxassetid://114567720540659", -- lucide-user
+    ruler   = "rbxassetid://84633402845324", -- lucide-ruler
+    settings2 = "rbxassetid://109485777305919", -- lucide-settings-2
 }
 
 --============================================================--
@@ -78,6 +82,10 @@ local realHum, fakeHum
 local moveAtt, moveVel, faceAtt, faceAlign
 local lastSafeY, housekeeping = nil, 0
 local bodySnap = {}
+local humSnap = nil
+local jointSnap = {}
+local constraintSnap = {}
+local cameraSnap = nil
 
 local rayP = RaycastParams.new()
 rayP.FilterType = Enum.RaycastFilterType.Exclude
@@ -122,16 +130,82 @@ local function buildFakeHum()
     return h
 end
 
+local function snapshotCharacter(char, hum, root)
+    bodySnap = {}
+    jointSnap = {}
+    constraintSnap = {}
+    humSnap = nil
+    cameraSnap = workspace.CurrentCamera and workspace.CurrentCamera.CameraSubject or nil
+
+    for _, d in ipairs(char:GetDescendants()) do
+        if d:IsA("BasePart") then
+            bodySnap[d] = {
+                CanCollide = d.CanCollide,
+                Massless = d.Massless,
+                Anchored = d.Anchored,
+                CanTouch = d.CanTouch,
+                CanQuery = d.CanQuery,
+                CastShadow = d.CastShadow,
+                CollisionGroup = d.CollisionGroup,
+            }
+        elseif d:IsA("Motor6D") or d:IsA("Weld") or d:IsA("WeldConstraint") then
+            jointSnap[d] = {
+                Enabled = d.Enabled,
+                C0 = d:IsA("Motor6D") and d.C0 or nil,
+                C1 = d:IsA("Motor6D") and d.C1 or nil,
+                Transform = d:IsA("Motor6D") and d.Transform or nil,
+            }
+        elseif d:IsA("Constraint") then
+            constraintSnap[d] = {Enabled = d.Enabled}
+        end
+    end
+
+    if hum then
+        humSnap = {
+            Parent = hum.Parent,
+            WalkSpeed = hum.WalkSpeed,
+            JumpPower = hum.JumpPower,
+            JumpHeight = hum.JumpHeight,
+            UseJumpPower = hum.UseJumpPower,
+            AutoRotate = hum.AutoRotate,
+            HipHeight = hum.HipHeight,
+            PlatformStand = hum.PlatformStand,
+            Sit = hum.Sit,
+            RequiresNeck = hum.RequiresNeck,
+            BreakJointsOnDeath = hum.BreakJointsOnDeath,
+            DisplayDistanceType = hum.DisplayDistanceType,
+            HealthDisplayType = hum.HealthDisplayType,
+            NameDisplayDistance = hum.NameDisplayDistance,
+            MaxHealth = hum.MaxHealth,
+        }
+        humSnap.States = {}
+        for _, state in ipairs(Enum.HumanoidStateType:GetEnumItems()) do
+            local ok, enabled = pcall(function()
+                return hum:GetStateEnabled(state)
+            end)
+            if ok then humSnap.States[state] = enabled end
+        end
+    end
+end
+
 local function snapPart(p)
     if bodySnap[p] then return end
-    bodySnap[p] = { cc = p.CanCollide, m = p.Massless }
+    bodySnap[p] = {
+        CanCollide = p.CanCollide,
+        Massless = p.Massless,
+        Anchored = p.Anchored,
+        CanTouch = p.CanTouch,
+        CanQuery = p.CanQuery,
+        CastShadow = p.CastShadow,
+        CollisionGroup = p.CollisionGroup,
+    }
 end
 
 local function neutralizeBodyPart(p)
     snapPart(p)
     pcall(function()
-        if p.CanCollide then p.CanCollide = false end
-        if not p.Massless then p.Massless = true end
+        p.CanCollide = false
+        p.Massless = true
         p.AssemblyLinearVelocity = Vector3.zero
         p.AssemblyAngularVelocity = Vector3.zero
     end)
@@ -139,26 +213,101 @@ end
 
 local function buildBodyCache(char, root)
     for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") and p ~= root then neutralizeBodyPart(p) end
+        if p:IsA("BasePart") and p ~= root then
+            neutralizeBodyPart(p)
+        end
     end
 end
 
 local function restore(char)
     if not char then return end
-    for p, s in pairs(bodySnap) do
-        if p and p.Parent then
-            pcall(function() p.CanCollide = s.cc; p.Massless = s.m end)
+
+    -- Remove every helper object created by Anti-Ragdoll, including leftovers
+    -- from interrupted toggles.
+    for _, d in ipairs(char:GetDescendants()) do
+        if typeof(d.Name) == "string" and d.Name:sub(1,5) == "Hyko" then
+            pcall(function() d:Destroy() end)
         end
     end
-    bodySnap = {}
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
+
+    for p, state in pairs(bodySnap) do
+        if p and p.Parent then
             pcall(function()
+                p.CanCollide = state.CanCollide
+                p.Massless = state.Massless
+                p.Anchored = state.Anchored
+                p.CanTouch = state.CanTouch
+                p.CanQuery = state.CanQuery
+                p.CastShadow = state.CastShadow
+                p.CollisionGroup = state.CollisionGroup
                 p.AssemblyLinearVelocity = Vector3.zero
                 p.AssemblyAngularVelocity = Vector3.zero
             end)
         end
     end
+
+    for joint, state in pairs(jointSnap) do
+        if joint and joint.Parent then
+            pcall(function()
+                joint.Enabled = state.Enabled
+                if joint:IsA("Motor6D") then
+                    joint.C0 = state.C0
+                    joint.C1 = state.C1
+                    joint.Transform = state.Transform
+                end
+            end)
+        end
+    end
+
+    for constraint, state in pairs(constraintSnap) do
+        if constraint and constraint.Parent then
+            pcall(function() constraint.Enabled = state.Enabled end)
+        end
+    end
+
+    if realHum and realHum.Parent == nil then
+        pcall(function() realHum.Parent = char end)
+    end
+
+    local hum = realHum
+    if not hum or hum.Parent ~= char then
+        hum = char:FindFirstChildOfClass("Humanoid")
+    end
+
+    if hum and humSnap then
+        pcall(function()
+            hum.WalkSpeed = humSnap.WalkSpeed
+            hum.JumpPower = humSnap.JumpPower
+            hum.JumpHeight = humSnap.JumpHeight
+            hum.UseJumpPower = humSnap.UseJumpPower
+            hum.AutoRotate = humSnap.AutoRotate
+            hum.HipHeight = humSnap.HipHeight
+            hum.PlatformStand = humSnap.PlatformStand
+            hum.Sit = humSnap.Sit
+            hum.RequiresNeck = humSnap.RequiresNeck
+            hum.BreakJointsOnDeath = humSnap.BreakJointsOnDeath
+            hum.DisplayDistanceType = humSnap.DisplayDistanceType
+            hum.HealthDisplayType = humSnap.HealthDisplayType
+            hum.NameDisplayDistance = humSnap.NameDisplayDistance
+            hum.MaxHealth = humSnap.MaxHealth
+            for state, enabled in pairs(humSnap.States or {}) do
+                hum:SetStateEnabled(state, enabled)
+            end
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end)
+    end
+
+    if cameraSnap and workspace.CurrentCamera then
+        pcall(function() workspace.CurrentCamera.CameraSubject = cameraSnap end)
+    elseif workspace.CurrentCamera and hum then
+        pcall(function() workspace.CurrentCamera.CameraSubject = hum end)
+    end
+
+    bodySnap = {}
+    humSnap = nil
+    jointSnap = {}
+    constraintSnap = {}
+    cameraSnap = nil
 end
 
 local function makeConstraints(root)
@@ -314,6 +463,7 @@ local function startAnti()
     if not hrp or not hum then return end
 
     realHum = hum
+    snapshotCharacter(c, realHum, hrp)
     pcall(function() realHum.Parent = nil end)
     fakeHum = buildFakeHum(); fakeHum.Parent = c
 
@@ -360,6 +510,7 @@ local function startAnti()
 end
 
 local function stopAnti()
+    antiOn = false
     if antiAdded then antiAdded:Disconnect() antiAdded = nil end
     if antiConn then antiConn:Disconnect() antiConn = nil end
     if antiPost then antiPost:Disconnect() antiPost = nil end
@@ -374,52 +525,42 @@ local function stopAnti()
             hrp.AssemblyLinearVelocity = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
         end
-        restore(c)
         if fakeHum and fakeHum.Parent then
             pcall(function() fakeHum:Destroy() end)
         end
         fakeHum = nil
-        if realHum and realHum.Parent == nil then
-            pcall(function()
-                realHum.Parent = c
-                realHum.WalkSpeed = 16; realHum.JumpPower = 50
-                realHum:ChangeState(Enum.HumanoidStateType.Running)
-            end)
-        end
+        restore(c)
         realHum = nil
     end
     lastSafeY = nil
 end
 
 --============================================================--
+--============================================================--
 -- PLAYER ESP
--- Lightweight, event-driven player highlighting + boxed names.
--- No RenderStepped loop; distance text refreshes at a low rate.
+-- Theme-aware, event-driven and idempotent.
 --============================================================--
 local espOn = false
-local espFolder
 local espEntries = {}
-local espPlayerAdded, espPlayerRemoving, espRefresh
-
-local ESP_COLOR = Color3.fromRGB(10, 132, 255)
+local espPlayerAdded, espPlayerRemoving
+local ESP_REFRESH = 0.25
 
 local function espDestroyPlayer(plr)
     local entry = espEntries[plr]
     if not entry then return end
     if entry.highlight then pcall(function() entry.highlight:Destroy() end) end
     if entry.billboard then pcall(function() entry.billboard:Destroy() end) end
+    if entry.connection then pcall(function() entry.connection:Disconnect() end) end
     espEntries[plr] = nil
 end
 
 local function espCreatePlayer(plr)
     if not espOn or plr == LP then return end
     espDestroyPlayer(plr)
-
     local char = plr.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not root or not hum or hum.Health <= 0 then return end
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return end
 
     local highlight = Instance.new("Highlight")
     highlight.Name = "HykoPlayerOutline"
@@ -427,119 +568,120 @@ local function espCreatePlayer(plr)
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.FillTransparency = 1
     highlight.OutlineTransparency = 0.08
-    highlight.OutlineColor = ESP_COLOR
+    highlight.OutlineColor = COL.accent
     highlight.Parent = char
 
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "HykoPlayerName"
+    billboard.Name = "HykoNameTag"
     billboard.Adornee = root
     billboard.AlwaysOnTop = true
     billboard.LightInfluence = 0
     billboard.MaxDistance = 3000
-    billboard.Size = UDim2.fromOffset(180, 42)
-    billboard.StudsOffset = Vector3.new(0, 3.15, 0)
+    billboard.Size = UDim2.fromOffset(210, 58)
+    billboard.StudsOffset = Vector3.new(0, 3.2, 0)
     billboard.Parent = root
 
     local card = Instance.new("Frame")
-    card.Size = UDim2.new(0, 150, 0, 26)
-    card.AnchorPoint = Vector2.new(0.5, 0.5)
-    card.Position = UDim2.fromScale(0.5, 0.5)
-    card.BackgroundColor3 = Color3.fromRGB(18, 20, 24)
-    card.BackgroundTransparency = 0.16
+    card.Name = "NameCard"
+    card.Size = UDim2.fromScale(1, 1)
+    card.BackgroundColor3 = COL.bg
+    card.BackgroundTransparency = 0.04
     card.BorderSizePixel = 0
     card.Parent = billboard
+    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(0, 8); cc.Parent = card
+    local cs = Instance.new("UIStroke"); cs.Color = COL.stroke; cs.Thickness = 1; cs.Transparency = 0.15; cs.Parent = card
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 7)
-    corner.Parent = card
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = ESP_COLOR
-    stroke.Thickness = 1
-    stroke.Transparency = 0.2
-    stroke.Parent = card
+    local icon = Instance.new("ImageLabel")
+    icon.BackgroundTransparency = 1
+    icon.Position = UDim2.fromOffset(8, 9)
+    icon.Size = UDim2.fromOffset(16, 16)
+    icon.Image = ICONS.user
+    icon.ImageColor3 = COL.accent
+    icon.Parent = card
 
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -12, 1, 0)
-    label.Position = UDim2.fromOffset(6, 0)
     label.BackgroundTransparency = 1
-    label.Text = plr.DisplayName
-    label.TextColor3 = Color3.fromRGB(245, 247, 250)
+    label.Position = UDim2.fromOffset(30, 5)
+    label.Size = UDim2.new(1, -38, 0, 22)
     label.Font = Enum.Font.GothamSemibold
-    label.TextSize = 11
+    label.TextSize = 12
+    label.TextColor3 = COL.text
+    label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.Text = plr.DisplayName
     label.Parent = card
 
-    espEntries[plr] = {
-        highlight = highlight,
-        billboard = billboard,
-        label = label,
-        char = char,
-    }
-end
+    local distanceBox = Instance.new("Frame")
+    distanceBox.Name = "Distance"
+    distanceBox.Position = UDim2.fromOffset(8, 32)
+    distanceBox.Size = UDim2.fromOffset(70, 19)
+    distanceBox.BackgroundColor3 = COL.btnBg
+    distanceBox.BorderSizePixel = 0
+    distanceBox.Parent = card
+    local dc = Instance.new("UICorner"); dc.CornerRadius = UDim.new(0, 5); dc.Parent = distanceBox
+    local ds = Instance.new("UIStroke"); ds.Color = COL.divider; ds.Thickness = 1; ds.Transparency = 0.15; ds.Parent = distanceBox
 
-local function espRefreshNames()
-    if not espOn then return end
-    local myChar = LP.Character
-    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return end
+    local dicon = Instance.new("ImageLabel")
+    dicon.BackgroundTransparency = 1
+    dicon.Position = UDim2.fromOffset(5, 3)
+    dicon.Size = UDim2.fromOffset(13, 13)
+    dicon.Image = ICONS.ruler
+    dicon.ImageColor3 = COL.sub
+    dicon.Parent = distanceBox
 
-    for plr, entry in pairs(espEntries) do
-        local char = plr.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if not char or not root or not hum or hum.Health <= 0 then
-            espDestroyPlayer(plr)
-        elseif entry.char ~= char then
-            espCreatePlayer(plr)
-        else
-            local distance = math.floor((myRoot.Position - root.Position).Magnitude + 0.5)
-            entry.label.Text = string.format("%s  ·  %dm", plr.DisplayName, distance)
+    local distance = Instance.new("TextLabel")
+    distance.BackgroundTransparency = 1
+    distance.Position = UDim2.fromOffset(22, 0)
+    distance.Size = UDim2.new(1, -24, 1, 0)
+    distance.Font = Enum.Font.GothamMedium
+    distance.TextSize = 10
+    distance.TextColor3 = COL.sub
+    distance.TextXAlignment = Enum.TextXAlignment.Left
+    distance.Text = "-- m"
+    distance.Parent = distanceBox
+
+    local entry = {highlight=highlight, billboard=billboard, label=label, distance=distance, icon=icon, dicon=dicon, char=char}
+    espEntries[plr] = entry
+
+    -- Theme colors update only while the tag exists; no per-frame work.
+    entry.connection = task.spawn(function()
+        while espOn and espEntries[plr] == entry and billboard.Parent do
+            local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            if myRoot and root.Parent then
+                distance.Text = string.format("%dm", math.floor((myRoot.Position-root.Position).Magnitude+0.5))
+            end
+            card.BackgroundColor3 = COL.bg
+            label.TextColor3 = COL.text
+            icon.ImageColor3 = COL.accent
+            highlight.OutlineColor = COL.accent
+            task.wait(ESP_REFRESH)
         end
-    end
+    end)
 end
 
 local function enableESP()
     if espOn then return end
     espOn = true
-
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP then
-            task.defer(espCreatePlayer, plr)
-        end
+        if plr ~= LP then task.defer(espCreatePlayer, plr) end
     end
-
     espPlayerAdded = Players.PlayerAdded:Connect(function(plr)
         if not espOn then return end
         plr.CharacterAdded:Connect(function()
-            task.wait(0.25)
+            task.wait(0.15)
             if espOn then espCreatePlayer(plr) end
         end)
         task.defer(espCreatePlayer, plr)
     end)
-
     espPlayerRemoving = Players.PlayerRemoving:Connect(espDestroyPlayer)
-
-    -- One low-frequency update instead of a per-frame loop.
-    espRefresh = task.spawn(function()
-        while espOn do
-            espRefreshNames()
-            task.wait(0.20)
-        end
-    end)
 end
 
 local function disableESP()
     if not espOn then return end
     espOn = false
-
-    if espPlayerAdded then espPlayerAdded:Disconnect(); espPlayerAdded = nil end
-    if espPlayerRemoving then espPlayerRemoving:Disconnect(); espPlayerRemoving = nil end
-
-    for plr in pairs(espEntries) do
-        espDestroyPlayer(plr)
-    end
-    espEntries = {}
+    if espPlayerAdded then espPlayerAdded:Disconnect(); espPlayerAdded=nil end
+    if espPlayerRemoving then espPlayerRemoving:Disconnect(); espPlayerRemoving=nil end
+    for plr in pairs(espEntries) do espDestroyPlayer(plr) end
 end
 
 --============================================================--
