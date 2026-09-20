@@ -1,8 +1,9 @@
 --[[
-    HYKO • Full Suite v15 FINAL
+    HYKO • Full Suite v15.2
     ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
-    + Window Background + Server Hop Tab (integrated)
-    + God Mode + Auto Farm Event
+    + Window Background + Server Hop Tab + God Mode + Auto Farm
+    + Auto Farm uses LinearVelocity (no CFrame teleport)
+    + Auto Farm ignores GuardAreas
 --]]
 
 --// Services
@@ -113,25 +114,26 @@ Window:AddTabSection({ Name = "Main",     Order = 1 })
 Window:AddTabSection({ Name = "Network",  Order = 2 })
 Window:AddTabSection({ Name = "Settings", Order = 3 })
 
+-- === NEW ICONS: utility / farm / server hop no longer duplicate Settings
 local Visuals = Window:AddTab({
     Title = "Visuals", Section = "Main",
     Icon = "rbxassetid://11963373994",
 })
 local Utility = Window:AddTab({
     Title = "Utility", Section = "Main",
-    Icon = "rbxassetid://11293977610",
+    Icon = "rbxassetid://10734896352",   -- wrench
 })
 local Farm = Window:AddTab({
     Title = "Auto Farm", Section = "Main",
-    Icon = "rbxassetid://10734896881",
+    Icon = "rbxassetid://10734895580",   -- crosshair / target
 })
 local ServerHop = Window:AddTab({
     Title = "Server Hop", Section = "Network",
-    Icon = "rbxassetid://11293977610",
+    Icon = "rbxassetid://10734896081",   -- globe
 })
 local Settings = Window:AddTab({
     Title = "Settings", Section = "Settings",
-    Icon = "rbxassetid://11293977610",
+    Icon = "rbxassetid://11293977610",   -- gear (kept)
 })
 
 --============================================================--
@@ -709,7 +711,7 @@ local function disableAutoLoot()
 end
 
 --============================================================--
--- GOD MODE  (NEW)
+-- GOD MODE
 --============================================================--
 local godModeOn   = false
 local godModeConn = nil
@@ -760,7 +762,7 @@ local function stopGodMode()
 end
 
 --============================================================--
--- AUTO FARM  (NEW)
+-- AUTO FARM (LinearVelocity flight + ignores GuardAreas)
 --============================================================--
 local farmOn        = false
 local farmSpeed     = 500
@@ -769,6 +771,10 @@ local farmAttack    = true
 local farmAutoEquip = true
 local farmConn      = nil
 
+-- flight state
+local farmFlightAtt, farmFlightVel = nil, nil
+local farmHiddenHum = nil
+
 local FARM_PRIORITY_WEAPONS = {
     "Prehistoric Bat", "Abyss Ocean Bat", "Volcano Bat",
     "Cosmic Bat", "Snow Bat", "Jungle Bat", "Desert Bat",
@@ -776,13 +782,26 @@ local FARM_PRIORITY_WEAPONS = {
     "Bat", "Sword", "Axe",
 }
 
+-- true if any ancestor is a GuardAreas folder -> skip
+local function isInsideGuardArea(m)
+    local p = m
+    while p and p ~= workspace do
+        if p.Name == "GuardAreas" then return true end
+        p = p.Parent
+    end
+    return false
+end
+
 local function isHostileModel(m)
     if not m or not m.Parent then return false end
     if not m:IsA("Model") then return false end
     if Players:GetPlayerFromCharacter(m) then return false end
     if m.Name == "Brock" then return false end
+    if isInsideGuardArea(m) then return false end   -- NEW: skip guards
+
     local hum = m:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health <= 0 then return false end
+
     local root = m:FindFirstChild("HumanoidRootPart")
         or m:FindFirstChild("Root")
         or m:FindFirstChild("Head")
@@ -800,18 +819,6 @@ end
 local function collectFarmCandidates()
     local out = {}
 
-    -- Guard areas (Forest, Desert, Prehistoric, Abyss Ocean, Snow, Cosmic,
-    -- Lake, Volcano, Cherry Blossom, Jungle, Titan Temple, Light Dark)
-    local objects = workspace:FindFirstChild("__OBJECTS")
-    local areas   = objects and objects:FindFirstChild("Areas")
-    local gAreas  = areas   and areas:FindFirstChild("GuardAreas")
-    if gAreas then
-        for _, area in ipairs(gAreas:GetChildren()) do
-            local g = area:FindFirstChild("Guard")
-            if g then table.insert(out, g) end
-        end
-    end
-
     -- Dr. Scramble event
     local drEvent = workspace:FindFirstChild("DrScrambleEvent")
     if drEvent then
@@ -819,27 +826,12 @@ local function collectFarmCandidates()
         if exp then table.insert(out, exp) end
     end
 
-    -- Plot monster spawns
-    local plots = workspace:FindFirstChild("Plots")
-    if plots then
-        for _, plot in ipairs(plots:GetChildren()) do
-            local markers = plot:FindFirstChild("MonsterParasiteMarkers")
-            if markers then
-                for _, mk in ipairs(markers:GetChildren()) do
-                    for _, ch in ipairs(workspace:GetChildren()) do
-                        -- skip; monsters spawn at runtime
-                    end
-                end
-            end
-        end
-    end
-
     -- Loose hostile models directly under workspace
     for _, obj in ipairs(workspace:GetChildren()) do
         if isHostileModel(obj) then table.insert(out, obj) end
     end
 
-    -- Also scan Workspace._Guards container if present
+    -- Any other hostile folders (monster spawns, etc.)
     local guardsFolder = workspace:FindFirstChild("_Guards")
     if guardsFolder then
         for _, g in ipairs(guardsFolder:GetChildren()) do
@@ -899,6 +891,57 @@ local function equipFarmWeapon()
     return nil
 end
 
+--=== FLIGHT (LinearVelocity) ===
+local function startFarmFlight(char, root)
+    -- If Anti-Ragdoll already controls movement, share its LinearVelocity
+    if antiOn and moveVel then return end
+
+    -- Hide humanoid (so it doesn't fight our velocity)
+    if not farmHiddenHum then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            farmHiddenHum = hum
+            pcall(function() hum.Parent = nil end)
+        end
+    end
+
+    if not farmFlightVel or not farmFlightVel.Parent then
+        if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) end
+        local att = Instance.new("Attachment")
+        att.Name = "HykoFarmAtt"
+        att.Parent = root
+        farmFlightAtt = att
+
+        local lv = Instance.new("LinearVelocity")
+        lv.Name = "HykoFarmVel"
+        lv.Attachment0 = att
+        lv.RelativeTo = Enum.ActuatorRelativeTo.World
+        lv.VectorVelocity = Vector3.zero
+        lv.MaxForce = 1e6
+        lv.Parent = root
+        farmFlightVel = lv
+    end
+end
+
+local function setFarmVelocity(vec)
+    if antiOn and moveVel then
+        moveVel.VectorVelocity = vec
+    elseif farmFlightVel then
+        farmFlightVel.VectorVelocity = vec
+    end
+end
+
+local function stopFarmFlight(char)
+    if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) farmFlightAtt = nil end
+    if farmFlightVel then pcall(function() farmFlightVel:Destroy() end) farmFlightVel = nil end
+    if farmHiddenHum then
+        if char and char.Parent then
+            pcall(function() farmHiddenHum.Parent = char end)
+        end
+        farmHiddenHum = nil
+    end
+end
+
 local function farmStep(dt)
     if not farmOn then return end
     local char = LP.Character
@@ -907,7 +950,10 @@ local function farmStep(dt)
     if not root then return end
 
     local target = findNearestFarmTarget()
-    if not target then return end
+    if not target then
+        stopFarmFlight(char)
+        return
+    end
 
     local tRoot = getFarmRoot(target)
     if not tRoot then return end
@@ -920,14 +966,23 @@ local function farmStep(dt)
     local delta = tPos - myPos
     local mag   = delta.Magnitude
 
-    if mag > 6 then
-        local step = math.min(farmSpeed * dt, mag - 4)
-        local newPos = myPos + delta.Unit * step
-        root.CFrame = CFrame.lookAt(newPos, Vector3.new(tPos.X, newPos.Y, tPos.Z))
-        root.AssemblyLinearVelocity  = Vector3.zero
+    if mag > 7 then
+        startFarmFlight(char, root)
+        local dir = Vector3.new(delta.X, 0, delta.Z)
+        if dir.Magnitude < 0.01 then dir = Vector3.new(0, 0, 0) else dir = dir.Unit end
+        setFarmVelocity(dir * farmSpeed)
+        -- keep facing target
+        pcall(function()
+            root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
+        end)
         root.AssemblyAngularVelocity = Vector3.zero
     else
-        root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
+        stopFarmFlight(char)
+        root.AssemblyLinearVelocity = Vector3.zero
+        -- face target
+        pcall(function()
+            root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
+        end)
         if farmAttack and tool then
             pcall(function() tool:Activate() end)
         end
@@ -945,6 +1000,7 @@ local function disableFarm()
     if not farmOn then return end
     farmOn = false
     disconnect(farmConn); farmConn = nil
+    stopFarmFlight(LP.Character)
 end
 
 --============================================================--
@@ -1344,14 +1400,19 @@ local function heartbeat(dt)
     if flat.Magnitude > 0.01 then
         faceAlign.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
     end
-    local mv = readMove()
-    local target = Vector3.zero
-    if mv.Magnitude > 0.05 then
-        local wd = cam.CFrame.LookVector * (-mv.Z) + cam.CFrame.RightVector * mv.X
-        wd = Vector3.new(wd.X, 0, wd.Z)
-        if wd.Magnitude > 0.01 then target = wd.Unit * antiSpeed end
+    -- if farm is running, skip manual move (farm uses our LinearVelocity)
+    if farmOn then
+        -- farm will set moveVel.VectorVelocity itself; nothing else to do
+    else
+        local mv = readMove()
+        local target = Vector3.zero
+        if mv.Magnitude > 0.05 then
+            local wd = cam.CFrame.LookVector * (-mv.Z) + cam.CFrame.RightVector * mv.X
+            wd = Vector3.new(wd.X, 0, wd.Z)
+            if wd.Magnitude > 0.01 then target = wd.Unit * antiSpeed end
+        end
+        moveVel.VectorVelocity = target
     end
-    moveVel.VectorVelocity = target
     local vel = root.AssemblyLinearVelocity
     if vel.Y > KILL_UP then
         root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
@@ -1690,7 +1751,7 @@ Window:AddSlider({
 
 Window:AddParagraph({
     Title       = "God Mode",
-    Description = "Continuously maintains max/current health at a very high value.\nNo animations or visuals changed.",
+    Description = "Continuously maintains max/current health at a very high value.",
     Tab         = Utility,
 })
 
@@ -1752,7 +1813,7 @@ Window:AddSection({ Name = "Auto Farm Event", Tab = Farm })
 
 Window:AddParagraph({
     Title       = "Auto Farm Event",
-    Description = "Automatically equips a weapon, moves to the nearest hostile unit at the configured speed, and attacks it. Hostile units include Guard areas, Dr. Scramble event monsters, and hostile NPCs with a Humanoid.",
+    Description = "Equips a weapon, travels to the nearest hostile unit using LinearVelocity (humanoid hidden), then attacks. Guards in GuardAreas are ignored.",
     Tab         = Farm,
 })
 
@@ -1773,7 +1834,7 @@ Window:AddToggle({
 
 Window:AddSlider({
     Title = "Movement Speed",
-    Description = "Travel speed when approaching a target (studs/s, default 500)",
+    Description = "LinearVelocity flight speed toward target (studs/s, default 500)",
     Tab = Farm,
     MinValue = 50, MaxValue = 2000, Default = 500, AllowDecimals = false,
     Callback = function(v) farmSpeed = v end,
@@ -1802,7 +1863,7 @@ Window:AddToggle({
 })
 
 --============================================================--
--- SERVER HOP TAB (integrated - no icons)
+-- SERVER HOP TAB
 --============================================================--
 local hopState = {
     autoOn        = false,
@@ -2279,7 +2340,7 @@ do
         if not hum then return end
         hum.Died:Connect(function()
             handleAntiDeath()
-            -- God Mode will reapply on CharacterAdded
+            if farmOn then stopFarmFlight(LP.Character) end
         end)
     end
     if LP.Character then watchHum(LP.Character) end
