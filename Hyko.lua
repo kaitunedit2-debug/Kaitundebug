@@ -1,14 +1,7 @@
 --[[
-    HYKO • ESP + FAST LOOT + AUTO LOOT + ANTI-RAGDOLL + FPS BOOST  (v8)
-    Rebuilt inside lates-lib UI.
-
-    Changes in v8
-      · Show UI redesigned — matches lates-lib light theme (icon + label)
-      · Auto Loot rewritten — full prompt cache + robust firing (works everywhere)
-      · ESP nametag redesigned — elegant, subtle, lates-lib style
-      · ESP retry loop — new players now always get ESP
-      · FPS widget added to Visuals tab — elegant floating pill
-      · Overall softer palette, no heavy/bold elements
+    HYKO • Full Suite v14 FINAL
+    ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
+    + Window Background + Server Hop Tab (integrated)
 --]]
 
 --// Services
@@ -17,7 +10,10 @@ local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
 local Lighting         = game:GetService("Lighting")
+local TeleportService  = game:GetService("TeleportService")
+local HttpService      = game:GetService("HttpService")
 local LP               = Players.LocalPlayer
+local PlaceId          = game.PlaceId
 
 --============================================================--
 -- LIBRARY
@@ -113,7 +109,8 @@ local Themes = {
 Window:SetTheme(Themes.Light)
 
 Window:AddTabSection({ Name = "Main",     Order = 1 })
-Window:AddTabSection({ Name = "Settings", Order = 2 })
+Window:AddTabSection({ Name = "Network",  Order = 2 })
+Window:AddTabSection({ Name = "Settings", Order = 3 })
 
 local Visuals = Window:AddTab({
     Title = "Visuals", Section = "Main",
@@ -121,6 +118,10 @@ local Visuals = Window:AddTab({
 })
 local Utility = Window:AddTab({
     Title = "Utility", Section = "Main",
+    Icon = "rbxassetid://11293977610",
+})
+local ServerHop = Window:AddTab({
+    Title = "Server Hop", Section = "Network",
     Icon = "rbxassetid://11293977610",
 })
 local Settings = Window:AddTab({
@@ -131,9 +132,7 @@ local Settings = Window:AddTab({
 --============================================================--
 -- HELPERS
 --============================================================--
-local function safeDestroy(x)
-    if x then pcall(function() x:Destroy() end) end
-end
+local function safeDestroy(x) if x then pcall(function() x:Destroy() end) end end
 local function disconnect(x)
     if x and typeof(x) == "RBXScriptConnection" then
         pcall(function() x:Disconnect() end)
@@ -154,21 +153,176 @@ local function notify(title, desc, duration)
     end)
 end
 
--- Palette matching lates-lib Light theme — soft, elegant, never heavy.
+local function attachImage(img, rawId, fallbackWidget)
+    if fallbackWidget then fallbackWidget.Visible = false end
+    local urls = {
+        "rbxassetid://" .. tostring(rawId),
+        "rbxthumb://type=Asset&id=" .. tostring(rawId) .. "&w=420&h=420",
+    }
+    local function tryUrl(index)
+        if index > #urls then
+            if fallbackWidget then fallbackWidget.Visible = true end
+            return
+        end
+        img.Image = urls[index]
+        task.spawn(function()
+            local t0 = os.clock()
+            while os.clock() - t0 < 2.5 do
+                if img.IsLoaded then
+                    if fallbackWidget then fallbackWidget.Visible = false end
+                    return
+                end
+                task.wait(0.1)
+            end
+            tryUrl(index + 1)
+        end)
+    end
+    tryUrl(1)
+end
+
 local Theme = {
-    accent    = Color3.fromRGB(10, 132, 255),
-    panel     = Color3.fromRGB(255, 255, 255),
-    card      = Color3.fromRGB(250, 251, 253),
-    stroke    = Color3.fromRGB(230, 233, 238),
-    text      = Color3.fromRGB(28, 32, 40),
-    sub       = Color3.fromRGB(140, 146, 158),
-    green     = Color3.fromRGB(52, 199, 89),
-    amber     = Color3.fromRGB(255, 159, 10),
-    red       = Color3.fromRGB(255, 69, 58),
+    accent = Color3.fromRGB(10, 132, 255),
+    panel  = Color3.fromRGB(255, 255, 255),
+    card   = Color3.fromRGB(250, 251, 253),
+    stroke = Color3.fromRGB(230, 233, 238),
+    text   = Color3.fromRGB(28, 32, 40),
+    sub    = Color3.fromRGB(140, 146, 158),
+    green  = Color3.fromRGB(52, 199, 89),
+    amber  = Color3.fromRGB(255, 159, 10),
+    red    = Color3.fromRGB(255, 69, 58),
 }
 
 --============================================================--
--- ESP  (elegant, lates-lib styled nametag; retry loop for new players)
+-- WINDOW BACKGROUND
+--============================================================--
+local BG_IMAGE_ID     = "16149300225"
+local bgEnabled       = true
+local bgTransparency  = 0.35
+
+local function findMainWindowFrame()
+    if not libGui or not libGui.Parent then return nil end
+    for _, child in ipairs(libGui:GetChildren()) do
+        if (child:IsA("Frame") or child:IsA("CanvasGroup"))
+           and child:FindFirstChild("Sidebar") then
+            return child
+        end
+    end
+    local best, bestArea = nil, 0
+    for _, d in ipairs(libGui:GetDescendants()) do
+        if (d:IsA("Frame") or d:IsA("CanvasGroup")) and d.Visible then
+            local sz = d.AbsoluteSize
+            local area = sz.X * sz.Y
+            if sz.X >= 200 and sz.Y >= 200 and area > bestArea then
+                best, bestArea = d, area
+            end
+        end
+    end
+    return best
+end
+
+local function attachBackground()
+    local mainFrame = findMainWindowFrame()
+    if not mainFrame then return end
+
+    local old = mainFrame:FindFirstChild("HykoBackground")
+    if old then safeDestroy(old) end
+    local oldOv = mainFrame:FindFirstChild("HykoBackgroundOverlay")
+    if oldOv then safeDestroy(oldOv) end
+
+    local bg = Instance.new("ImageLabel")
+    bg.Name = "HykoBackground"
+    bg.Size = UDim2.fromScale(1, 1)
+    bg.Position = UDim2.fromOffset(0, 0)
+    bg.BackgroundTransparency = 1
+    bg.BorderSizePixel = 0
+    bg.ZIndex = 0
+    bg.ScaleType = Enum.ScaleType.Crop
+    bg.ImageTransparency = bgTransparency
+    bg.Visible = bgEnabled
+    bg.Parent = mainFrame
+    makeCorner(bg, 12)
+
+    local overlay = Instance.new("Frame")
+    overlay.Name = "HykoBackgroundOverlay"
+    overlay.Size = UDim2.fromScale(1, 1)
+    overlay.Position = UDim2.fromOffset(0, 0)
+    overlay.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    overlay.BackgroundTransparency = 0.55
+    overlay.BorderSizePixel = 0
+    overlay.ZIndex = 0
+    overlay.Visible = bgEnabled
+    overlay.Parent = mainFrame
+    makeCorner(overlay, 12)
+
+    for _, c in ipairs(mainFrame:GetDescendants()) do
+        if c ~= bg and c ~= overlay and c:IsA("GuiObject") then
+            pcall(function()
+                if c.ZIndex <= 0 then c.ZIndex = 1 end
+            end)
+        end
+    end
+
+    local urls = {
+        "rbxassetid://" .. BG_IMAGE_ID,
+        "rbxthumb://type=Asset&id=" .. BG_IMAGE_ID .. "&w=768&h=768",
+    }
+    local function tryUrl(i)
+        if i > #urls then return end
+        bg.Image = urls[i]
+        task.spawn(function()
+            local t0 = os.clock()
+            while os.clock() - t0 < 2.5 do
+                if bg.IsLoaded then return end
+                task.wait(0.1)
+            end
+            tryUrl(i + 1)
+        end)
+    end
+    tryUrl(1)
+end
+
+local function setBackgroundVisibility(v)
+    bgEnabled = v
+    local mainFrame = findMainWindowFrame()
+    if mainFrame then
+        local bg = mainFrame:FindFirstChild("HykoBackground")
+        local ov = mainFrame:FindFirstChild("HykoBackgroundOverlay")
+        if bg then bg.Visible = v end
+        if ov then ov.Visible = v end
+        if v and not bg then attachBackground() end
+    elseif v then
+        attachBackground()
+    end
+end
+
+local function setBackgroundTransparency(v)
+    bgTransparency = v
+    local mainFrame = findMainWindowFrame()
+    if mainFrame then
+        local bg = mainFrame:FindFirstChild("HykoBackground")
+        if bg then bg.ImageTransparency = v end
+    end
+end
+
+task.spawn(function()
+    task.wait(1.5)
+    attachBackground()
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if bgEnabled and libGui and libGui.Parent then
+            local main = findMainWindowFrame()
+            if main and not main:FindFirstChild("HykoBackground") then
+                attachBackground()
+            end
+        end
+    end
+end)
+
+--============================================================--
+-- ESP
 --============================================================--
 local espOn            = false
 local ESP_MAX_DISTANCE = 1200
@@ -204,7 +358,7 @@ local function makeESP(plr)
     highlight.Name = "HykoESPHighlight"
     highlight.Adornee = char
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.FillTransparency = 0.92     -- softer fill
+    highlight.FillTransparency = 0.92
     highlight.OutlineTransparency = 0.15
     highlight.FillColor = Theme.accent
     highlight.OutlineColor = Theme.accent
@@ -220,17 +374,15 @@ local function makeESP(plr)
     billboard.StudsOffset = Vector3.new(0, 3.1, 0)
     billboard.Parent = espFolder
 
-    -- Card — soft white glass, thin border
     local card = Instance.new("Frame")
     card.Size = UDim2.fromScale(1, 1)
     card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     card.BackgroundTransparency = 0.06
     card.BorderSizePixel = 0
     card.Parent = billboard
-    makeCorner(card, 10)
+    makeCorner(card, 8)
     local stroke = makeStroke(card, Color3.fromRGB(225, 228, 235), 0.35, 1)
 
-    -- Subtle accent dot (left, small)
     local dot = Instance.new("Frame")
     dot.Size = UDim2.fromOffset(6, 6)
     dot.Position = UDim2.fromOffset(12, 11)
@@ -239,7 +391,6 @@ local function makeESP(plr)
     dot.Parent = card
     makeCorner(dot, 3)
 
-    -- Display name (regular weight, not bold)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.BackgroundTransparency = 1
     nameLabel.Position = UDim2.fromOffset(24, 6)
@@ -252,7 +403,6 @@ local function makeESP(plr)
     nameLabel.Text = plr.DisplayName
     nameLabel.Parent = card
 
-    -- Distance label (small, gray)
     local distLabel = Instance.new("TextLabel")
     distLabel.BackgroundTransparency = 1
     distLabel.Position = UDim2.fromOffset(24, 25)
@@ -264,7 +414,6 @@ local function makeESP(plr)
     distLabel.Text = "-- m"
     distLabel.Parent = card
 
-    -- Health bar background (thin)
     local barBg = Instance.new("Frame")
     barBg.Position = UDim2.new(1, -78, 0, 28)
     barBg.Size = UDim2.fromOffset(58, 4)
@@ -273,7 +422,6 @@ local function makeESP(plr)
     barBg.Parent = card
     makeCorner(barBg, 2)
 
-    -- Health bar fill
     local barFill = Instance.new("Frame")
     barFill.Position = UDim2.fromOffset(0, 0)
     barFill.Size = UDim2.fromScale(1, 1)
@@ -282,7 +430,6 @@ local function makeESP(plr)
     barFill.Parent = barBg
     makeCorner(barFill, 2)
 
-    -- Health % label (small, gray)
     local hpLabel = Instance.new("TextLabel")
     hpLabel.BackgroundTransparency = 1
     hpLabel.Position = UDim2.new(1, -78, 0, 12)
@@ -337,7 +484,6 @@ local function updateESPEntry(e, myRoot)
     e.distLabel.Text = string.format("%dm", math.floor(distance + 0.5))
     e.hpLabel.Text   = string.format("%d%%", math.floor(hp * 100 + 0.5))
 
-    -- Health bar color: green → amber → red
     local col
     if hp > 0.6 then col = Theme.green
     elseif hp > 0.3 then col = Theme.amber
@@ -378,7 +524,6 @@ local function disableESP()
     for plr in pairs(espEntries) do removeESP(plr) end
 end
 
--- Retry loop — creates missing entries so new players always appear.
 task.spawn(function()
     while true do
         task.wait(ESP_UPDATE_INTERVAL)
@@ -387,11 +532,7 @@ task.spawn(function()
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LP then
                     local e = espEntries[plr]
-                    if e then
-                        updateESPEntry(e, myRoot)
-                    else
-                        makeESP(plr)
-                    end
+                    if e then updateESPEntry(e, myRoot) else makeESP(plr) end
                 end
             end
         end
@@ -441,24 +582,19 @@ local function disableLoot()
 end
 
 --============================================================--
--- AUTO LOOT  (rebuilt — full prompt cache + robust firing)
+-- AUTO LOOT
 --============================================================--
 local autoLootOn      = false
 local autoLootRadius  = 32
 local autoLootRunning = false
 local autoSavedHold   = {}
 
--- Cache every ProximityPrompt in the world, updated live.
 local promptCache   = {}
 local promptWatchA  = nil
 local promptWatchB  = nil
 
-local function addPrompt(p)
-    if p:IsA("ProximityPrompt") then promptCache[p] = true end
-end
-local function removePrompt(p)
-    if p:IsA("ProximityPrompt") then promptCache[p] = nil end
-end
+local function addPrompt(p) if p:IsA("ProximityPrompt") then promptCache[p] = true end end
+local function removePrompt(p) if p:IsA("ProximityPrompt") then promptCache[p] = nil end end
 
 local function buildPromptCache()
     table.clear(promptCache)
@@ -500,7 +636,6 @@ local function findNearestPrompt()
                 local dist = (pos - myPos).Magnitude
                 local maxReach = (prompt.MaxActivationDistance or 10) + 4
                 if dist <= bestDist and dist <= maxReach then
-                    -- Optional LOS check — only skip if enabled AND fails
                     local hasLOS = true
                     if prompt.RequiresLineOfSight then
                         local params = RaycastParams.new()
@@ -512,9 +647,7 @@ local function findNearestPrompt()
                         local r = workspace:Raycast(origin, pos - origin, params)
                         hasLOS = (r == nil)
                     end
-                    if hasLOS then
-                        best, bestDist = prompt, dist
-                    end
+                    if hasLOS then best, bestDist = prompt, dist end
                 end
             end
         end
@@ -524,17 +657,11 @@ end
 
 local function firePrompt(prompt)
     if not prompt or not prompt.Parent or not prompt.Enabled then return end
-
-    -- Force instant activation (Fast Loot trick).
     if savedPromptHold[prompt] == nil and autoSavedHold[prompt] == nil then
         autoSavedHold[prompt] = prompt.HoldDuration
     end
     pcall(function() prompt.HoldDuration = 0 end)
-
-    -- Method 1: executor helper
     pcall(function() fireproximityprompt(prompt) end)
-
-    -- Method 2: input simulation (works on most games even without helper)
     pcall(function()
         prompt:InputHoldBegin()
         task.wait(0)
@@ -577,7 +704,7 @@ local function disableAutoLoot()
 end
 
 --============================================================--
--- FPS BOOST  (unchanged from v7)
+-- FPS BOOST
 --============================================================--
 local boostOn, boostBusy = false, false
 local boostConnections = {}
@@ -611,8 +738,7 @@ local function optimizeVisual(obj)
     end
     if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
         saveOnce(boostSaved.lights, obj, {Enabled = obj.Enabled, Shadows = obj.Shadows})
-        pcall(function() obj.Enabled = false; obj.Shadows = false end)
-        return
+        pcall(function() obj.Enabled = false; obj.Shadows = false end); return
     end
     if obj:IsA("PostEffect") then
         saveOnce(boostSaved.effects, obj, obj.Enabled)
@@ -802,7 +928,7 @@ local function disableBoost()
 end
 
 --============================================================--
--- ANTI-RAGDOLL (v10 FINAL logic, adjustable speed)
+-- ANTI-RAGDOLL
 --============================================================--
 local antiOn    = false
 local antiSpeed = 60
@@ -811,6 +937,8 @@ local realHum, fakeHum
 local moveAtt, moveVel, faceAtt, faceAlign
 local lastSafeY, housekeeping = nil, 0
 local bodySnap = {}
+
+local setAntiToggleVisual = nil
 
 local rayP = RaycastParams.new()
 rayP.FilterType = Enum.RaycastFilterType.Exclude
@@ -1100,8 +1228,16 @@ local function stopAnti()
     lastSafeY = nil
 end
 
+local function handleAntiDeath()
+    if not antiOn then return end
+    antiOn = false
+    stopAnti()
+    if setAntiToggleVisual then pcall(setAntiToggleVisual, false) end
+    notify("Hyko • Anti-Ragdoll", "Character respawned — Anti-Ragdoll disabled", 3)
+end
+
 --============================================================--
--- FPS WIDGET  (elegant floating pill, toggled from Visuals tab)
+-- FPS WIDGET
 --============================================================--
 local fpsWidgetOn = false
 local fpsGui = Instance.new("ScreenGui")
@@ -1116,50 +1252,66 @@ local fpsPill = Instance.new("Frame")
 fpsPill.Name = "FPSPill"
 fpsPill.AnchorPoint = Vector2.new(0, 0)
 fpsPill.Position = UDim2.new(0, 18, 0, 18)
-fpsPill.Size = UDim2.fromOffset(84, 52)
+fpsPill.Size = UDim2.fromOffset(120, 50)
 fpsPill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 fpsPill.BackgroundTransparency = 0.08
 fpsPill.BorderSizePixel = 0
 fpsPill.Visible = false
 fpsPill.Parent = fpsGui
-makeCorner(fpsPill, 14)
-local fpsStroke = makeStroke(fpsPill, Color3.fromRGB(230, 233, 238), 0.3, 1)
+makeCorner(fpsPill, 8)
+local fpsStroke = makeStroke(fpsPill, Color3.fromRGB(230, 233, 238), 0.25, 1)
 
--- Soft top gradient for a glassy look
 local fpsGrad = Instance.new("UIGradient")
 fpsGrad.Rotation = 90
 fpsGrad.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(247, 249, 252)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(246, 248, 252)),
 })
 fpsGrad.Parent = fpsPill
 
+local fpsIconTile = Instance.new("Frame")
+fpsIconTile.Size = UDim2.fromOffset(30, 30)
+fpsIconTile.Position = UDim2.fromOffset(10, 10)
+fpsIconTile.BackgroundColor3 = Theme.accent
+fpsIconTile.BackgroundTransparency = 0.9
+fpsIconTile.BorderSizePixel = 0
+fpsIconTile.Parent = fpsPill
+makeCorner(fpsIconTile, 7)
+
+local fpsIcon = Instance.new("ImageLabel")
+fpsIcon.BackgroundTransparency = 1
+fpsIcon.Position = UDim2.fromOffset(6, 6)
+fpsIcon.Size = UDim2.fromOffset(18, 18)
+fpsIcon.ImageColor3 = Theme.accent
+fpsIcon.Parent = fpsIconTile
+attachImage(fpsIcon, "10734896881", nil)
+
 local fpsNum = Instance.new("TextLabel")
 fpsNum.BackgroundTransparency = 1
-fpsNum.Position = UDim2.fromOffset(0, 8)
-fpsNum.Size = UDim2.new(1, 0, 0, 22)
+fpsNum.Position = UDim2.fromOffset(48, 6)
+fpsNum.Size = UDim2.fromOffset(64, 22)
 fpsNum.Font = Enum.Font.GothamSemibold
 fpsNum.TextSize = 18
-fpsNum.TextColor3 = Theme.accent
+fpsNum.TextColor3 = Theme.text
+fpsNum.TextXAlignment = Enum.TextXAlignment.Left
 fpsNum.Text = "--"
 fpsNum.Parent = fpsPill
 
 local fpsTag = Instance.new("TextLabel")
 fpsTag.BackgroundTransparency = 1
-fpsTag.Position = UDim2.fromOffset(0, 32)
-fpsTag.Size = UDim2.new(1, 0, 0, 12)
+fpsTag.Position = UDim2.fromOffset(48, 28)
+fpsTag.Size = UDim2.fromOffset(64, 12)
 fpsTag.Font = Enum.Font.Gotham
 fpsTag.TextSize = 9
 fpsTag.TextColor3 = Theme.sub
+fpsTag.TextXAlignment = Enum.TextXAlignment.Left
 fpsTag.Text = "FPS"
 fpsTag.Parent = fpsPill
 
 task.spawn(function()
     local frames, last = 0, os.clock()
     RunService.RenderStepped:Connect(function()
-        if not fpsWidgetOn then
-            frames = 0; last = os.clock(); return
-        end
+        if not fpsWidgetOn then frames = 0; last = os.clock(); return end
         frames = frames + 1
         local now = os.clock()
         local el = now - last
@@ -1175,7 +1327,7 @@ task.spawn(function()
 end)
 
 --============================================================--
--- UI WIRING
+-- UI WIRING — Visuals
 --============================================================--
 Window:AddSection({ Name = "Player Visuals", Tab = Visuals })
 
@@ -1212,7 +1364,7 @@ Window:AddSlider({
 
 Window:AddParagraph({
     Title       = "FPS Widget",
-    Description = "Elegant floating FPS counter — soft glass, color-coded by performance.",
+    Description = "Floating FPS counter with Lucide monitor icon.",
     Tab         = Visuals,
 })
 
@@ -1227,7 +1379,6 @@ Window:AddToggle({
     end,
 })
 
--- Drag the FPS pill around
 do
     local dragging, dragStart, startPos
     fpsPill.InputBegan:Connect(function(input)
@@ -1252,15 +1403,18 @@ do
     end)
 end
 
+--============================================================--
+-- UI WIRING — Utility
+--============================================================--
 Window:AddSection({ Name = "Protection", Tab = Utility })
-
 Window:AddParagraph({
     Title       = "Anti-Ragdoll",
-    Description = "Hard-lock body: fake humanoid, neutralized parts, upright enforcement.",
+    Description = "Hard-lock body: fake humanoid, neutralized parts, upright enforcement.\nAuto-disables and restores on death / reset.",
     Tab         = Utility,
 })
 
-Window:AddToggle({
+local antiToggleRef
+antiToggleRef = Window:AddToggle({
     Title = "Enable Anti-Ragdoll",
     Description = "Blocks Ragdoll / FallingDown / Physics / PlatformStanding / GettingUp",
     Tab = Utility, Default = false,
@@ -1269,74 +1423,363 @@ Window:AddToggle({
             startAnti()
             notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll enabled (speed " .. tostring(antiSpeed) .. ")", 3)
         else
-            stopAnti(); notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll disabled", 3)
+            stopAnti()
+            notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll disabled", 3)
         end
     end,
 })
 
+setAntiToggleVisual = function(v)
+    pcall(function()
+        if antiToggleRef and antiToggleRef.Set then
+            antiToggleRef:Set(v)
+        end
+    end)
+end
+
 Window:AddSlider({
-    Title = "Speed",
-    Description = "Anti-Ragdoll movement speed (default 60)",
+    Title = "Speed", Description = "Anti-Ragdoll movement speed (default 60)",
     Tab = Utility,
     MinValue = 20, MaxValue = 800, Default = 60, AllowDecimals = false,
     Callback = function(v) antiSpeed = v end,
 })
 
 Window:AddSection({ Name = "Interaction", Tab = Utility })
-
 Window:AddParagraph({
     Title       = "Fast Loot",
     Description = "Turns every ProximityPrompt hold into an instant (0s) interaction.",
     Tab         = Utility,
 })
-
 Window:AddToggle({
-    Title = "Enable Fast Loot",
-    Description = "Instant ProximityPrompt interaction",
+    Title = "Enable Fast Loot", Description = "Instant ProximityPrompt interaction",
     Tab = Utility, Default = false,
     Callback = function(state)
         if state then enableLoot(); notify("Hyko • Fast Loot", "Fast Loot enabled", 3)
         else disableLoot(); notify("Hyko • Fast Loot", "Fast Loot disabled", 3) end
     end,
 })
-
 Window:AddParagraph({
     Title       = "Auto Loot",
-    Description = "Continuously fires the nearest enabled prompt in range.\nUses full prompt cache — works even in games with hold prompts.",
+    Description = "Continuously fires the nearest enabled prompt in range.",
     Tab         = Utility,
 })
-
 Window:AddToggle({
-    Title = "Enable Auto Loot",
-    Description = "Auto-collect the nearest ProximityPrompt",
+    Title = "Enable Auto Loot", Description = "Auto-collect the nearest ProximityPrompt",
     Tab = Utility, Default = false,
     Callback = function(state)
         if state then
             enableAutoLoot()
             notify("Hyko • Auto Loot", "Auto Loot enabled (radius " .. tostring(autoLootRadius) .. ")", 3)
-        else
-            disableAutoLoot(); notify("Hyko • Auto Loot", "Auto Loot disabled", 3)
-        end
+        else disableAutoLoot(); notify("Hyko • Auto Loot", "Auto Loot disabled", 3) end
     end,
 })
-
 Window:AddSlider({
-    Title = "Auto Loot Radius",
-    Description = "Radius in studs to search for prompts (default 32)",
+    Title = "Auto Loot Radius", Description = "Radius in studs to search for prompts",
     Tab = Utility,
     MinValue = 5, MaxValue = 150, Default = 32, AllowDecimals = false,
     Callback = function(v) autoLootRadius = v end,
 })
 
+--============================================================--
+-- SERVER HOP TAB (integrated — no icons)
+--============================================================--
+local hopState = {
+    autoOn        = false,
+    autoThread    = nil,
+    threshold     = 1,
+    sortByPlayers = true,
+    serverList    = {},
+    refreshTick   = 0,
+}
+
+local function hopFetchServers()
+    local url = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+    local ok, raw = pcall(function() return game:HttpGet(url) end)
+    if not ok or not raw or raw == "" then return nil end
+    local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
+    if not ok2 or not data or not data.data then return nil end
+    return data.data
+end
+
+local function hopJoinServer(serverId)
+    if not serverId then return false end
+    local ok = pcall(function()
+        TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
+    end)
+    return ok
+end
+
+local function hopRandomServer()
+    local servers = hopFetchServers()
+    if not servers or #servers == 0 then return nil end
+    local currentId = tostring(game.JobId)
+    local candidates = {}
+    for _, s in ipairs(servers) do
+        if s.id and tostring(s.id) ~= currentId then
+            table.insert(candidates, tostring(s.id))
+        end
+    end
+    if #candidates == 0 then return nil end
+    return candidates[math.random(1, #candidates)]
+end
+
+Window:AddSection({ Name = "Quick Actions", Tab = ServerHop })
+
+Window:AddParagraph({
+    Title       = "Find & Join",
+    Description = "Hop to a random server or enable auto-hop when the current one is too full.",
+    Tab         = ServerHop,
+})
+
+Window:AddButton({
+    Title       = "Find New Server (Random)",
+    Description = "Teleport to a random public server of this place",
+    Tab         = ServerHop,
+    Callback    = function()
+        notify("Hyko • Server Hop", "Searching for a random server...", 2)
+        task.spawn(function()
+            local id = hopRandomServer()
+            if not id then
+                notify("Hyko • Server Hop", "No server available", 3)
+                return
+            end
+            notify("Hyko • Server Hop", "Teleporting...", 2)
+            hopJoinServer(id)
+        end)
+    end,
+})
+
+Window:AddButton({
+    Title       = "Rejoin Current Server",
+    Description = "Rejoin the server you are currently in",
+    Tab         = ServerHop,
+    Callback    = function()
+        local currentId = game.JobId
+        if not currentId or currentId == "" then
+            notify("Hyko • Server Hop", "No active JobId", 3)
+            return
+        end
+        notify("Hyko • Server Hop", "Rejoining...", 2)
+        hopJoinServer(currentId)
+    end,
+})
+
+Window:AddSection({ Name = "Auto Hop", Tab = ServerHop })
+
+Window:AddParagraph({
+    Title       = "Auto Hop",
+    Description = "Automatically hop when player count exceeds the threshold.",
+    Tab         = ServerHop,
+})
+
+Window:AddSlider({
+    Title         = "Player Threshold",
+    Description   = "Hop when server has more than this many players",
+    Tab           = ServerHop,
+    MinValue      = 1,
+    MaxValue      = 50,
+    Default       = 1,
+    AllowDecimals = false,
+    Callback      = function(v)
+        hopState.threshold = v
+    end,
+})
+
+Window:AddToggle({
+    Title       = "Enable Auto Hop",
+    Description = "Continuously monitor player count and hop when needed",
+    Tab         = ServerHop,
+    Default     = false,
+    Callback    = function(state)
+        hopState.autoOn = state
+        if state then
+            notify("Hyko • Auto Hop", "Auto Hop enabled (threshold " .. tostring(hopState.threshold) .. ")", 3)
+            hopState.autoThread = task.spawn(function()
+                while hopState.autoOn do
+                    local count = #Players:GetPlayers()
+                    if count <= hopState.threshold then
+                        task.wait(3)
+                    else
+                        notify("Hyko • Auto Hop", "Hopping (server has " .. count .. " players)...", 3)
+                        local id = hopRandomServer()
+                        if id then
+                            hopJoinServer(id)
+                        end
+                        task.wait(5)
+                    end
+                end
+            end)
+        else
+            if hopState.autoThread then
+                task.cancel(hopState.autoThread)
+                hopState.autoThread = nil
+            end
+            notify("Hyko • Auto Hop", "Auto Hop disabled", 3)
+        end
+    end,
+})
+
+Window:AddSection({ Name = "Server List", Tab = ServerHop })
+
+Window:AddParagraph({
+    Title       = "Quick Select",
+    Description = "Fetch public servers and click Join on any. Sorted by player count.",
+    Tab         = ServerHop,
+})
+
+Window:AddButton({
+    Title       = "Load Server List",
+    Description = "Fetch and display up to 50 public servers (top 10 shown as buttons)",
+    Tab         = ServerHop,
+    Callback    = function()
+        notify("Hyko • Server List", "Loading servers...", 2)
+        task.spawn(function()
+            local servers = hopFetchServers()
+            if not servers or #servers == 0 then
+                notify("Hyko • Server List", "No servers found", 3)
+                return
+            end
+
+            local currentId = tostring(game.JobId)
+            local filtered = {}
+            for _, s in ipairs(servers) do
+                if tostring(s.id) ~= currentId then
+                    table.insert(filtered, s)
+                end
+            end
+
+            if hopState.sortByPlayers then
+                table.sort(filtered, function(a, b)
+                    return (a.playing or 0) < (b.playing or 0)
+                end)
+            end
+
+            hopState.serverList = filtered
+            hopState.refreshTick = hopState.refreshTick + 1
+            local tick = hopState.refreshTick
+
+            local topN = math.min(10, #filtered)
+            for i = 1, topN do
+                local srv = filtered[i]
+                local sid = tostring(srv.id)
+                local label = string.format("Server %d — %d/%d players",
+                    i, srv.playing or 0, srv.maxPlayers or 0)
+
+                Window:AddButton({
+                    Title       = label,
+                    Description = "JobId: " .. sid:sub(1, 20) .. "...",
+                    Tab         = ServerHop,
+                    Callback    = function()
+                        notify("Hyko • Server List", "Joining server " .. i .. "...", 2)
+                        hopJoinServer(sid)
+                    end,
+                })
+            end
+
+            notify("Hyko • Server List", tostring(#filtered) .. " servers found — top " .. topN .. " listed", 4)
+        end)
+    end,
+})
+
+Window:AddButton({
+    Title       = "Join Lowest Player Server",
+    Description = "Automatically join the server with the fewest players",
+    Tab         = ServerHop,
+    Callback    = function()
+        task.spawn(function()
+            local servers = hopFetchServers()
+            if not servers or #servers == 0 then
+                notify("Hyko • Server Hop", "No servers found", 3)
+                return
+            end
+            local currentId = tostring(game.JobId)
+            local best, bestCount = nil, math.huge
+            for _, s in ipairs(servers) do
+                if tostring(s.id) ~= currentId then
+                    local c = s.playing or 0
+                    if c < bestCount then
+                        bestCount = c
+                        best = s
+                    end
+                end
+            end
+            if not best then
+                notify("Hyko • Server Hop", "No alternative server found", 3)
+                return
+            end
+            notify("Hyko • Server Hop", "Joining server with " .. bestCount .. " players...", 3)
+            hopJoinServer(tostring(best.id))
+        end)
+    end,
+})
+
+Window:AddButton({
+    Title       = "Join Highest Player Server",
+    Description = "Automatically join the server with the most players",
+    Tab         = ServerHop,
+    Callback    = function()
+        task.spawn(function()
+            local servers = hopFetchServers()
+            if not servers or #servers == 0 then
+                notify("Hyko • Server Hop", "No servers found", 3)
+                return
+            end
+            local currentId = tostring(game.JobId)
+            local best, bestCount = nil, -1
+            for _, s in ipairs(servers) do
+                if tostring(s.id) ~= currentId then
+                    local c = s.playing or 0
+                    if c > bestCount then
+                        bestCount = c
+                        best = s
+                    end
+                end
+            end
+            if not best then
+                notify("Hyko • Server Hop", "No alternative server found", 3)
+                return
+            end
+            notify("Hyko • Server Hop", "Joining server with " .. bestCount .. " players...", 3)
+            hopJoinServer(tostring(best.id))
+        end)
+    end,
+})
+
+--============================================================--
+-- UI WIRING — Settings
+--============================================================--
+Window:AddSection({ Name = "Appearance", Tab = Settings })
+
+Window:AddToggle({
+    Title       = "Show Window Background",
+    Description = "Display a decorative background image behind the UI",
+    Default     = true,
+    Tab         = Settings,
+    Callback    = function(state)
+        setBackgroundVisibility(state)
+        notify("Hyko • Background", state and "Background shown" or "Background hidden", 3)
+    end,
+})
+
+Window:AddSlider({
+    Title         = "Background Transparency",
+    Description   = "Higher = more transparent (default 0.35)",
+    Tab           = Settings,
+    MinValue      = 0,
+    MaxValue      = 1,
+    Default       = 0.35,
+    AllowDecimals = true,
+    Callback      = function(v) setBackgroundTransparency(v) end,
+})
+
 Window:AddSection({ Name = "Performance", Tab = Settings })
 Window:AddParagraph({
     Title       = "FPS Boost",
-    Description = "Aggressive client optimization: quality drop, shadows off, FX stripped,\nDecals hidden, MeshParts Performance, Sky children removed, Clouds off.",
+    Description = "Aggressive client optimization: quality drop, shadows off, FX stripped.",
     Tab         = Settings,
 })
 Window:AddToggle({
-    Title = "Enable FPS Boost",
-    Description = "Client-side graphics optimization (strong)",
+    Title = "Enable FPS Boost", Description = "Client-side graphics optimization",
     Tab = Settings, Default = false,
     Callback = function(state)
         if state then enableBoost(); notify("Hyko • FPS Boost", "FPS Boost enabled", 3)
@@ -1346,8 +1789,7 @@ Window:AddToggle({
 
 Window:AddSection({ Name = "Interface", Tab = Settings })
 Window:AddKeybind({
-    Title = "Minimize Keybind",
-    Description = "Set the keybind for minimizing the UI",
+    Title = "Minimize Keybind", Description = "Set the keybind for minimizing the UI",
     Tab = Settings,
     Callback = function(Key)
         Window:SetSetting("Keybind", Key)
@@ -1364,8 +1806,7 @@ Window:AddDropdown({
     end,
 })
 Window:AddToggle({
-    Title = "UI Blur",
-    Description = "Requires Roblox graphics quality 8 or higher",
+    Title = "UI Blur", Description = "Requires Roblox graphics quality 8 or higher",
     Default = true, Tab = Settings,
     Callback = function(Boolean)
         Window:SetSetting("Blur", Boolean)
@@ -1380,7 +1821,7 @@ Window:AddSlider({
 })
 
 --============================================================--
--- SHOW / HIDE UI  — redesigned to match lates-lib light theme
+-- SHOW / HIDE UI
 --============================================================--
 do
     local pg = LP:WaitForChild("PlayerGui")
@@ -1397,7 +1838,7 @@ do
     btn.Name = "HykoShowUI"
     btn.AnchorPoint = Vector2.new(1, 0)
     btn.Position = UDim2.new(1, -18, 0, 18)
-    btn.Size = UDim2.fromOffset(122, 40)
+    btn.Size = UDim2.fromOffset(136, 42)
     btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     btn.BackgroundTransparency = 0.05
     btn.BorderSizePixel = 0
@@ -1405,11 +1846,10 @@ do
     btn.AutoButtonColor = false
     btn.Active = true
     btn.Parent = gui
-    makeCorner(btn, 12)
+    makeCorner(btn, 8)
 
     local stroke = makeStroke(btn, Color3.fromRGB(228, 231, 237), 0.25, 1)
 
-    -- Gentle top-to-bottom light gradient (glass, not heavy)
     local grad = Instance.new("UIGradient")
     grad.Rotation = 90
     grad.Color = ColorSequence.new({
@@ -1418,22 +1858,28 @@ do
     })
     grad.Parent = btn
 
-    -- Eye icon (from lates-lib style sheet)
-    local ICON_EYE  = "rbxassetid://10734899531"
-    local ICON_HIDE = "rbxassetid://10734898481"
+    local iconTile = Instance.new("Frame")
+    iconTile.Size = UDim2.fromOffset(28, 28)
+    iconTile.Position = UDim2.fromOffset(8, 7)
+    iconTile.BackgroundColor3 = Color3.fromRGB(255, 245, 250)
+    iconTile.BackgroundTransparency = 0.1
+    iconTile.BorderSizePixel = 0
+    iconTile.Parent = btn
+    makeCorner(iconTile, 6)
 
-    local icon = Instance.new("ImageLabel")
-    icon.BackgroundTransparency = 1
-    icon.Position = UDim2.fromOffset(14, 12)
-    icon.Size = UDim2.fromOffset(16, 16)
-    icon.Image = ICON_EYE
-    icon.ImageColor3 = Color3.fromRGB(28, 32, 40)
-    icon.Parent = btn
+    local iconStroke = makeStroke(iconTile, Color3.fromRGB(255, 220, 235), 0.4, 1)
+
+    local catIcon = Instance.new("ImageLabel")
+    catIcon.BackgroundTransparency = 1
+    catIcon.Position = UDim2.fromOffset(3, 3)
+    catIcon.Size = UDim2.fromOffset(22, 22)
+    catIcon.Parent = iconTile
+    attachImage(catIcon, "71999030813587", nil)
 
     local label = Instance.new("TextLabel")
     label.BackgroundTransparency = 1
-    label.Position = UDim2.fromOffset(38, 0)
-    label.Size = UDim2.new(1, -46, 1, 0)
+    label.Position = UDim2.fromOffset(44, 0)
+    label.Size = UDim2.new(1, -52, 1, 0)
     label.Font = Enum.Font.GothamMedium
     label.TextSize = 12
     label.TextColor3 = Color3.fromRGB(28, 32, 40)
@@ -1447,7 +1893,6 @@ do
     local function setVisible(v)
         uiVisible = v
         label.Text = v and "Hide UI" or "Show UI"
-        icon.Image = v and ICON_EYE or ICON_HIDE
         if libGui and libGui.Parent then
             libGui.Enabled = v
         end
@@ -1470,7 +1915,6 @@ do
         setVisible(not uiVisible)
     end)
 
-    -- Drag
     local dragging, dragStart, startPos
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -1494,8 +1938,32 @@ do
     end)
 end
 
+--============================================================--
+-- DEATH / RESPAWN HOOKS
+--============================================================--
+LP.CharacterAdded:Connect(function(char)
+    if antiOn then
+        task.wait(0.2)
+        handleAntiDeath()
+    end
+    task.wait(0.5)
+    if bgEnabled then attachBackground() end
+end)
+
+do
+    local function watchHum(char)
+        local hum = char:WaitForChild("Humanoid", 5)
+        if not hum then return end
+        hum.Died:Connect(function()
+            handleAntiDeath()
+        end)
+    end
+    if LP.Character then watchHum(LP.Character) end
+    LP.CharacterAdded:Connect(watchHum)
+end
+
 notify(
     "Hyko Loaded",
-    "ESP • Anti-Ragdoll • Fast Loot • Auto Loot • FPS Boost\nTop-right button toggles the UI",
+    "ESP • Anti-Ragdoll • Loot • FPS Boost • Server Hop\nBackground & Show-UI ready",
     8
 )
