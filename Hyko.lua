@@ -1,10 +1,9 @@
 --[[
-    HYKO • Full Suite v15.4
-    ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
-    + Window Background + Server Hop Tab + God Mode + Auto Farm
-    + FIXED: Auto Farm target-lock (no more zig-zag)
-    + FIXED: Icon fallback
-    + FIXED: God Mode (PreSimulation + HealthChanged + Died guard)
+    HYKO • Full Suite v15.5
+    REWORKED: Auto Farm giữ Humanoid + Velocity + Farm quái sự kiện rơi đồ
+    + Icon tab đẹp hơn (Lucide mới)
+    Giữ nguyên: ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
+    + Window Background + Server Hop Tab + God Mode + FIXED God Mode
 --]]
 
 --// Services
@@ -115,25 +114,26 @@ Window:AddTabSection({ Name = "Main",     Order = 1 })
 Window:AddTabSection({ Name = "Network",  Order = 2 })
 Window:AddTabSection({ Name = "Settings", Order = 3 })
 
+-- ICON MỚI ĐẸP HƠN
 local Visuals = Window:AddTab({
     Title = "Visuals", Section = "Main",
-    Icon = "rbxassetid://10734896981",
+    Icon = "rbxassetid://10734934548", -- eye
 })
 local Utility = Window:AddTab({
     Title = "Utility", Section = "Main",
-    Icon = "rbxassetid://10734896170",
+    Icon = "rbxassetid://10734909571", -- wrench
 })
 local Farm = Window:AddTab({
     Title = "Auto Farm", Section = "Main",
-    Icon = "rbxassetid://10734895487",
+    Icon = "rbxassetid://10734905548", -- swords
 })
 local ServerHop = Window:AddTab({
     Title = "Server Hop", Section = "Network",
-    Icon = "rbxassetid://10734895523",
+    Icon = "rbxassetid://10734898355", -- server
 })
 local Settings = Window:AddTab({
     Title = "Settings", Section = "Settings",
-    Icon = "rbxassetid://10734895501",
+    Icon = "rbxassetid://10734950309", -- settings-2
 })
 
 --============================================================--
@@ -164,6 +164,11 @@ end
 -- ICON FALLBACK
 --============================================================--
 local ICON_FALLBACKS = {
+    ["10734934548"] = "6031075938",
+    ["10734909571"] = "6031091004",
+    ["10734905548"] = "6031090998",
+    ["10734898355"] = "6031265973",
+    ["10734950309"] = "6031280882",
     ["10734896981"] = "6031075939",
     ["10734896170"] = "6031091005",
     ["10734895487"] = "6034686929",
@@ -183,7 +188,6 @@ local function attachImage(img, rawId, fallbackWidget)
     }
     local clean = {}
     for _, u in ipairs(urls) do if u then table.insert(clean, u) end end
-
     local function tryUrl(index)
         if index > #clean then
             if fallbackWidget then fallbackWidget.Visible = true end
@@ -212,9 +216,7 @@ local function fixBrokenImages(root)
             if not d.IsLoaded and d.Image ~= "" then
                 local id = d.Image:match("%d+")
                 local fb = id and ICON_FALLBACKS[id]
-                if fb then
-                    d.Image = "rbxassetid://" .. fb
-                end
+                if fb then d.Image = "rbxassetid://" .. fb end
                 task.spawn(function()
                     local t0 = os.clock()
                     while os.clock() - t0 < 1.5 do
@@ -252,8 +254,7 @@ local bgTransparency  = 0.35
 local function findMainWindowFrame()
     if not libGui or not libGui.Parent then return nil end
     for _, child in ipairs(libGui:GetChildren()) do
-        if (child:IsA("Frame") or child:IsA("CanvasGroup"))
-           and child:FindFirstChild("Sidebar") then
+        if (child:IsA("Frame") or child:IsA("CanvasGroup")) and child:FindFirstChild("Sidebar") then
             return child
         end
     end
@@ -273,12 +274,10 @@ end
 local function attachBackground()
     local mainFrame = findMainWindowFrame()
     if not mainFrame then return end
-
     local old = mainFrame:FindFirstChild("HykoBackground")
     if old then safeDestroy(old) end
     local oldOv = mainFrame:FindFirstChild("HykoBackgroundOverlay")
     if oldOv then safeDestroy(oldOv) end
-
     local bg = Instance.new("ImageLabel")
     bg.Name = "HykoBackground"
     bg.Size = UDim2.fromScale(1, 1)
@@ -291,7 +290,6 @@ local function attachBackground()
     bg.Visible = bgEnabled
     bg.Parent = mainFrame
     makeCorner(bg, 12)
-
     local overlay = Instance.new("Frame")
     overlay.Name = "HykoBackgroundOverlay"
     overlay.Size = UDim2.fromScale(1, 1)
@@ -303,7 +301,6 @@ local function attachBackground()
     overlay.Visible = bgEnabled
     overlay.Parent = mainFrame
     makeCorner(overlay, 12)
-
     for _, c in ipairs(mainFrame:GetDescendants()) do
         if c ~= bg and c ~= overlay and c:IsA("GuiObject") then
             pcall(function()
@@ -311,7 +308,6 @@ local function attachBackground()
             end)
         end
     end
-
     local urls = {
         "rbxassetid://" .. BG_IMAGE_ID,
         "rbxthumb://type=Asset&id=" .. BG_IMAGE_ID .. "&w=768&h=768",
@@ -388,7 +384,6 @@ end)
 local espOn            = false
 local ESP_MAX_DISTANCE = 1200
 local ESP_UPDATE_INTERVAL = 0.20
-
 local espEntries     = {}
 local espConnections = {}
 local espFolder = Instance.new("Folder")
@@ -407,14 +402,12 @@ local function makeESP(plr)
     local char = plr.Character
     local root, hum = getRootHum(char)
     if not root then return end
-
     local old = espEntries[plr]
     if old and old.character == char then return end
     if old then
         safeDestroy(old.highlight)
         safeDestroy(old.billboard)
     end
-
     local highlight = Instance.new("Highlight")
     highlight.Name = "HykoESPHighlight"
     highlight.Adornee = char
@@ -424,7 +417,6 @@ local function makeESP(plr)
     highlight.FillColor = Theme.accent
     highlight.OutlineColor = Theme.accent
     highlight.Parent = espFolder
-
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "HykoESPNameTag"
     billboard.Adornee = root
@@ -434,7 +426,6 @@ local function makeESP(plr)
     billboard.Size = UDim2.fromOffset(160, 44)
     billboard.StudsOffset = Vector3.new(0, 3.1, 0)
     billboard.Parent = espFolder
-
     local card = Instance.new("Frame")
     card.Size = UDim2.fromScale(1, 1)
     card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -443,7 +434,6 @@ local function makeESP(plr)
     card.Parent = billboard
     makeCorner(card, 8)
     local stroke = makeStroke(card, Color3.fromRGB(225, 228, 235), 0.35, 1)
-
     local dot = Instance.new("Frame")
     dot.Size = UDim2.fromOffset(6, 6)
     dot.Position = UDim2.fromOffset(12, 11)
@@ -451,7 +441,6 @@ local function makeESP(plr)
     dot.BorderSizePixel = 0
     dot.Parent = card
     makeCorner(dot, 3)
-
     local nameLabel = Instance.new("TextLabel")
     nameLabel.BackgroundTransparency = 1
     nameLabel.Position = UDim2.fromOffset(24, 6)
@@ -463,7 +452,6 @@ local function makeESP(plr)
     nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
     nameLabel.Text = plr.DisplayName
     nameLabel.Parent = card
-
     local distLabel = Instance.new("TextLabel")
     distLabel.BackgroundTransparency = 1
     distLabel.Position = UDim2.fromOffset(24, 25)
@@ -474,7 +462,6 @@ local function makeESP(plr)
     distLabel.TextXAlignment = Enum.TextXAlignment.Left
     distLabel.Text = "-- m"
     distLabel.Parent = card
-
     local barBg = Instance.new("Frame")
     barBg.Position = UDim2.new(1, -78, 0, 28)
     barBg.Size = UDim2.fromOffset(58, 4)
@@ -482,7 +469,6 @@ local function makeESP(plr)
     barBg.BorderSizePixel = 0
     barBg.Parent = card
     makeCorner(barBg, 2)
-
     local barFill = Instance.new("Frame")
     barFill.Position = UDim2.fromOffset(0, 0)
     barFill.Size = UDim2.fromScale(1, 1)
@@ -490,7 +476,6 @@ local function makeESP(plr)
     barFill.BorderSizePixel = 0
     barFill.Parent = barBg
     makeCorner(barFill, 2)
-
     local hpLabel = Instance.new("TextLabel")
     hpLabel.BackgroundTransparency = 1
     hpLabel.Position = UDim2.new(1, -78, 0, 12)
@@ -501,7 +486,6 @@ local function makeESP(plr)
     hpLabel.TextXAlignment = Enum.TextXAlignment.Right
     hpLabel.Text = "100%"
     hpLabel.Parent = card
-
     espEntries[plr] = {
         player = plr, character = char, root = root, hum = hum,
         highlight = highlight, billboard = billboard, card = card,
@@ -532,19 +516,15 @@ local function updateESPEntry(e, myRoot)
         root, hum = getRootHum(char)
         if not root then return end
     end
-
     e.billboard.MaxDistance = ESP_MAX_DISTANCE
     e.nameLabel.Text = plr.DisplayName
-
     local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
     local visible  = distance <= ESP_MAX_DISTANCE
     e.highlight.Enabled = visible
     e.billboard.Enabled = visible
-
     local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
     e.distLabel.Text = string.format("%dm", math.floor(distance + 0.5))
     e.hpLabel.Text   = string.format("%d%%", math.floor(hp * 100 + 0.5))
-
     local col
     if hp > 0.6 then col = Theme.green
     elseif hp > 0.3 then col = Theme.amber
@@ -606,7 +586,6 @@ end)
 local lootOn = false
 local promptAddedConnection
 local savedPromptHold = {}
-
 local function optimizePrompt(prompt)
     if not prompt:IsA("ProximityPrompt") then return end
     if savedPromptHold[prompt] == nil then
@@ -614,7 +593,6 @@ local function optimizePrompt(prompt)
     end
     pcall(function() prompt.HoldDuration = 0 end)
 end
-
 local function restorePrompts()
     for prompt, old in pairs(savedPromptHold) do
         if prompt and prompt.Parent then
@@ -623,7 +601,6 @@ local function restorePrompts()
     end
     table.clear(savedPromptHold)
 end
-
 local function enableLoot()
     if lootOn then return end
     lootOn = true
@@ -635,7 +612,6 @@ local function enableLoot()
         if lootOn and obj:IsA("ProximityPrompt") then optimizePrompt(obj) end
     end)
 end
-
 local function disableLoot()
     lootOn = false
     disconnect(promptAddedConnection); promptAddedConnection = nil
@@ -649,21 +625,17 @@ local autoLootOn      = false
 local autoLootRadius  = 32
 local autoLootRunning = false
 local autoSavedHold   = {}
-
 local promptCache   = {}
 local promptWatchA  = nil
 local promptWatchB  = nil
-
 local function addPrompt(p) if p:IsA("ProximityPrompt") then promptCache[p] = true end end
 local function removePrompt(p) if p:IsA("ProximityPrompt") then promptCache[p] = nil end end
-
 local function buildPromptCache()
     table.clear(promptCache)
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") then promptCache[obj] = true end
     end
 end
-
 local function startPromptWatcher()
     disconnect(promptWatchA); disconnect(promptWatchB)
     promptWatchA = workspace.DescendantAdded:Connect(addPrompt)
@@ -673,7 +645,6 @@ local function stopPromptWatcher()
     disconnect(promptWatchA); promptWatchA = nil
     disconnect(promptWatchB); promptWatchB = nil
 end
-
 local function getPromptPosition(prompt)
     local p = prompt.Parent
     if not p then return nil end
@@ -681,15 +652,12 @@ local function getPromptPosition(prompt)
     if p:IsA("Attachment") then return p.WorldPosition end
     return nil
 end
-
 local function findNearestPrompt()
     local c = LP.Character
     local hrp = c and c:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
-
     local myPos = hrp.Position
     local best, bestDist = nil, autoLootRadius
-
     for prompt in pairs(promptCache) do
         if prompt.Parent and prompt.Enabled then
             local pos = getPromptPosition(prompt)
@@ -703,8 +671,7 @@ local function findNearestPrompt()
                         params.FilterType = Enum.RaycastFilterType.Exclude
                         params.FilterDescendantsInstances = {c}
                         params.IgnoreWater = true
-                        local origin = workspace.CurrentCamera
-                            and workspace.CurrentCamera.CFrame.Position or myPos
+                        local origin = workspace.CurrentCamera and workspace.CurrentCamera.CFrame.Position or myPos
                         local r = workspace:Raycast(origin, pos - origin, params)
                         hasLOS = (r == nil)
                     end
@@ -715,7 +682,6 @@ local function findNearestPrompt()
     end
     return best
 end
-
 local function firePrompt(prompt)
     if not prompt or not prompt.Parent or not prompt.Enabled then return end
     if savedPromptHold[prompt] == nil and autoSavedHold[prompt] == nil then
@@ -729,7 +695,6 @@ local function firePrompt(prompt)
         prompt:InputHoldEnd()
     end)
 end
-
 local function autoLootLoop()
     if autoLootRunning then return end
     autoLootRunning = true
@@ -742,7 +707,6 @@ local function autoLootLoop()
         autoLootRunning = false
     end)
 end
-
 local function enableAutoLoot()
     if autoLootOn then return end
     autoLootOn = true
@@ -750,7 +714,6 @@ local function enableAutoLoot()
     startPromptWatcher()
     autoLootLoop()
 end
-
 local function disableAutoLoot()
     if not autoLootOn then return end
     autoLootOn = false
@@ -773,7 +736,6 @@ local godModeHealthC  = nil
 local godModeDiedC    = nil
 local godModeCharConn = nil
 local GOD_HEALTH      = 9e15
-
 local function applyGodHealth(char)
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -785,19 +747,16 @@ local function applyGodHealth(char)
         hum.RequiresNeck        = false
     end)
 end
-
 local function hookGodHumanoid(hum)
     if not hum then return end
     if godModeHealthC then godModeHealthC:Disconnect() end
     if godModeDiedC   then godModeDiedC:Disconnect()   end
-
     godModeHealthC = hum.HealthChanged:Connect(function(h)
         if not godModeOn then return end
         if h < GOD_HEALTH then
             pcall(function() hum.Health = GOD_HEALTH end)
         end
     end)
-
     godModeDiedC = hum.Died:Connect(function()
         if not godModeOn then return end
         task.defer(function()
@@ -815,15 +774,12 @@ local function hookGodHumanoid(hum)
         end)
     end)
 end
-
 local function startGodMode()
     if godModeOn then return end
     godModeOn = true
-
     local char = LP.Character
     applyGodHealth(char)
     hookGodHumanoid(char and char:FindFirstChildOfClass("Humanoid"))
-
     godModeConn = RunService.PreSimulation:Connect(function()
         if not godModeOn then return end
         local c = LP.Character
@@ -837,7 +793,6 @@ local function startGodMode()
             pcall(function() hum.Health = GOD_HEALTH end)
         end
     end)
-
     godModeCharConn = LP.CharacterAdded:Connect(function(c)
         if not godModeOn then return end
         task.wait(0.15)
@@ -845,16 +800,13 @@ local function startGodMode()
         hookGodHumanoid(c:FindFirstChildOfClass("Humanoid"))
     end)
 end
-
 local function stopGodMode()
     if not godModeOn then return end
     godModeOn = false
-
     disconnect(godModeConn);     godModeConn     = nil
     disconnect(godModeHealthC);  godModeHealthC  = nil
     disconnect(godModeDiedC);    godModeDiedC    = nil
     disconnect(godModeCharConn); godModeCharConn = nil
-
     local char = LP.Character
     if char then
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -870,7 +822,7 @@ local function stopGodMode()
 end
 
 --============================================================--
--- AUTO FARM (FIXED: target lock)
+-- AUTO FARM v15.5 REWORKED: KEEP HUMANOID + VELOCITY
 --============================================================--
 local farmOn        = false
 local farmSpeed     = 500
@@ -878,15 +830,11 @@ local farmRadius    = 3000
 local farmAttack    = true
 local farmAutoEquip = true
 local farmConn      = nil
-
 local farmFlightAtt, farmFlightVel = nil, nil
-local farmSavedHum = nil
-local farmSavedCamSubject = nil
-
--- ✅ LOCK target
 local currentFarmTarget   = nil
 local farmRetargetCd      = 0
 local FARM_RETARGET_DELAY = 1.5
+local FARM_HOVER_HEIGHT   = 4
 
 local FARM_PRIORITY_WEAPONS = {
     "Prehistoric Bat", "Abyss Ocean Bat", "Volcano Bat",
@@ -910,13 +858,8 @@ local function isHostileModel(m)
     if Players:GetPlayerFromCharacter(m) then return false end
     if m.Name == "Brock" then return false end
     if isInsideGuardArea(m) then return false end
-
-    local root = m:FindFirstChild("HumanoidRootPart")
-        or m:FindFirstChild("Root")
-        or m:FindFirstChild("Head")
-        or m.PrimaryPart
+    local root = m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("Root") or m:FindFirstChild("Head") or m.PrimaryPart
     if not root then return false end
-
     local hum = m:FindFirstChildOfClass("Humanoid")
     if hum and hum.Health <= 0 then return false end
     return true
@@ -924,32 +867,43 @@ end
 
 local function getFarmRoot(m)
     if not m then return nil end
-    return m:FindFirstChild("HumanoidRootPart")
-        or m:FindFirstChild("Root")
-        or m:FindFirstChild("Head")
-        or m.PrimaryPart
+    return m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("Root") or m:FindFirstChild("Head") or m.PrimaryPart
 end
 
 local function collectFarmCandidates()
     local out = {}
-
+    local seen = {}
+    local function add(m)
+        if not seen[m] and isHostileModel(m) then
+            seen[m]=true
+            table.insert(out,m)
+        end
+    end
+    -- Event chính
     local drEvent = workspace:FindFirstChild("DrScrambleEvent")
     if drEvent then
         local exp = drEvent:FindFirstChild("EscapedExperiment")
-        if exp then table.insert(out, exp) end
+        if exp then add(exp) end
+        for _, v in ipairs(drEvent:GetDescendants()) do
+            if v:IsA("Model") then add(v) end
+        end
     end
-
+    for _, folderName in ipairs({"_Enemies","Enemies","Mobs","Monsters","EventMobs","EventEnemies","NPCs","Wild"}) do
+        local f = workspace:FindFirstChild(folderName)
+        if f then
+            for _, m in ipairs(f:GetChildren()) do if m:IsA("Model") then add(m) end end
+            for _, m in ipairs(f:GetDescendants()) do if m:IsA("Model") then add(m) end end
+        end
+    end
     for _, obj in ipairs(workspace:GetChildren()) do
-        if isHostileModel(obj) then table.insert(out, obj) end
+        if obj:IsA("Model") then add(obj) end
     end
-
     local guardsFolder = workspace:FindFirstChild("_Guards")
     if guardsFolder then
         for _, g in ipairs(guardsFolder:GetChildren()) do
-            if isHostileModel(g) then table.insert(out, g) end
+            if g:IsA("Model") then add(g) end
         end
     end
-
     return out
 end
 
@@ -958,17 +912,12 @@ local function findNearestFarmTarget()
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root then return nil end
     local myPos = root.Position
-
     local best, bestDist = nil, farmRadius
     for _, m in ipairs(collectFarmCandidates()) do
-        if isHostileModel(m) then
-            local mRoot = getFarmRoot(m)
-            if mRoot then
-                local d = (mRoot.Position - myPos).Magnitude
-                if d < bestDist then
-                    best, bestDist = m, d
-                end
-            end
+        local mRoot = getFarmRoot(m)
+        if mRoot then
+            local d = (mRoot.Position - myPos).Magnitude
+            if d < bestDist then best, bestDist = m, d end
         end
     end
     return best, bestDist
@@ -977,13 +926,10 @@ end
 local function equipFarmWeapon()
     local char = LP.Character
     if not char then return nil end
-
     local equipped = char:FindFirstChildOfClass("Tool")
     if equipped then return equipped end
-
     local backpack = LP:FindFirstChild("Backpack")
     if not backpack then return nil end
-
     for _, key in ipairs(FARM_PRIORITY_WEAPONS) do
         for _, tool in ipairs(backpack:GetChildren()) do
             if tool:IsA("Tool") and tool.Name:lower():find(key:lower(), 1, true) then
@@ -992,82 +938,39 @@ local function equipFarmWeapon()
             end
         end
     end
-
     for _, tool in ipairs(backpack:GetChildren()) do
-        if tool:IsA("Tool") then
-            tool.Parent = char
-            return tool
-        end
+        if tool:IsA("Tool") then tool.Parent = char return tool end
     end
     return nil
 end
 
-local function detachHumanoid(char)
-    if antiOn and realHum then return end
-    if farmSavedHum then return end
-
+local function startFarmFlight(char, root)
+    if farmFlightVel and farmFlightVel.Parent then return end
+    if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
-        farmSavedHum = hum
         pcall(function()
-            farmSavedCamSubject = workspace.CurrentCamera
-                and workspace.CurrentCamera.CameraSubject
+            hum.PlatformStand = false
+            hum.AutoRotate = false
+            hum:ChangeState(Enum.HumanoidStateType.Running)
         end)
-        pcall(function() hum.Parent = nil end)
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp and workspace.CurrentCamera then
-            pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
-        end
     end
-end
-
-local function restoreHumanoid(char)
-    if not farmSavedHum then return end
-    if char and char.Parent then
-        local existing = char:FindFirstChildOfClass("Humanoid")
-        if existing and existing ~= farmSavedHum then
-            pcall(function() farmSavedHum:Destroy() end)
-        else
-            pcall(function() farmSavedHum.Parent = char end)
-        end
-        if farmSavedCamSubject and workspace.CurrentCamera
-            and workspace.CurrentCamera.CameraSubject == char:FindFirstChild("HumanoidRootPart") then
-            pcall(function() workspace.CurrentCamera.CameraSubject = farmSavedCamSubject end)
-        end
-    else
-        pcall(function() farmSavedHum:Destroy() end)
-    end
-    farmSavedHum = nil
-    farmSavedCamSubject = nil
-end
-
-local function startFarmFlight(char, root)
-    if antiOn and moveVel then return end
-
-    detachHumanoid(char)
-
-    if not farmFlightVel or not farmFlightVel.Parent then
-        if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) end
-        local att = Instance.new("Attachment")
-        att.Name = "HykoFarmAtt"
-        att.Parent = root
-        farmFlightAtt = att
-
-        local lv = Instance.new("LinearVelocity")
-        lv.Name = "HykoFarmVel"
-        lv.Attachment0 = att
-        lv.RelativeTo = Enum.ActuatorRelativeTo.World
-        lv.VectorVelocity = Vector3.zero
-        lv.MaxForce = 1e6
-        lv.Parent = root
-        farmFlightVel = lv
-    end
+    local att = Instance.new("Attachment")
+    att.Name = "HykoFarmAtt"
+    att.Parent = root
+    farmFlightAtt = att
+    local lv = Instance.new("LinearVelocity")
+    lv.Name = "HykoFarmVel"
+    lv.Attachment0 = att
+    lv.RelativeTo = Enum.ActuatorRelativeTo.World
+    lv.VectorVelocity = Vector3.zero
+    lv.MaxForce = math.huge
+    lv.Parent = root
+    farmFlightVel = lv
 end
 
 local function setFarmVelocity(vec)
-    if antiOn and moveVel then
-        moveVel.VectorVelocity = vec
-    elseif farmFlightVel then
+    if farmFlightVel and farmFlightVel.Parent then
         farmFlightVel.VectorVelocity = vec
     end
 end
@@ -1075,7 +978,20 @@ end
 local function stopFarmFlight(char)
     if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) farmFlightAtt = nil end
     if farmFlightVel then pcall(function() farmFlightVel:Destroy() end) farmFlightVel = nil end
-    restoreHumanoid(char)
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if root then
+            -- giữ Y để không rơi tự do
+            pcall(function() root.AssemblyLinearVelocity = Vector3.new(0,0,0) end)
+        end
+        if hum then
+            pcall(function()
+                hum.PlatformStand = false
+                hum.AutoRotate = true
+            end)
+        end
+    end
 end
 
 local function farmStep(dt)
@@ -1083,34 +999,28 @@ local function farmStep(dt)
     local char = LP.Character
     if not char then return end
     local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum or hum.Health <= 0 then return end
 
-    if not antiOn and not farmSavedHum then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            farmSavedHum = hum
-            pcall(function() hum.Parent = nil end)
-        end
+    -- Giữ humanoid luôn ở Running, không ragdoll
+    if hum:GetState() == Enum.HumanoidStateType.Physics or hum:GetState() == Enum.HumanoidStateType.Ragdoll or hum:GetState() == Enum.HumanoidStateType.FallingDown then
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
     end
 
-    setFarmVelocity(Vector3.zero)
-
     local target = currentFarmTarget
-    local targetValid = false
     local tRoot = nil
-
+    local valid = false
     if target and target.Parent and isHostileModel(target) then
         tRoot = getFarmRoot(target)
         if tRoot and tRoot.Parent then
-            local d = (tRoot.Position - root.Position).Magnitude
-            if d <= farmRadius * 1.2 then
-                targetValid = true
+            if (tRoot.Position - root.Position).Magnitude <= farmRadius*1.3 then
+                valid = true
             end
         end
     end
 
     farmRetargetCd = farmRetargetCd - dt
-    if not targetValid then
+    if not valid then
         currentFarmTarget = nil
         if farmRetargetCd <= 0 then
             local newT = findNearestFarmTarget()
@@ -1118,22 +1028,21 @@ local function farmStep(dt)
                 currentFarmTarget = newT
                 farmRetargetCd = FARM_RETARGET_DELAY
                 target = newT
-                tRoot  = getFarmRoot(newT)
-                targetValid = true
+                tRoot = getFarmRoot(newT)
+                valid = true
             else
                 stopFarmFlight(char)
+                setFarmVelocity(Vector3.zero)
                 return
             end
         else
             stopFarmFlight(char)
+            setFarmVelocity(Vector3.zero)
             return
         end
     end
 
-    if not target or not tRoot then
-        currentFarmTarget = nil
-        return
-    end
+    if not target or not tRoot then currentFarmTarget=nil return end
 
     local tool = nil
     if farmAutoEquip then tool = equipFarmWeapon() end
@@ -1145,22 +1054,28 @@ local function farmStep(dt)
 
     if mag > 7 then
         startFarmFlight(char, root)
-        local flat = Vector3.new(delta.X, 0, delta.Z)
-        local dir  = flat.Magnitude > 0.01 and flat.Unit or Vector3.zero
+        local hoverPos = tPos + Vector3.new(0, FARM_HOVER_HEIGHT, 0)
+        local dir = (hoverPos - myPos)
+        if dir.Magnitude > 0.1 then dir = dir.Unit else dir = Vector3.zero end
         setFarmVelocity(dir * farmSpeed)
+        -- Xoay về phía quái nhưng giữ humanoid
         pcall(function()
             root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
         end)
         root.AssemblyAngularVelocity = Vector3.zero
     else
+        -- đã tới gần: dừng bay, đứng yên đánh
         stopFarmFlight(char)
-        root.AssemblyLinearVelocity  = Vector3.zero
+        setFarmVelocity(Vector3.zero)
+        root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
         pcall(function()
             root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
         end)
         if farmAttack and tool then
             pcall(function() tool:Activate() end)
+            -- spam 3 lần cho game cần nhiều hit
+            for i=1,2 do task.wait(0.06) pcall(function() tool:Activate() end) end
         end
     end
 end
@@ -1169,7 +1084,7 @@ local function enableFarm()
     if farmOn then return end
     farmOn = true
     currentFarmTarget = nil
-    farmRetargetCd    = 0
+    farmRetargetCd = 0
     disconnect(farmConn)
     farmConn = RunService.Heartbeat:Connect(farmStep)
 end
@@ -1178,15 +1093,12 @@ local function disableFarm()
     if not farmOn then return end
     farmOn = false
     disconnect(farmConn); farmConn = nil
-
     currentFarmTarget = nil
-    farmRetargetCd    = 0
-
+    farmRetargetCd = 0
     local char = LP.Character
-    if antiOn and moveVel then
-        pcall(function() moveVel.VectorVelocity = Vector3.zero end)
-    else
+    if char then
         stopFarmFlight(char)
+        setFarmVelocity(Vector3.zero)
     end
 end
 
@@ -1201,7 +1113,6 @@ local boostSaved = {
     reflect = {}, decals = {}, fidelity = {},
     sky = nil, skyChildren = {}, clouds = {},
 }
-
 local function isBoostSafe(d)
     if not d or not d.Parent then return false end
     if d.Name and d.Name:sub(1, 4) == "Hyko" then return false end
@@ -1214,11 +1125,9 @@ local function isBoostSafe(d)
     return true
 end
 local function saveOnce(tbl, obj, v) if tbl[obj] == nil then tbl[obj] = v end end
-
 local function optimizeVisual(obj)
     if not boostOn or not isBoostSafe(obj) then return end
-    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam")
-        or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
         saveOnce(boostSaved.effects, obj, obj.Enabled)
         pcall(function() obj.Enabled = false; if obj:IsA("ParticleEmitter") then obj:Clear() end end)
         return
@@ -1256,7 +1165,6 @@ local function optimizeVisual(obj)
         end
     end
 end
-
 local function optimizeLighting()
     if not boostSaved.lighting then
         boostSaved.lighting = {
@@ -1291,7 +1199,6 @@ local function optimizeLighting()
         end
     end
 end
-
 local function restoreLighting()
     local s = boostSaved.lighting
     if s then
@@ -1313,7 +1220,6 @@ local function restoreLighting()
     end
     boostSaved.sky = nil; boostSaved.skyChildren = {}
 end
-
 local function optimizeTerrain()
     local t = workspace:FindFirstChildOfClass("Terrain")
     if not t or boostSaved.terrain then return end
@@ -1328,7 +1234,6 @@ local function optimizeTerrain()
         t.Decoration = false
     end)
 end
-
 local function restoreTerrain()
     local t = workspace:FindFirstChildOfClass("Terrain")
     local s = boostSaved.terrain
@@ -1341,7 +1246,6 @@ local function restoreTerrain()
     end
     boostSaved.terrain = nil
 end
-
 local function setQuality(low)
     local ok, s = pcall(function() return UserSettings():GetService("UserGameSettings") end)
     if not ok or not s then return end
@@ -1366,7 +1270,6 @@ local function setQuality(low)
         end
     end)
 end
-
 local function scanExisting()
     boostBusy = true
     local list = workspace:GetDescendants()
@@ -1378,7 +1281,6 @@ local function scanExisting()
     end
     boostBusy = false
 end
-
 local function enableBoost()
     if boostOn then return end
     boostOn = true
@@ -1389,7 +1291,6 @@ local function enableBoost()
     end)
     task.spawn(scanExisting)
 end
-
 local function restoreBoost()
     for o, v in pairs(boostSaved.effects) do if o and o.Parent then pcall(function() o.Enabled = v end) end end
     for o, v in pairs(boostSaved.lights) do if o and o.Parent then pcall(function() o.Enabled = v.Enabled; o.Shadows = v.Shadows end) end end
@@ -1405,7 +1306,6 @@ local function restoreBoost()
     table.clear(boostSaved.decals); table.clear(boostSaved.fidelity)
     restoreLighting(); restoreTerrain()
 end
-
 local function disableBoost()
     if not boostOn then return end
     boostOn = false
@@ -1424,15 +1324,11 @@ local realHum, fakeHum
 local moveAtt, moveVel, faceAtt, faceAlign
 local lastSafeY, housekeeping = nil, 0
 local bodySnap = {}
-
 local setAntiToggleVisual = nil
-
 local rayP = RaycastParams.new()
 rayP.FilterType = Enum.RaycastFilterType.Exclude
 rayP.IgnoreWater = true
-
 local KILL_UP, ABOVE_GROUND, UPRIGHT_THRESHOLD = 40, 12, 0.85
-
 local BAD_STATES = {
     [Enum.HumanoidStateType.Ragdoll]          = true,
     [Enum.HumanoidStateType.FallingDown]      = true,
@@ -1440,7 +1336,6 @@ local BAD_STATES = {
     [Enum.HumanoidStateType.PlatformStanding] = true,
     [Enum.HumanoidStateType.GettingUp]        = true,
 }
-
 local function isMover(d)
     return d:IsA("BodyVelocity") or d:IsA("BodyAngularVelocity")
         or d:IsA("BodyForce") or d:IsA("BodyThrust")
@@ -1450,7 +1345,6 @@ local function isMover(d)
         or d:IsA("AlignPosition") or d:IsA("AlignOrientation")
         or d:IsA("RocketPropulsion")
 end
-
 local function buildFakeHum()
     local h = Instance.new("Humanoid")
     h.WalkSpeed = 600; h.JumpPower = 50; h.UseJumpPower = true
@@ -1469,7 +1363,6 @@ local function buildFakeHum()
     end)
     return h
 end
-
 local function snapPart(p) if not bodySnap[p] then bodySnap[p] = {cc = p.CanCollide, m = p.Massless} end end
 local function neutralizeBodyPart(p)
     snapPart(p)
@@ -1500,7 +1393,6 @@ local function restoreAnti(char)
         end
     end
 end
-
 local function makeConstraints(root)
     if moveAtt then pcall(function() moveAtt:Destroy() end) end
     if moveVel then pcall(function() moveVel:Destroy() end) end
@@ -1551,7 +1443,6 @@ local function forceUpright(root, cam)
         root.AssemblyAngularVelocity = Vector3.zero
     end
 end
-
 local Controls
 pcall(function()
     local PM = require(LP.PlayerScripts:WaitForChild("PlayerModule", 5))
@@ -1569,7 +1460,6 @@ local function readMove()
     if UserInputService:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1,0,0) end
     return d
 end
-
 local function heartbeat(dt)
     local ch = LP.Character; if not ch then return end
     local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
@@ -1588,7 +1478,7 @@ local function heartbeat(dt)
         faceAlign.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
     end
     if farmOn then
-        -- farm controls moveVel
+        -- farm controls riêng, không override ở đây
     else
         local mv = readMove()
         local target = Vector3.zero
@@ -1614,7 +1504,6 @@ local function heartbeat(dt)
         end
     end
 end
-
 local function postSim()
     if not antiOn then return end
     local ch = LP.Character; if not ch then return end
@@ -1637,7 +1526,6 @@ local function postSim()
         root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
     end
 end
-
 local function doJump()
     if not antiOn then return end
     local ch = LP.Character; if not ch then return end
@@ -1648,7 +1536,6 @@ local function doJump()
         root.AssemblyLinearVelocity = Vector3.new(vel.X, 55, vel.Z)
     end
 end
-
 local function startAnti()
     if antiConn then return end
     local c = LP.Character; if not c then return end
@@ -1689,7 +1576,6 @@ local function startAnti()
         if input.KeyCode == Enum.KeyCode.Space then doJump() end
     end)
 end
-
 local function stopAnti()
     if antiAdded then antiAdded:Disconnect() antiAdded = nil end
     if antiConn then antiConn:Disconnect() antiConn = nil end
@@ -1718,7 +1604,6 @@ local function stopAnti()
     end
     lastSafeY = nil
 end
-
 local function handleAntiDeath()
     if not antiOn then return end
     antiOn = false
@@ -1738,7 +1623,6 @@ fpsGui.IgnoreGuiInset = true
 fpsGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 fpsGui.DisplayOrder = 200
 fpsGui.Parent = LP:WaitForChild("PlayerGui")
-
 local fpsPill = Instance.new("Frame")
 fpsPill.Name = "FPSPill"
 fpsPill.AnchorPoint = Vector2.new(0, 0)
@@ -1751,7 +1635,6 @@ fpsPill.Visible = false
 fpsPill.Parent = fpsGui
 makeCorner(fpsPill, 8)
 local fpsStroke = makeStroke(fpsPill, Color3.fromRGB(230, 233, 238), 0.25, 1)
-
 local fpsGrad = Instance.new("UIGradient")
 fpsGrad.Rotation = 90
 fpsGrad.Color = ColorSequence.new({
@@ -1759,7 +1642,6 @@ fpsGrad.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.fromRGB(246, 248, 252)),
 })
 fpsGrad.Parent = fpsPill
-
 local fpsIconTile = Instance.new("Frame")
 fpsIconTile.Size = UDim2.fromOffset(30, 30)
 fpsIconTile.Position = UDim2.fromOffset(10, 10)
@@ -1768,7 +1650,6 @@ fpsIconTile.BackgroundTransparency = 0.9
 fpsIconTile.BorderSizePixel = 0
 fpsIconTile.Parent = fpsPill
 makeCorner(fpsIconTile, 7)
-
 local fpsIcon = Instance.new("ImageLabel")
 fpsIcon.BackgroundTransparency = 1
 fpsIcon.Position = UDim2.fromOffset(6, 6)
@@ -1776,7 +1657,6 @@ fpsIcon.Size = UDim2.fromOffset(18, 18)
 fpsIcon.ImageColor3 = Theme.accent
 fpsIcon.Parent = fpsIconTile
 attachImage(fpsIcon, "10734896881", nil)
-
 local fpsNum = Instance.new("TextLabel")
 fpsNum.BackgroundTransparency = 1
 fpsNum.Position = UDim2.fromOffset(48, 6)
@@ -1787,7 +1667,6 @@ fpsNum.TextColor3 = Theme.text
 fpsNum.TextXAlignment = Enum.TextXAlignment.Left
 fpsNum.Text = "--"
 fpsNum.Parent = fpsPill
-
 local fpsTag = Instance.new("TextLabel")
 fpsTag.BackgroundTransparency = 1
 fpsTag.Position = UDim2.fromOffset(48, 28)
@@ -1798,7 +1677,6 @@ fpsTag.TextColor3 = Theme.sub
 fpsTag.TextXAlignment = Enum.TextXAlignment.Left
 fpsTag.Text = "FPS"
 fpsTag.Parent = fpsPill
-
 task.spawn(function()
     local frames, last = 0, os.clock()
     RunService.RenderStepped:Connect(function()
@@ -1821,13 +1699,11 @@ end)
 -- UI WIRING - Visuals
 --============================================================--
 Window:AddSection({ Name = "Player Visuals", Tab = Visuals })
-
 Window:AddParagraph({
     Title       = "Player ESP",
     Description = "Elegant outline + soft chams + refined nametag with health bar.",
     Tab         = Visuals,
 })
-
 Window:AddToggle({
     Title = "Enable Player ESP",
     Description = "Outline + Chams + Nametag for every player",
@@ -1837,7 +1713,6 @@ Window:AddToggle({
         else disableESP(); notify("Hyko • ESP", "Player ESP disabled", 3) end
     end,
 })
-
 Window:AddSlider({
     Title = "ESP Distance",
     Description = "Max distance for ESP rendering (studs)",
@@ -1852,13 +1727,11 @@ Window:AddSlider({
         end
     end,
 })
-
 Window:AddParagraph({
     Title       = "FPS Widget",
     Description = "Floating FPS counter with Lucide monitor icon.",
     Tab         = Visuals,
 })
-
 Window:AddToggle({
     Title = "Show FPS Counter",
     Description = "Display a floating FPS pill at the top-left of the screen",
@@ -1869,28 +1742,22 @@ Window:AddToggle({
         notify("Hyko • FPS Widget", state and "FPS counter shown" or "FPS counter hidden", 3)
     end,
 })
-
 do
     local dragging, dragStart, startPos
     fpsPill.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true; dragStart = input.Position; startPos = fpsPill.Position
         end
     end)
     UserInputService.InputChanged:Connect(function(input)
         if not dragging then return end
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             local d = input.Position - dragStart
-            fpsPill.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + d.X,
-                startPos.Y.Scale, startPos.Y.Offset + d.Y)
+            fpsPill.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
         end
     end)
     UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
     end)
 end
 
@@ -1903,7 +1770,6 @@ Window:AddParagraph({
     Description = "Hard-lock body: fake humanoid, neutralized parts, upright enforcement.\nAuto-disables and restores on death / reset.",
     Tab         = Utility,
 })
-
 local antiToggleRef
 antiToggleRef = Window:AddToggle({
     Title = "Enable Anti-Ragdoll",
@@ -1911,51 +1777,41 @@ antiToggleRef = Window:AddToggle({
     Tab = Utility, Default = false,
     Callback = function(state)
         if state then
+            antiOn = true
             startAnti()
             notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll enabled (speed " .. tostring(antiSpeed) .. ")", 3)
         else
+            antiOn = false
             stopAnti()
             notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll disabled", 3)
         end
     end,
 })
-
 setAntiToggleVisual = function(v)
     pcall(function()
-        if antiToggleRef and antiToggleRef.Set then
-            antiToggleRef:Set(v)
-        end
+        if antiToggleRef and antiToggleRef.Set then antiToggleRef:Set(v) end
     end)
 end
-
 Window:AddSlider({
     Title = "Speed", Description = "Anti-Ragdoll movement speed (default 60)",
     Tab = Utility,
     MinValue = 20, MaxValue = 800, Default = 60, AllowDecimals = false,
     Callback = function(v) antiSpeed = v end,
 })
-
 Window:AddParagraph({
     Title       = "God Mode",
     Description = "PreSimulation + HealthChanged + Died guard. Immortal at all times.",
     Tab         = Utility,
 })
-
 Window:AddToggle({
     Title = "Enable God Mode",
     Description = "Keep your character at maximum health at all times",
     Tab = Utility, Default = false,
     Callback = function(state)
-        if state then
-            startGodMode()
-            notify("Hyko • God Mode", "God Mode enabled", 3)
-        else
-            stopGodMode()
-            notify("Hyko • God Mode", "God Mode disabled", 3)
-        end
+        if state then startGodMode(); notify("Hyko • God Mode", "God Mode enabled", 3)
+        else stopGodMode(); notify("Hyko • God Mode", "God Mode disabled", 3) end
     end,
 })
-
 Window:AddSection({ Name = "Interaction", Tab = Utility })
 Window:AddParagraph({
     Title       = "Fast Loot",
@@ -1979,9 +1835,7 @@ Window:AddToggle({
     Title = "Enable Auto Loot", Description = "Auto-collect the nearest ProximityPrompt",
     Tab = Utility, Default = false,
     Callback = function(state)
-        if state then
-            enableAutoLoot()
-            notify("Hyko • Auto Loot", "Auto Loot enabled (radius " .. tostring(autoLootRadius) .. ")", 3)
+        if state then enableAutoLoot(); notify("Hyko • Auto Loot", "Auto Loot enabled (radius " .. tostring(autoLootRadius) .. ")", 3)
         else disableAutoLoot(); notify("Hyko • Auto Loot", "Auto Loot disabled", 3) end
     end,
 })
@@ -1996,54 +1850,43 @@ Window:AddSlider({
 -- UI WIRING - Auto Farm
 --============================================================--
 Window:AddSection({ Name = "Auto Farm Event", Tab = Farm })
-
 Window:AddParagraph({
-    Title       = "Auto Farm Event",
-    Description = "Locks onto 1 target until it dies or leaves range. Detaches Humanoid, flies with LinearVelocity, equips weapon, then attacks.\nGuards in GuardAreas are ignored.",
+    Title       = "Auto Farm Event - Keep Humanoid",
+    Description = "REWORKED v15.5: Giữ nguyên Humanoid, dùng LinearVelocity để bay. Lock 1 target tới khi chết, farm quái sự kiện rơi đồ đổi thưởng. Không còn zig-zag, không detach Humanoid.",
     Tab         = Farm,
 })
-
 Window:AddToggle({
     Title = "Enable Auto Farm",
-    Description = "Automatically engage the nearest hostile unit",
+    Description = "Tự động farm quái sự kiện gần nhất (giữ humanoid)",
     Tab = Farm, Default = false,
     Callback = function(state)
-        if state then
-            enableFarm()
-            notify("Hyko • Auto Farm", "Auto Farm enabled (speed " .. tostring(farmSpeed) .. ")", 3)
-        else
-            disableFarm()
-            notify("Hyko • Auto Farm", "Auto Farm disabled - Humanoid restored", 3)
-        end
+        if state then enableFarm(); notify("Hyko • Auto Farm", "Auto Farm enabled - Keep Humanoid (speed " .. tostring(farmSpeed) .. ")", 3)
+        else disableFarm(); notify("Hyko • Auto Farm", "Auto Farm disabled", 3) end
     end,
 })
-
 Window:AddSlider({
     Title = "Movement Speed",
-    Description = "LinearVelocity flight speed toward target (studs/s, default 500)",
+    Description = "Tốc độ bay tới quái (studs/s, default 500) - vẫn giữ humanoid",
     Tab = Farm,
     MinValue = 50, MaxValue = 2000, Default = 500, AllowDecimals = false,
     Callback = function(v) farmSpeed = v end,
 })
-
 Window:AddSlider({
     Title = "Search Radius",
-    Description = "Maximum distance to search for targets (studs)",
+    Description = "Bán kính tìm quái (studs)",
     Tab = Farm,
     MinValue = 100, MaxValue = 10000, Default = 3000, AllowDecimals = false,
     Callback = function(v) farmRadius = v end,
 })
-
 Window:AddToggle({
     Title = "Auto Equip Weapon",
-    Description = "Automatically equip the best available weapon from the Backpack",
+    Description = "Tự equip vũ khí xịn nhất trong Backpack",
     Tab = Farm, Default = true,
     Callback = function(state) farmAutoEquip = state end,
 })
-
 Window:AddToggle({
     Title = "Auto Attack",
-    Description = "Activate the equipped tool while in melee range of the target",
+    Description = "Tự đánh khi tới gần quái",
     Tab = Farm, Default = true,
     Callback = function(state) farmAttack = state end,
 })
@@ -2059,7 +1902,6 @@ local hopState = {
     serverList    = {},
     refreshTick   = 0,
 }
-
 local function hopFetchServers()
     local url = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
     local ok, raw = pcall(function() return game:HttpGet(url) end)
@@ -2068,7 +1910,6 @@ local function hopFetchServers()
     if not ok2 or not data or not data.data then return nil end
     return data.data
 end
-
 local function hopJoinServer(serverId)
     if not serverId then return false end
     local ok = pcall(function()
@@ -2076,7 +1917,6 @@ local function hopJoinServer(serverId)
     end)
     return ok
 end
-
 local function hopRandomServer()
     local servers = hopFetchServers()
     if not servers or #servers == 0 then return nil end
@@ -2092,13 +1932,11 @@ local function hopRandomServer()
 end
 
 Window:AddSection({ Name = "Quick Actions", Tab = ServerHop })
-
 Window:AddParagraph({
     Title       = "Find & Join",
     Description = "Hop to a random server or enable auto-hop when the current one is too full.",
     Tab         = ServerHop,
 })
-
 Window:AddButton({
     Title       = "Find New Server (Random)",
     Description = "Teleport to a random public server of this place",
@@ -2107,52 +1945,36 @@ Window:AddButton({
         notify("Hyko • Server Hop", "Searching for a random server...", 2)
         task.spawn(function()
             local id = hopRandomServer()
-            if not id then
-                notify("Hyko • Server Hop", "No server available", 3)
-                return
-            end
+            if not id then notify("Hyko • Server Hop", "No server available", 3) return end
             notify("Hyko • Server Hop", "Teleporting...", 2)
             hopJoinServer(id)
         end)
     end,
 })
-
 Window:AddButton({
     Title       = "Rejoin Current Server",
     Description = "Rejoin the server you are currently in",
     Tab         = ServerHop,
     Callback    = function()
         local currentId = game.JobId
-        if not currentId or currentId == "" then
-            notify("Hyko • Server Hop", "No active JobId", 3)
-            return
-        end
+        if not currentId or currentId == "" then notify("Hyko • Server Hop", "No active JobId", 3) return end
         notify("Hyko • Server Hop", "Rejoining...", 2)
         hopJoinServer(currentId)
     end,
 })
-
 Window:AddSection({ Name = "Auto Hop", Tab = ServerHop })
-
 Window:AddParagraph({
     Title       = "Auto Hop",
     Description = "Automatically hop when player count exceeds the threshold.",
     Tab         = ServerHop,
 })
-
 Window:AddSlider({
     Title         = "Player Threshold",
     Description   = "Hop when server has more than this many players",
     Tab           = ServerHop,
-    MinValue      = 1,
-    MaxValue      = 50,
-    Default       = 1,
-    AllowDecimals = false,
-    Callback      = function(v)
-        hopState.threshold = v
-    end,
+    MinValue      = 1, MaxValue = 50, Default = 1, AllowDecimals = false,
+    Callback      = function(v) hopState.threshold = v end,
 })
-
 Window:AddToggle({
     Title       = "Enable Auto Hop",
     Description = "Continuously monitor player count and hop when needed",
@@ -2165,36 +1987,27 @@ Window:AddToggle({
             hopState.autoThread = task.spawn(function()
                 while hopState.autoOn do
                     local count = #Players:GetPlayers()
-                    if count <= hopState.threshold then
-                        task.wait(3)
+                    if count <= hopState.threshold then task.wait(3)
                     else
                         notify("Hyko • Auto Hop", "Hopping (server has " .. count .. " players)...", 3)
                         local id = hopRandomServer()
-                        if id then
-                            hopJoinServer(id)
-                        end
+                        if id then hopJoinServer(id) end
                         task.wait(5)
                     end
                 end
             end)
         else
-            if hopState.autoThread then
-                task.cancel(hopState.autoThread)
-                hopState.autoThread = nil
-            end
+            if hopState.autoThread then task.cancel(hopState.autoThread) hopState.autoThread = nil end
             notify("Hyko • Auto Hop", "Auto Hop disabled", 3)
         end
     end,
 })
-
 Window:AddSection({ Name = "Server List", Tab = ServerHop })
-
 Window:AddParagraph({
     Title       = "Quick Select",
     Description = "Fetch public servers and click Join on any. Sorted by player count.",
     Tab         = ServerHop,
 })
-
 Window:AddButton({
     Title       = "Load Server List",
     Description = "Fetch and display up to 50 public servers (top 10 shown as buttons)",
@@ -2203,35 +2016,22 @@ Window:AddButton({
         notify("Hyko • Server List", "Loading servers...", 2)
         task.spawn(function()
             local servers = hopFetchServers()
-            if not servers or #servers == 0 then
-                notify("Hyko • Server List", "No servers found", 3)
-                return
-            end
-
+            if not servers or #servers == 0 then notify("Hyko • Server List", "No servers found", 3) return end
             local currentId = tostring(game.JobId)
             local filtered = {}
             for _, s in ipairs(servers) do
-                if tostring(s.id) ~= currentId then
-                    table.insert(filtered, s)
-                end
+                if tostring(s.id) ~= currentId then table.insert(filtered, s) end
             end
-
             if hopState.sortByPlayers then
-                table.sort(filtered, function(a, b)
-                    return (a.playing or 0) < (b.playing or 0)
-                end)
+                table.sort(filtered, function(a, b) return (a.playing or 0) < (b.playing or 0) end)
             end
-
             hopState.serverList = filtered
             hopState.refreshTick = hopState.refreshTick + 1
-
             local topN = math.min(10, #filtered)
             for i = 1, topN do
                 local srv = filtered[i]
                 local sid = tostring(srv.id)
-                local label = string.format("Server %d - %d/%d players",
-                    i, srv.playing or 0, srv.maxPlayers or 0)
-
+                local label = string.format("Server %d - %d/%d players", i, srv.playing or 0, srv.maxPlayers or 0)
                 Window:AddButton({
                     Title       = label,
                     Description = "JobId: " .. sid:sub(1, 20) .. "...",
@@ -2242,12 +2042,10 @@ Window:AddButton({
                     end,
                 })
             end
-
             notify("Hyko • Server List", tostring(#filtered) .. " servers found - top " .. topN .. " listed", 4)
         end)
     end,
 })
-
 Window:AddButton({
     Title       = "Join Lowest Player Server",
     Description = "Automatically join the server with the fewest players",
@@ -2255,31 +2053,21 @@ Window:AddButton({
     Callback    = function()
         task.spawn(function()
             local servers = hopFetchServers()
-            if not servers or #servers == 0 then
-                notify("Hyko • Server Hop", "No servers found", 3)
-                return
-            end
+            if not servers or #servers == 0 then notify("Hyko • Server Hop", "No servers found", 3) return end
             local currentId = tostring(game.JobId)
             local best, bestCount = nil, math.huge
             for _, s in ipairs(servers) do
                 if tostring(s.id) ~= currentId then
                     local c = s.playing or 0
-                    if c < bestCount then
-                        bestCount = c
-                        best = s
-                    end
+                    if c < bestCount then bestCount = c best = s end
                 end
             end
-            if not best then
-                notify("Hyko • Server Hop", "No alternative server found", 3)
-                return
-            end
+            if not best then notify("Hyko • Server Hop", "No alternative server found", 3) return end
             notify("Hyko • Server Hop", "Joining server with " .. bestCount .. " players...", 3)
             hopJoinServer(tostring(best.id))
         end)
     end,
 })
-
 Window:AddButton({
     Title       = "Join Highest Player Server",
     Description = "Automatically join the server with the most players",
@@ -2287,25 +2075,16 @@ Window:AddButton({
     Callback    = function()
         task.spawn(function()
             local servers = hopFetchServers()
-            if not servers or #servers == 0 then
-                notify("Hyko • Server Hop", "No servers found", 3)
-                return
-            end
+            if not servers or #servers == 0 then notify("Hyko • Server Hop", "No servers found", 3) return end
             local currentId = tostring(game.JobId)
             local best, bestCount = nil, -1
             for _, s in ipairs(servers) do
                 if tostring(s.id) ~= currentId then
                     local c = s.playing or 0
-                    if c > bestCount then
-                        bestCount = c
-                        best = s
-                    end
+                    if c > bestCount then bestCount = c best = s end
                 end
             end
-            if not best then
-                notify("Hyko • Server Hop", "No alternative server found", 3)
-                return
-            end
+            if not best then notify("Hyko • Server Hop", "No alternative server found", 3) return end
             notify("Hyko • Server Hop", "Joining server with " .. bestCount .. " players...", 3)
             hopJoinServer(tostring(best.id))
         end)
@@ -2316,7 +2095,6 @@ Window:AddButton({
 -- UI WIRING - Settings
 --============================================================--
 Window:AddSection({ Name = "Appearance", Tab = Settings })
-
 Window:AddToggle({
     Title       = "Show Window Background",
     Description = "Display a decorative background image behind the UI",
@@ -2327,18 +2105,13 @@ Window:AddToggle({
         notify("Hyko • Background", state and "Background shown" or "Background hidden", 3)
     end,
 })
-
 Window:AddSlider({
     Title         = "Background Transparency",
     Description   = "Higher = more transparent (default 0.35)",
     Tab           = Settings,
-    MinValue      = 0,
-    MaxValue      = 1,
-    Default       = 0.35,
-    AllowDecimals = true,
+    MinValue      = 0, MaxValue = 1, Default = 0.35, AllowDecimals = true,
     Callback      = function(v) setBackgroundTransparency(v) end,
 })
-
 Window:AddSection({ Name = "Performance", Tab = Settings })
 Window:AddParagraph({
     Title       = "FPS Boost",
@@ -2353,7 +2126,6 @@ Window:AddToggle({
         else disableBoost(); notify("Hyko • FPS Boost", "FPS Boost disabled - restored", 3) end
     end,
 })
-
 Window:AddSection({ Name = "Interface", Tab = Settings })
 Window:AddKeybind({
     Title = "Minimize Keybind", Description = "Set the keybind for minimizing the UI",
@@ -2392,7 +2164,6 @@ Window:AddSlider({
 --============================================================--
 do
     local pg = LP:WaitForChild("PlayerGui")
-
     local gui = Instance.new("ScreenGui")
     gui.Name = "HykoToggleGui"
     gui.ResetOnSpawn = false
@@ -2400,7 +2171,6 @@ do
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.DisplayOrder = 999
     gui.Parent = pg
-
     local btn = Instance.new("TextButton")
     btn.Name = "HykoShowUI"
     btn.AnchorPoint = Vector2.new(1, 0)
@@ -2414,9 +2184,7 @@ do
     btn.Active = true
     btn.Parent = gui
     makeCorner(btn, 8)
-
     local stroke = makeStroke(btn, Color3.fromRGB(228, 231, 237), 0.25, 1)
-
     local grad = Instance.new("UIGradient")
     grad.Rotation = 90
     grad.Color = ColorSequence.new({
@@ -2424,7 +2192,6 @@ do
         ColorSequenceKeypoint.new(1, Color3.fromRGB(244, 246, 250)),
     })
     grad.Parent = btn
-
     local iconTile = Instance.new("Frame")
     iconTile.Size = UDim2.fromOffset(28, 28)
     iconTile.Position = UDim2.fromOffset(8, 7)
@@ -2433,16 +2200,13 @@ do
     iconTile.BorderSizePixel = 0
     iconTile.Parent = btn
     makeCorner(iconTile, 6)
-
     local iconStroke = makeStroke(iconTile, Color3.fromRGB(255, 220, 235), 0.4, 1)
-
     local catIcon = Instance.new("ImageLabel")
     catIcon.BackgroundTransparency = 1
     catIcon.Position = UDim2.fromOffset(3, 3)
     catIcon.Size = UDim2.fromOffset(22, 22)
     catIcon.Parent = iconTile
     attachImage(catIcon, "71999030813587", nil)
-
     local label = Instance.new("TextLabel")
     label.BackgroundTransparency = 1
     label.Position = UDim2.fromOffset(44, 0)
@@ -2454,54 +2218,36 @@ do
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.Text = "Hide UI"
     label.Parent = btn
-
     local uiVisible = true
-
     local function setVisible(v)
         uiVisible = v
         label.Text = v and "Hide UI" or "Show UI"
-        if libGui and libGui.Parent then
-            libGui.Enabled = v
-        end
+        if libGui and libGui.Parent then libGui.Enabled = v end
     end
-
     btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {
-            BackgroundTransparency = 0,
-        }):Play()
+        TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {BackgroundTransparency = 0}):Play()
         TweenService:Create(stroke, TweenInfo.new(0.18), {Transparency = 0.05}):Play()
     end)
     btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {
-            BackgroundTransparency = 0.05,
-        }):Play()
+        TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {BackgroundTransparency = 0.05}):Play()
         TweenService:Create(stroke, TweenInfo.new(0.18), {Transparency = 0.25}):Play()
     end)
-
-    btn.Activated:Connect(function()
-        setVisible(not uiVisible)
-    end)
-
+    btn.Activated:Connect(function() setVisible(not uiVisible) end)
     local dragging, dragStart, startPos
     btn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true; dragStart = input.Position; startPos = btn.Position
         end
     end)
     UserInputService.InputChanged:Connect(function(input)
         if not dragging then return end
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             local d = input.Position - dragStart
-            btn.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + d.X,
-                startPos.Y.Scale, startPos.Y.Offset + d.Y)
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
         end
     end)
     UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
     end)
 end
 
@@ -2509,16 +2255,12 @@ end
 -- DEATH / RESPAWN HOOKS
 --============================================================--
 LP.CharacterAdded:Connect(function(char)
-    if antiOn then
-        task.wait(0.2)
-        handleAntiDeath()
-    end
+    if antiOn then task.wait(0.2) handleAntiDeath() end
     task.wait(0.2)
     if godModeOn then applyGodHealth(char) end
     task.wait(0.3)
     if bgEnabled then attachBackground() end
 end)
-
 do
     local function watchHum(char)
         local hum = char:WaitForChild("Humanoid", 5)
@@ -2532,8 +2274,4 @@ do
     LP.CharacterAdded:Connect(watchHum)
 end
 
-notify(
-    "Hyko Loaded",
-    "ESP • Anti-Ragdoll • God Mode • Auto Farm • Loot • FPS Boost • Server Hop",
-    8
-)
+notify("Hyko v15.5 Loaded", "Keep Humanoid Farm + Velocity + New Icons + All features", 8)
