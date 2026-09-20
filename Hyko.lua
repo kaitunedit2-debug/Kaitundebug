@@ -1,14 +1,14 @@
 --[[
-    HYKO • ESP + FAST LOOT + AUTO LOOT + ANTI-RAGDOLL + FPS BOOST  (v7)
+    HYKO • ESP + FAST LOOT + AUTO LOOT + ANTI-RAGDOLL + FPS BOOST  (v8)
     Rebuilt inside lates-lib UI.
 
-    Changes in v7
-      · Show UI reverted: hides the entire lates-lib ScreenGui
-        (notifications are hidden too — as requested)
-      · Auto Loot fixed: on finding a ProximityPrompt it now forces
-        HoldDuration = 0 (same trick Fast Loot uses) before firing,
-        so it works in games that use hold prompts.
-      · Everything else unchanged.
+    Changes in v8
+      · Show UI redesigned — matches lates-lib light theme (icon + label)
+      · Auto Loot rewritten — full prompt cache + robust firing (works everywhere)
+      · ESP nametag redesigned — elegant, subtle, lates-lib style
+      · ESP retry loop — new players now always get ESP
+      · FPS widget added to Visuals tab — elegant floating pill
+      · Overall softer palette, no heavy/bold elements
 --]]
 
 --// Services
@@ -20,11 +20,10 @@ local Lighting         = game:GetService("Lighting")
 local LP               = Players.LocalPlayer
 
 --============================================================--
--- LIBRARY (before/after GUI capture)
+-- LIBRARY
 --============================================================--
 local function collectGuis()
-    local set = {}
-    local containers = {}
+    local set, containers = {}, {}
     local pg = LP:FindFirstChildOfClass("PlayerGui")
     if pg then table.insert(containers, pg) end
     if gethui then
@@ -68,10 +67,10 @@ do
         task.wait(0.05)
     end
     if not libGui then
-        local function watch(container)
-            if not container then return end
+        local function watch(c)
+            if not c then return end
             pcall(function()
-                container.ChildAdded:Connect(function(child)
+                c.ChildAdded:Connect(function(child)
                     if libGui then return end
                     if child:IsA("ScreenGui") and not guisBefore[child] then
                         libGui = child
@@ -135,47 +134,41 @@ local Settings = Window:AddTab({
 local function safeDestroy(x)
     if x then pcall(function() x:Destroy() end) end
 end
-
 local function disconnect(x)
     if x and typeof(x) == "RBXScriptConnection" then
         pcall(function() x:Disconnect() end)
     end
 end
-
 local function makeCorner(parent, radius)
     local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, radius)
-    c.Parent = parent
-    return c
+    c.CornerRadius = UDim.new(0, radius); c.Parent = parent; return c
 end
-
 local function makeStroke(parent, color, transparency, thickness)
     local s = Instance.new("UIStroke")
-    s.Color = color
-    s.Transparency = transparency or 0
-    s.Thickness = thickness or 1
-    s.Parent = parent
-    return s
+    s.Color = color; s.Transparency = transparency or 0
+    s.Thickness = thickness or 1; s.Parent = parent; return s
 end
-
 local function notify(title, desc, duration)
     pcall(function()
-        Window:Notify({
-            Title = title, Description = desc, Duration = duration or 3,
-        })
+        Window:Notify({ Title = title, Description = desc, Duration = duration or 3 })
     end)
 end
 
+-- Palette matching lates-lib Light theme — soft, elegant, never heavy.
 local Theme = {
-    accent = Color3.fromRGB(10, 132, 255),
-    panel  = Color3.fromRGB(255, 255, 255),
-    stroke = Color3.fromRGB(226, 229, 235),
-    text   = Color3.fromRGB(17, 19, 24),
-    sub    = Color3.fromRGB(125, 130, 140),
+    accent    = Color3.fromRGB(10, 132, 255),
+    panel     = Color3.fromRGB(255, 255, 255),
+    card      = Color3.fromRGB(250, 251, 253),
+    stroke    = Color3.fromRGB(230, 233, 238),
+    text      = Color3.fromRGB(28, 32, 40),
+    sub       = Color3.fromRGB(140, 146, 158),
+    green     = Color3.fromRGB(52, 199, 89),
+    amber     = Color3.fromRGB(255, 159, 10),
+    red       = Color3.fromRGB(255, 69, 58),
 }
 
 --============================================================--
--- ESP
+-- ESP  (elegant, lates-lib styled nametag; retry loop for new players)
 --============================================================--
 local espOn            = false
 local ESP_MAX_DISTANCE = 1200
@@ -211,8 +204,8 @@ local function makeESP(plr)
     highlight.Name = "HykoESPHighlight"
     highlight.Adornee = char
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.FillTransparency = 0.88
-    highlight.OutlineTransparency = 0.08
+    highlight.FillTransparency = 0.92     -- softer fill
+    highlight.OutlineTransparency = 0.15
     highlight.FillColor = Theme.accent
     highlight.OutlineColor = Theme.accent
     highlight.Parent = espFolder
@@ -223,55 +216,90 @@ local function makeESP(plr)
     billboard.AlwaysOnTop = true
     billboard.LightInfluence = 0
     billboard.MaxDistance = ESP_MAX_DISTANCE
-    billboard.Size = UDim2.fromOffset(128, 27)
-    billboard.StudsOffset = Vector3.new(0, 2.7, 0)
+    billboard.Size = UDim2.fromOffset(160, 44)
+    billboard.StudsOffset = Vector3.new(0, 3.1, 0)
     billboard.Parent = espFolder
 
+    -- Card — soft white glass, thin border
     local card = Instance.new("Frame")
     card.Size = UDim2.fromScale(1, 1)
-    card.BackgroundColor3 = Theme.panel
-    card.BackgroundTransparency = 0.18
+    card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    card.BackgroundTransparency = 0.06
     card.BorderSizePixel = 0
     card.Parent = billboard
-    makeCorner(card, 6)
-    local stroke = makeStroke(card, Theme.stroke, 0.30, 1)
+    makeCorner(card, 10)
+    local stroke = makeStroke(card, Color3.fromRGB(225, 228, 235), 0.35, 1)
 
-    local accentDot = Instance.new("Frame")
-    accentDot.Size = UDim2.fromOffset(4, 4)
-    accentDot.Position = UDim2.fromOffset(7, 6)
-    accentDot.BackgroundColor3 = Theme.accent
-    accentDot.BorderSizePixel = 0
-    accentDot.Parent = card
-    makeCorner(accentDot, 3)
+    -- Subtle accent dot (left, small)
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.fromOffset(6, 6)
+    dot.Position = UDim2.fromOffset(12, 11)
+    dot.BackgroundColor3 = Theme.accent
+    dot.BorderSizePixel = 0
+    dot.Parent = card
+    makeCorner(dot, 3)
 
+    -- Display name (regular weight, not bold)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.BackgroundTransparency = 1
-    nameLabel.Position = UDim2.fromOffset(16, 1)
-    nameLabel.Size = UDim2.new(1, -22, 0, 13)
-    nameLabel.Font = Enum.Font.GothamSemibold
-    nameLabel.TextSize = 8
+    nameLabel.Position = UDim2.fromOffset(24, 6)
+    nameLabel.Size = UDim2.new(1, -32, 0, 16)
+    nameLabel.Font = Enum.Font.GothamMedium
+    nameLabel.TextSize = 11
     nameLabel.TextColor3 = Theme.text
     nameLabel.TextXAlignment = Enum.TextXAlignment.Left
     nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
     nameLabel.Text = plr.DisplayName
     nameLabel.Parent = card
 
-    local subLabel = Instance.new("TextLabel")
-    subLabel.BackgroundTransparency = 1
-    subLabel.Position = UDim2.fromOffset(16, 14)
-    subLabel.Size = UDim2.new(1, -22, 0, 10)
-    subLabel.Font = Enum.Font.GothamMedium
-    subLabel.TextSize = 7
-    subLabel.TextColor3 = Theme.sub
-    subLabel.TextXAlignment = Enum.TextXAlignment.Left
-    subLabel.Text = "-- m  •  100%"
-    subLabel.Parent = card
+    -- Distance label (small, gray)
+    local distLabel = Instance.new("TextLabel")
+    distLabel.BackgroundTransparency = 1
+    distLabel.Position = UDim2.fromOffset(24, 25)
+    distLabel.Size = UDim2.fromOffset(42, 12)
+    distLabel.Font = Enum.Font.Gotham
+    distLabel.TextSize = 9
+    distLabel.TextColor3 = Theme.sub
+    distLabel.TextXAlignment = Enum.TextXAlignment.Left
+    distLabel.Text = "-- m"
+    distLabel.Parent = card
+
+    -- Health bar background (thin)
+    local barBg = Instance.new("Frame")
+    barBg.Position = UDim2.new(1, -78, 0, 28)
+    barBg.Size = UDim2.fromOffset(58, 4)
+    barBg.BackgroundColor3 = Color3.fromRGB(232, 235, 240)
+    barBg.BorderSizePixel = 0
+    barBg.Parent = card
+    makeCorner(barBg, 2)
+
+    -- Health bar fill
+    local barFill = Instance.new("Frame")
+    barFill.Position = UDim2.fromOffset(0, 0)
+    barFill.Size = UDim2.fromScale(1, 1)
+    barFill.BackgroundColor3 = Theme.green
+    barFill.BorderSizePixel = 0
+    barFill.Parent = barBg
+    makeCorner(barFill, 2)
+
+    -- Health % label (small, gray)
+    local hpLabel = Instance.new("TextLabel")
+    hpLabel.BackgroundTransparency = 1
+    hpLabel.Position = UDim2.new(1, -78, 0, 12)
+    hpLabel.Size = UDim2.fromOffset(58, 12)
+    hpLabel.Font = Enum.Font.Gotham
+    hpLabel.TextSize = 8
+    hpLabel.TextColor3 = Theme.sub
+    hpLabel.TextXAlignment = Enum.TextXAlignment.Right
+    hpLabel.Text = "100%"
+    hpLabel.Parent = card
 
     espEntries[plr] = {
         player = plr, character = char, root = root, hum = hum,
         highlight = highlight, billboard = billboard, card = card,
-        stroke = stroke, accentDot = accentDot,
-        nameLabel = nameLabel, subLabel = subLabel,
+        stroke = stroke, dot = dot,
+        nameLabel = nameLabel, distLabel = distLabel,
+        barBg = barBg, barFill = barFill, hpLabel = hpLabel,
     }
 end
 
@@ -298,30 +326,31 @@ local function updateESPEntry(e, myRoot)
     end
 
     e.billboard.MaxDistance = ESP_MAX_DISTANCE
+    e.nameLabel.Text = plr.DisplayName
 
     local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
     local visible  = distance <= ESP_MAX_DISTANCE
     e.highlight.Enabled = visible
     e.billboard.Enabled = visible
 
-    e.highlight.FillColor   = Theme.accent
-    e.highlight.OutlineColor = Theme.accent
-    e.stroke.Color           = Theme.stroke
-    e.card.BackgroundColor3  = Theme.panel
-    e.accentDot.BackgroundColor3 = Theme.accent
-    e.nameLabel.TextColor3   = Theme.text
-    e.subLabel.TextColor3    = Theme.sub
-
     local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-    e.subLabel.Text = string.format("%dm  •  %d%%",
-        math.floor(distance + 0.5), math.floor(hp * 100 + 0.5))
+    e.distLabel.Text = string.format("%dm", math.floor(distance + 0.5))
+    e.hpLabel.Text   = string.format("%d%%", math.floor(hp * 100 + 0.5))
+
+    -- Health bar color: green → amber → red
+    local col
+    if hp > 0.6 then col = Theme.green
+    elseif hp > 0.3 then col = Theme.amber
+    else col = Theme.red end
+    e.barFill.BackgroundColor3 = col
+    e.barFill.Size = UDim2.fromScale(hp, 1)
 end
 
 local function bindPlayerESP(plr)
     if plr == LP then return end
     disconnect(espConnections[plr])
     espConnections[plr] = plr.CharacterAdded:Connect(function()
-        task.wait(0.10)
+        task.wait(0.15)
         if espOn then makeESP(plr) end
     end)
     task.defer(function() if espOn then makeESP(plr) end end)
@@ -349,12 +378,22 @@ local function disableESP()
     for plr in pairs(espEntries) do removeESP(plr) end
 end
 
+-- Retry loop — creates missing entries so new players always appear.
 task.spawn(function()
     while true do
         task.wait(ESP_UPDATE_INTERVAL)
         if espOn then
             local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            for _, e in pairs(espEntries) do updateESPEntry(e, myRoot) end
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LP then
+                    local e = espEntries[plr]
+                    if e then
+                        updateESPEntry(e, myRoot)
+                    else
+                        makeESP(plr)
+                    end
+                end
+            end
         end
     end
 end)
@@ -363,7 +402,6 @@ end)
 -- FAST LOOT
 --============================================================--
 local lootOn = false
-local lootConnection
 local promptAddedConnection
 local savedPromptHold = {}
 
@@ -399,64 +437,83 @@ end
 local function disableLoot()
     lootOn = false
     disconnect(promptAddedConnection); promptAddedConnection = nil
-    disconnect(lootConnection); lootConnection = nil
     restorePrompts()
 end
 
 --============================================================--
--- AUTO LOOT (nearest, forces HoldDuration = 0 before firing)
+-- AUTO LOOT  (rebuilt — full prompt cache + robust firing)
 --============================================================--
 local autoLootOn      = false
 local autoLootRadius  = 32
 local autoLootRunning = false
 local autoSavedHold   = {}
 
-local lootRayParams = OverlapParams.new()
-lootRayParams.FilterType = Enum.RaycastFilterType.Exclude
+-- Cache every ProximityPrompt in the world, updated live.
+local promptCache   = {}
+local promptWatchA  = nil
+local promptWatchB  = nil
 
--- Force instant activation on prompts auto loot touches.
--- Prefer Fast Loot's saved table if Fast Loot already owns the prompt.
-local function autoOptimizePrompt(prompt)
-    if not prompt:IsA("ProximityPrompt") then return end
-    if savedPromptHold[prompt] == nil and autoSavedHold[prompt] == nil then
-        autoSavedHold[prompt] = prompt.HoldDuration
-    end
-    pcall(function() prompt.HoldDuration = 0 end)
+local function addPrompt(p)
+    if p:IsA("ProximityPrompt") then promptCache[p] = true end
+end
+local function removePrompt(p)
+    if p:IsA("ProximityPrompt") then promptCache[p] = nil end
 end
 
-local function restoreAutoPrompts()
-    for prompt, old in pairs(autoSavedHold) do
-        if prompt and prompt.Parent and savedPromptHold[prompt] == nil then
-            pcall(function() prompt.HoldDuration = old end)
-        end
+local function buildPromptCache()
+    table.clear(promptCache)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then promptCache[obj] = true end
     end
-    table.clear(autoSavedHold)
+end
+
+local function startPromptWatcher()
+    disconnect(promptWatchA); disconnect(promptWatchB)
+    promptWatchA = workspace.DescendantAdded:Connect(addPrompt)
+    promptWatchB = workspace.DescendantRemoving:Connect(removePrompt)
+end
+local function stopPromptWatcher()
+    disconnect(promptWatchA); promptWatchA = nil
+    disconnect(promptWatchB); promptWatchB = nil
+end
+
+local function getPromptPosition(prompt)
+    local p = prompt.Parent
+    if not p then return nil end
+    if p:IsA("BasePart") then return p.Position end
+    if p:IsA("Attachment") then return p.WorldPosition end
+    return nil
 end
 
 local function findNearestPrompt()
     local c = LP.Character
     local hrp = c and c:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
-    lootRayParams.FilterDescendantsInstances = {c}
-    local parts = workspace:GetPartBoundsInRadius(hrp.Position, autoLootRadius, lootRayParams)
-    local best, bd = nil, math.huge
-    for _, part in ipairs(parts) do
-        for _, d in ipairs(part:GetChildren()) do
-            if d:IsA("ProximityPrompt") and d.Enabled then
-                local dist = (part.Position - hrp.Position).Magnitude
-                if dist <= d.MaxActivationDistance + 4 and dist < bd then
-                    best, bd = d, dist
-                end
-            end
-        end
-        for _, att in ipairs(part:GetChildren()) do
-            if att:IsA("Attachment") then
-                for _, d in ipairs(att:GetChildren()) do
-                    if d:IsA("ProximityPrompt") and d.Enabled then
-                        local dist = (part.Position - hrp.Position).Magnitude
-                        if dist <= d.MaxActivationDistance + 4 and dist < bd then
-                            best, bd = d, dist
-                        end
+
+    local myPos = hrp.Position
+    local best, bestDist = nil, autoLootRadius
+
+    for prompt in pairs(promptCache) do
+        if prompt.Parent and prompt.Enabled then
+            local pos = getPromptPosition(prompt)
+            if pos then
+                local dist = (pos - myPos).Magnitude
+                local maxReach = (prompt.MaxActivationDistance or 10) + 4
+                if dist <= bestDist and dist <= maxReach then
+                    -- Optional LOS check — only skip if enabled AND fails
+                    local hasLOS = true
+                    if prompt.RequiresLineOfSight then
+                        local params = RaycastParams.new()
+                        params.FilterType = Enum.RaycastFilterType.Exclude
+                        params.FilterDescendantsInstances = {c}
+                        params.IgnoreWater = true
+                        local origin = workspace.CurrentCamera
+                            and workspace.CurrentCamera.CFrame.Position or myPos
+                        local r = workspace:Raycast(origin, pos - origin, params)
+                        hasLOS = (r == nil)
+                    end
+                    if hasLOS then
+                        best, bestDist = prompt, dist
                     end
                 end
             end
@@ -465,17 +522,33 @@ local function findNearestPrompt()
     return best
 end
 
+local function firePrompt(prompt)
+    if not prompt or not prompt.Parent or not prompt.Enabled then return end
+
+    -- Force instant activation (Fast Loot trick).
+    if savedPromptHold[prompt] == nil and autoSavedHold[prompt] == nil then
+        autoSavedHold[prompt] = prompt.HoldDuration
+    end
+    pcall(function() prompt.HoldDuration = 0 end)
+
+    -- Method 1: executor helper
+    pcall(function() fireproximityprompt(prompt) end)
+
+    -- Method 2: input simulation (works on most games even without helper)
+    pcall(function()
+        prompt:InputHoldBegin()
+        task.wait(0)
+        prompt:InputHoldEnd()
+    end)
+end
+
 local function autoLootLoop()
     if autoLootRunning then return end
     autoLootRunning = true
     task.spawn(function()
         while autoLootOn do
             local prompt = findNearestPrompt()
-            if prompt then
-                -- Make it instant (Fast Loot trick) then fire.
-                autoOptimizePrompt(prompt)
-                pcall(function() fireproximityprompt(prompt) end)
-            end
+            if prompt then firePrompt(prompt) end
             task.wait(0.08)
         end
         autoLootRunning = false
@@ -485,23 +558,29 @@ end
 local function enableAutoLoot()
     if autoLootOn then return end
     autoLootOn = true
+    buildPromptCache()
+    startPromptWatcher()
     autoLootLoop()
 end
 
 local function disableAutoLoot()
     if not autoLootOn then return end
     autoLootOn = false
+    stopPromptWatcher()
     task.wait(0.15)
-    restoreAutoPrompts()
+    for prompt, old in pairs(autoSavedHold) do
+        if prompt and prompt.Parent and savedPromptHold[prompt] == nil then
+            pcall(function() prompt.HoldDuration = old end)
+        end
+    end
+    table.clear(autoSavedHold)
 end
 
 --============================================================--
--- FPS BOOST (fog removed, stronger)
+-- FPS BOOST  (unchanged from v7)
 --============================================================--
-local boostOn = false
-local boostBusy = false
+local boostOn, boostBusy = false, false
 local boostConnections = {}
-
 local boostSaved = {
     quality = nil, cap = nil, lighting = nil, terrain = nil,
     effects = {}, lights = {}, atmospheres = {}, shadows = {},
@@ -520,79 +599,56 @@ local function isBoostSafe(d)
     end
     return true
 end
-
-local function saveOnce(tbl, obj, value)
-    if tbl[obj] == nil then tbl[obj] = value end
-end
+local function saveOnce(tbl, obj, v) if tbl[obj] == nil then tbl[obj] = v end end
 
 local function optimizeVisual(obj)
     if not boostOn or not isBoostSafe(obj) then return end
-
     if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam")
         or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
         saveOnce(boostSaved.effects, obj, obj.Enabled)
-        pcall(function()
-            obj.Enabled = false
-            if obj:IsA("ParticleEmitter") then obj:Clear() end
-        end)
+        pcall(function() obj.Enabled = false; if obj:IsA("ParticleEmitter") then obj:Clear() end end)
         return
     end
-
     if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
         saveOnce(boostSaved.lights, obj, {Enabled = obj.Enabled, Shadows = obj.Shadows})
         pcall(function() obj.Enabled = false; obj.Shadows = false end)
         return
     end
-
     if obj:IsA("PostEffect") then
         saveOnce(boostSaved.effects, obj, obj.Enabled)
-        pcall(function() obj.Enabled = false end)
-        return
+        pcall(function() obj.Enabled = false end); return
     end
-
     if obj:IsA("Atmosphere") then
-        saveOnce(boostSaved.atmospheres, obj,
-            {Density = obj.Density, Haze = obj.Haze, Glare = obj.Glare})
-        pcall(function() obj.Density = 0; obj.Haze = 0; obj.Glare = 0 end)
-        return
+        saveOnce(boostSaved.atmospheres, obj, {Density = obj.Density, Haze = obj.Haze, Glare = obj.Glare})
+        pcall(function() obj.Density = 0; obj.Haze = 0; obj.Glare = 0 end); return
     end
-
     if obj:IsA("Clouds") then
         saveOnce(boostSaved.clouds, obj, {Cover = obj.Cover, Density = obj.Density})
-        pcall(function() obj.Cover = 0; obj.Density = 0 end)
-        return
+        pcall(function() obj.Cover = 0; obj.Density = 0 end); return
     end
-
     if obj:IsA("Decal") or obj:IsA("Texture") then
         saveOnce(boostSaved.decals, obj, obj.Transparency)
-        pcall(function() obj.Transparency = 1 end)
-        return
+        pcall(function() obj.Transparency = 1 end); return
     end
-
     if obj:IsA("BasePart") then
         saveOnce(boostSaved.shadows, obj, obj.CastShadow)
         pcall(function() obj.CastShadow = false end)
-
         if obj.Reflectance > 0 then
             saveOnce(boostSaved.reflect, obj, obj.Reflectance)
             pcall(function() obj.Reflectance = 0 end)
         end
-
         if obj:IsA("MeshPart") then
             saveOnce(boostSaved.fidelity, obj, obj.RenderFidelity)
             pcall(function() obj.RenderFidelity = Enum.RenderFidelity.Performance end)
         end
-        return
     end
 end
 
 local function optimizeLighting()
     if not boostSaved.lighting then
         boostSaved.lighting = {
-            GlobalShadows = Lighting.GlobalShadows,
-            Brightness = Lighting.Brightness,
-            EnvD = Lighting.EnvironmentDiffuseScale,
-            EnvS = Lighting.EnvironmentSpecularScale,
+            GlobalShadows = Lighting.GlobalShadows, Brightness = Lighting.Brightness,
+            EnvD = Lighting.EnvironmentDiffuseScale, EnvS = Lighting.EnvironmentSpecularScale,
             Exposure = Lighting.ExposureCompensation,
         }
     end
@@ -603,11 +659,9 @@ local function optimizeLighting()
         Lighting.EnvironmentSpecularScale = 0
         Lighting.ExposureCompensation = -0.5
     end)
-
     for _, o in ipairs(Lighting:GetDescendants()) do
         if o:IsA("Atmosphere") then
-            saveOnce(boostSaved.atmospheres, o,
-                {Density = o.Density, Haze = o.Haze, Glare = o.Glare})
+            saveOnce(boostSaved.atmospheres, o, {Density = o.Density, Haze = o.Haze, Glare = o.Glare})
             pcall(function() o.Density = 0; o.Haze = 0; o.Glare = 0 end)
         elseif o:IsA("PostEffect") then
             saveOnce(boostSaved.effects, o, o.Enabled)
@@ -615,13 +669,11 @@ local function optimizeLighting()
         elseif o:IsA("Clouds") then
             saveOnce(boostSaved.clouds, o, {Cover = o.Cover, Density = o.Density})
             pcall(function() o.Cover = 0; o.Density = 0 end)
-        elseif o:IsA("Sky") then
-            if not boostSaved.sky then
-                boostSaved.sky = o
-                for _, ch in ipairs(o:GetChildren()) do
-                    boostSaved.skyChildren[ch] = true
-                    pcall(function() ch.Parent = nil end)
-                end
+        elseif o:IsA("Sky") and not boostSaved.sky then
+            boostSaved.sky = o
+            for _, ch in ipairs(o:GetChildren()) do
+                boostSaved.skyChildren[ch] = true
+                pcall(function() ch.Parent = nil end)
             end
         end
     end
@@ -639,7 +691,6 @@ local function restoreLighting()
         end)
     end
     boostSaved.lighting = nil
-
     if boostSaved.sky and boostSaved.sky.Parent then
         for ch in pairs(boostSaved.skyChildren) do
             if ch and ch.Parent == nil then
@@ -647,8 +698,7 @@ local function restoreLighting()
             end
         end
     end
-    boostSaved.sky = nil
-    boostSaved.skyChildren = {}
+    boostSaved.sky = nil; boostSaved.skyChildren = {}
 end
 
 local function optimizeTerrain()
@@ -699,8 +749,7 @@ local function setQuality(low)
             if boostSaved.cap == nil then boostSaved.cap = r.FramerateCap end
             r.FramerateCap = 240
         elseif boostSaved.cap then
-            r.FramerateCap = boostSaved.cap
-            boostSaved.cap = nil
+            r.FramerateCap = boostSaved.cap; boostSaved.cap = nil
         end
     end)
 end
@@ -711,9 +760,7 @@ local function scanExisting()
     local batch = 350
     for i = 1, #list, batch do
         if not boostOn then break end
-        for j = i, math.min(i + batch - 1, #list) do
-            optimizeVisual(list[j])
-        end
+        for j = i, math.min(i + batch - 1, #list) do optimizeVisual(list[j]) end
         RunService.Heartbeat:Wait()
     end
     boostBusy = false
@@ -722,47 +769,27 @@ end
 local function enableBoost()
     if boostOn then return end
     boostOn = true
-    setQuality(true)
-    optimizeLighting()
-    optimizeTerrain()
+    setQuality(true); optimizeLighting(); optimizeTerrain()
     disconnect(boostConnections.added)
     boostConnections.added = workspace.DescendantAdded:Connect(function(o)
-        if boostOn then
-            task.defer(function() if boostOn then optimizeVisual(o) end end)
-        end
+        if boostOn then task.defer(function() if boostOn then optimizeVisual(o) end end) end
     end)
     task.spawn(scanExisting)
 end
 
 local function restoreBoost()
-    for o, v in pairs(boostSaved.effects) do
-        if o and o.Parent then pcall(function() o.Enabled = v end) end
-    end
-    for o, v in pairs(boostSaved.lights) do
-        if o and o.Parent then pcall(function() o.Enabled = v.Enabled; o.Shadows = v.Shadows end) end
-    end
-    for o, v in pairs(boostSaved.atmospheres) do
-        if o and o.Parent then pcall(function() o.Density = v.Density; o.Haze = v.Haze; o.Glare = v.Glare end) end
-    end
-    for o, v in pairs(boostSaved.clouds) do
-        if o and o.Parent then pcall(function() o.Cover = v.Cover; o.Density = v.Density end) end
-    end
-    for o, v in pairs(boostSaved.shadows) do
-        if o and o.Parent then pcall(function() o.CastShadow = v end) end
-    end
-    for o, v in pairs(boostSaved.reflect) do
-        if o and o.Parent then pcall(function() o.Reflectance = v end) end
-    end
-    for o, v in pairs(boostSaved.decals) do
-        if o and o.Parent then pcall(function() o.Transparency = v end) end
-    end
-    for o, v in pairs(boostSaved.fidelity) do
-        if o and o.Parent then pcall(function() o.RenderFidelity = v end) end
-    end
-    boostSaved.effects = {}; boostSaved.lights = {}
-    boostSaved.atmospheres = {}; boostSaved.clouds = {}
-    boostSaved.shadows = {}; boostSaved.reflect = {}
-    boostSaved.decals = {}; boostSaved.fidelity = {}
+    for o, v in pairs(boostSaved.effects) do if o and o.Parent then pcall(function() o.Enabled = v end) end end
+    for o, v in pairs(boostSaved.lights) do if o and o.Parent then pcall(function() o.Enabled = v.Enabled; o.Shadows = v.Shadows end) end end
+    for o, v in pairs(boostSaved.atmospheres) do if o and o.Parent then pcall(function() o.Density = v.Density; o.Haze = v.Haze; o.Glare = v.Glare end) end end
+    for o, v in pairs(boostSaved.clouds) do if o and o.Parent then pcall(function() o.Cover = v.Cover; o.Density = v.Density end) end end
+    for o, v in pairs(boostSaved.shadows) do if o and o.Parent then pcall(function() o.CastShadow = v end) end end
+    for o, v in pairs(boostSaved.reflect) do if o and o.Parent then pcall(function() o.Reflectance = v end) end end
+    for o, v in pairs(boostSaved.decals) do if o and o.Parent then pcall(function() o.Transparency = v end) end end
+    for o, v in pairs(boostSaved.fidelity) do if o and o.Parent then pcall(function() o.RenderFidelity = v end) end end
+    table.clear(boostSaved.effects); table.clear(boostSaved.lights)
+    table.clear(boostSaved.atmospheres); table.clear(boostSaved.clouds)
+    table.clear(boostSaved.shadows); table.clear(boostSaved.reflect)
+    table.clear(boostSaved.decals); table.clear(boostSaved.fidelity)
     restoreLighting(); restoreTerrain()
 end
 
@@ -771,16 +798,14 @@ local function disableBoost()
     boostOn = false
     disconnect(boostConnections.added); boostConnections.added = nil
     boostBusy = false
-    restoreBoost()
-    setQuality(false)
+    restoreBoost(); setQuality(false)
 end
 
 --============================================================--
--- ANTI-RAGDOLL
+-- ANTI-RAGDOLL (v10 FINAL logic, adjustable speed)
 --============================================================--
 local antiOn    = false
 local antiSpeed = 60
-
 local antiConn, antiPost, antiAdded, antiJumpConn, antiStateConn
 local realHum, fakeHum
 local moveAtt, moveVel, faceAtt, faceAlign
@@ -830,11 +855,7 @@ local function buildFakeHum()
     return h
 end
 
-local function snapPart(p)
-    if bodySnap[p] then return end
-    bodySnap[p] = { cc = p.CanCollide, m = p.Massless }
-end
-
+local function snapPart(p) if not bodySnap[p] then bodySnap[p] = {cc = p.CanCollide, m = p.Massless} end end
 local function neutralizeBodyPart(p)
     snapPart(p)
     pcall(function()
@@ -844,19 +865,15 @@ local function neutralizeBodyPart(p)
         p.AssemblyAngularVelocity = Vector3.zero
     end)
 end
-
 local function buildBodyCache(char, root)
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") and p ~= root then neutralizeBodyPart(p) end
     end
 end
-
 local function restoreAnti(char)
     if not char then return end
     for p, s in pairs(bodySnap) do
-        if p and p.Parent then
-            pcall(function() p.CanCollide = s.cc; p.Massless = s.m end)
-        end
+        if p and p.Parent then pcall(function() p.CanCollide = s.cc; p.Massless = s.m end) end
     end
     bodySnap = {}
     for _, p in ipairs(char:GetDescendants()) do
@@ -874,10 +891,7 @@ local function makeConstraints(root)
     if moveVel then pcall(function() moveVel:Destroy() end) end
     if faceAtt then pcall(function() faceAtt:Destroy() end) end
     if faceAlign then pcall(function() faceAlign:Destroy() end) end
-
-    local mAtt = Instance.new("Attachment")
-    mAtt.Name = "HykoMoveAtt"; mAtt.Parent = root; moveAtt = mAtt
-
+    local mAtt = Instance.new("Attachment"); mAtt.Name = "HykoMoveAtt"; mAtt.Parent = root; moveAtt = mAtt
     local lv = Instance.new("LinearVelocity")
     lv.Name = "HykoMoveVel"; lv.Attachment0 = mAtt
     lv.RelativeTo = Enum.ActuatorRelativeTo.World
@@ -886,10 +900,7 @@ local function makeConstraints(root)
     lv.MaxAxesForce = Vector3.new(1e6, 0, 1e6)
     pcall(function() lv.ForceLimitsEnabled = true end)
     lv.Parent = root; moveVel = lv
-
-    local fAtt = Instance.new("Attachment")
-    fAtt.Name = "HykoFaceAtt"; fAtt.Parent = root; faceAtt = fAtt
-
+    local fAtt = Instance.new("Attachment"); fAtt.Name = "HykoFaceAtt"; fAtt.Parent = root; faceAtt = fAtt
     local ao = Instance.new("AlignOrientation")
     ao.Name = "HykoFaceAlign"; ao.Attachment0 = fAtt
     ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
@@ -897,7 +908,6 @@ local function makeConstraints(root)
     ao.MaxTorque = 1e7; ao.Responsiveness = 100
     ao.Parent = root; faceAlign = ao
 end
-
 local function killConstraints()
     if moveAtt then pcall(function() moveAtt:Destroy() end) end
     if moveVel then pcall(function() moveVel:Destroy() end) end
@@ -905,7 +915,6 @@ local function killConstraints()
     if faceAlign then pcall(function() faceAlign:Destroy() end) end
     moveAtt, moveVel, faceAtt, faceAlign = nil, nil, nil, nil
 end
-
 local function resetState()
     if not fakeHum or not fakeHum.Parent then return end
     pcall(function()
@@ -917,7 +926,6 @@ local function resetState()
         end
     end)
 end
-
 local function forceUpright(root, cam)
     if root.CFrame.UpVector.Y < UPRIGHT_THRESHOLD then
         local look = cam.CFrame.LookVector
@@ -934,13 +942,10 @@ pcall(function()
     local PM = require(LP.PlayerScripts:WaitForChild("PlayerModule", 5))
     Controls = PM:GetControls()
 end)
-
 local function readMove()
     if Controls then
         local ok, v = pcall(function() return Controls:GetMoveVector() end)
-        if ok and v and v.Magnitude > 0.05 then
-            return Vector3.new(v.X, 0, v.Z)
-        end
+        if ok and v and v.Magnitude > 0.05 then return Vector3.new(v.X, 0, v.Z) end
     end
     local d = Vector3.zero
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0,0,-1) end
@@ -954,26 +959,19 @@ local function heartbeat(dt)
     local ch = LP.Character; if not ch then return end
     local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
     local cam = workspace.CurrentCamera; if not cam then return end
-
     if not fakeHum or fakeHum.Parent ~= ch then
         fakeHum = buildFakeHum(); fakeHum.Parent = ch
     end
-    if realHum and realHum.Parent == ch then
-        pcall(function() realHum.Parent = nil end)
-    end
-
+    if realHum and realHum.Parent == ch then pcall(function() realHum.Parent = nil end) end
     if not moveVel or not moveVel.Parent or not faceAlign or not faceAlign.Parent then
         makeConstraints(root)
     end
-
     forceUpright(root, cam)
-
     local look = cam.CFrame.LookVector
     local flat = Vector3.new(look.X, 0, look.Z)
     if flat.Magnitude > 0.01 then
         faceAlign.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
     end
-
     local mv = readMove()
     local target = Vector3.zero
     if mv.Magnitude > 0.05 then
@@ -982,12 +980,10 @@ local function heartbeat(dt)
         if wd.Magnitude > 0.01 then target = wd.Unit * antiSpeed end
     end
     moveVel.VectorVelocity = target
-
     local vel = root.AssemblyLinearVelocity
     if vel.Y > KILL_UP then
         root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
     end
-
     housekeeping = housekeeping + dt
     if housekeeping >= 0.1 then
         housekeeping = 0
@@ -1014,8 +1010,7 @@ local function postSim()
             local vel = root.AssemblyLinearVelocity
             root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
             if root.Position.Y > gy + ABOVE_GROUND + 20 then
-                root.CFrame = CFrame.new(root.Position.X, gy, root.Position.Z)
-                    * (root.CFrame - root.Position)
+                root.CFrame = CFrame.new(root.Position.X, gy, root.Position.Z) * (root.CFrame - root.Position)
             end
         end
     elseif lastSafeY and root.Position.Y > lastSafeY + 30 then
@@ -1041,11 +1036,9 @@ local function startAnti()
     local hrp = c:FindFirstChild("HumanoidRootPart")
     local hum = c:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum then return end
-
     realHum = hum
     pcall(function() realHum.Parent = nil end)
     fakeHum = buildFakeHum(); fakeHum.Parent = c
-
     antiStateConn = fakeHum.StateChanged:Connect(function(_, newState)
         if not antiOn then return end
         if BAD_STATES[newState] then
@@ -1056,28 +1049,20 @@ local function startAnti()
             end)
         end
     end)
-
     pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
     pcall(function() hrp:SetNetworkOwner(LP) end)
-
     lastSafeY = hrp.Position.Y; housekeeping = 0
     bodySnap = {}
     buildBodyCache(c, hrp)
     makeConstraints(hrp)
-
     antiAdded = c.DescendantAdded:Connect(function(d)
         if not antiOn then return end
         if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
-            task.defer(function()
-                if antiOn and d.Parent then neutralizeBodyPart(d) end
-            end)
+            task.defer(function() if antiOn and d.Parent then neutralizeBodyPart(d) end end)
         elseif isMover(d) and d ~= moveVel and d ~= faceAlign then
-            task.defer(function()
-                if antiOn then pcall(function() d:Destroy() end) end
-            end)
+            task.defer(function() if antiOn then pcall(function() d:Destroy() end) end end)
         end
     end)
-
     antiConn = RunService.Heartbeat:Connect(heartbeat)
     antiPost = RunService.PostSimulation:Connect(postSim)
     antiJumpConn = UserInputService.InputBegan:Connect(function(input, gpe)
@@ -1093,7 +1078,6 @@ local function stopAnti()
     if antiJumpConn then antiJumpConn:Disconnect() antiJumpConn = nil end
     if antiStateConn then antiStateConn:Disconnect() antiStateConn = nil end
     killConstraints()
-
     local c = LP.Character
     if c then
         local hrp = c:FindFirstChild("HumanoidRootPart")
@@ -1102,9 +1086,7 @@ local function stopAnti()
             hrp.AssemblyAngularVelocity = Vector3.zero
         end
         restoreAnti(c)
-        if fakeHum and fakeHum.Parent then
-            pcall(function() fakeHum:Destroy() end)
-        end
+        if fakeHum and fakeHum.Parent then pcall(function() fakeHum:Destroy() end) end
         fakeHum = nil
         if realHum and realHum.Parent == nil then
             pcall(function()
@@ -1119,13 +1101,87 @@ local function stopAnti()
 end
 
 --============================================================--
+-- FPS WIDGET  (elegant floating pill, toggled from Visuals tab)
+--============================================================--
+local fpsWidgetOn = false
+local fpsGui = Instance.new("ScreenGui")
+fpsGui.Name = "HykoFPS"
+fpsGui.ResetOnSpawn = false
+fpsGui.IgnoreGuiInset = true
+fpsGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+fpsGui.DisplayOrder = 200
+fpsGui.Parent = LP:WaitForChild("PlayerGui")
+
+local fpsPill = Instance.new("Frame")
+fpsPill.Name = "FPSPill"
+fpsPill.AnchorPoint = Vector2.new(0, 0)
+fpsPill.Position = UDim2.new(0, 18, 0, 18)
+fpsPill.Size = UDim2.fromOffset(84, 52)
+fpsPill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+fpsPill.BackgroundTransparency = 0.08
+fpsPill.BorderSizePixel = 0
+fpsPill.Visible = false
+fpsPill.Parent = fpsGui
+makeCorner(fpsPill, 14)
+local fpsStroke = makeStroke(fpsPill, Color3.fromRGB(230, 233, 238), 0.3, 1)
+
+-- Soft top gradient for a glassy look
+local fpsGrad = Instance.new("UIGradient")
+fpsGrad.Rotation = 90
+fpsGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(247, 249, 252)),
+})
+fpsGrad.Parent = fpsPill
+
+local fpsNum = Instance.new("TextLabel")
+fpsNum.BackgroundTransparency = 1
+fpsNum.Position = UDim2.fromOffset(0, 8)
+fpsNum.Size = UDim2.new(1, 0, 0, 22)
+fpsNum.Font = Enum.Font.GothamSemibold
+fpsNum.TextSize = 18
+fpsNum.TextColor3 = Theme.accent
+fpsNum.Text = "--"
+fpsNum.Parent = fpsPill
+
+local fpsTag = Instance.new("TextLabel")
+fpsTag.BackgroundTransparency = 1
+fpsTag.Position = UDim2.fromOffset(0, 32)
+fpsTag.Size = UDim2.new(1, 0, 0, 12)
+fpsTag.Font = Enum.Font.Gotham
+fpsTag.TextSize = 9
+fpsTag.TextColor3 = Theme.sub
+fpsTag.Text = "FPS"
+fpsTag.Parent = fpsPill
+
+task.spawn(function()
+    local frames, last = 0, os.clock()
+    RunService.RenderStepped:Connect(function()
+        if not fpsWidgetOn then
+            frames = 0; last = os.clock(); return
+        end
+        frames = frames + 1
+        local now = os.clock()
+        local el = now - last
+        if el >= 0.7 then
+            local v = math.floor(frames / el + 0.5)
+            fpsNum.Text = tostring(v)
+            if v >= 50 then fpsNum.TextColor3 = Theme.green
+            elseif v >= 30 then fpsNum.TextColor3 = Theme.amber
+            else fpsNum.TextColor3 = Theme.red end
+            frames, last = 0, now
+        end
+    end)
+end)
+
+--============================================================--
 -- UI WIRING
 --============================================================--
 Window:AddSection({ Name = "Player Visuals", Tab = Visuals })
 
 Window:AddParagraph({
     Title       = "Player ESP",
-    Description = "Unified outline, chams and compact nametags.\nClient-side only, restored on disable.",
+    Description = "Elegant outline + soft chams + refined nametag with health bar.",
     Tab         = Visuals,
 })
 
@@ -1134,11 +1190,8 @@ Window:AddToggle({
     Description = "Outline + Chams + Nametag for every player",
     Tab = Visuals, Default = false,
     Callback = function(state)
-        if state then
-            enableESP(); notify("Hyko • ESP", "Player ESP enabled", 3)
-        else
-            disableESP(); notify("Hyko • ESP", "Player ESP disabled", 3)
-        end
+        if state then enableESP(); notify("Hyko • ESP", "Player ESP enabled", 3)
+        else disableESP(); notify("Hyko • ESP", "Player ESP disabled", 3) end
     end,
 })
 
@@ -1157,6 +1210,48 @@ Window:AddSlider({
     end,
 })
 
+Window:AddParagraph({
+    Title       = "FPS Widget",
+    Description = "Elegant floating FPS counter — soft glass, color-coded by performance.",
+    Tab         = Visuals,
+})
+
+Window:AddToggle({
+    Title = "Show FPS Counter",
+    Description = "Display a floating FPS pill at the top-left of the screen",
+    Tab = Visuals, Default = false,
+    Callback = function(state)
+        fpsWidgetOn = state
+        fpsPill.Visible = state
+        notify("Hyko • FPS Widget", state and "FPS counter shown" or "FPS counter hidden", 3)
+    end,
+})
+
+-- Drag the FPS pill around
+do
+    local dragging, dragStart, startPos
+    fpsPill.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; dragStart = input.Position; startPos = fpsPill.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            local d = input.Position - dragStart
+            fpsPill.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+end
+
 Window:AddSection({ Name = "Protection", Tab = Utility })
 
 Window:AddParagraph({
@@ -1174,8 +1269,7 @@ Window:AddToggle({
             startAnti()
             notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll enabled (speed " .. tostring(antiSpeed) .. ")", 3)
         else
-            stopAnti()
-            notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll disabled", 3)
+            stopAnti(); notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll disabled", 3)
         end
     end,
 })
@@ -1201,17 +1295,14 @@ Window:AddToggle({
     Description = "Instant ProximityPrompt interaction",
     Tab = Utility, Default = false,
     Callback = function(state)
-        if state then
-            enableLoot(); notify("Hyko • Fast Loot", "Fast Loot enabled", 3)
-        else
-            disableLoot(); notify("Hyko • Fast Loot", "Fast Loot disabled", 3)
-        end
+        if state then enableLoot(); notify("Hyko • Fast Loot", "Fast Loot enabled", 3)
+        else disableLoot(); notify("Hyko • Fast Loot", "Fast Loot disabled", 3) end
     end,
 })
 
 Window:AddParagraph({
     Title       = "Auto Loot",
-    Description = "Automatically forces HoldDuration = 0 on the nearest prompt\nin range and fires it.",
+    Description = "Continuously fires the nearest enabled prompt in range.\nUses full prompt cache — works even in games with hold prompts.",
     Tab         = Utility,
 })
 
@@ -1224,8 +1315,7 @@ Window:AddToggle({
             enableAutoLoot()
             notify("Hyko • Auto Loot", "Auto Loot enabled (radius " .. tostring(autoLootRadius) .. ")", 3)
         else
-            disableAutoLoot()
-            notify("Hyko • Auto Loot", "Auto Loot disabled", 3)
+            disableAutoLoot(); notify("Hyko • Auto Loot", "Auto Loot disabled", 3)
         end
     end,
 })
@@ -1238,30 +1328,23 @@ Window:AddSlider({
     Callback = function(v) autoLootRadius = v end,
 })
 
---// SETTINGS TAB
 Window:AddSection({ Name = "Performance", Tab = Settings })
-
 Window:AddParagraph({
     Title       = "FPS Boost",
-    Description = "Aggressive client optimization: quality drop, shadows off,\nFX stripped, Decals/Textures hidden, MeshParts Performance,\nSky children removed, Clouds off, water flattened.",
+    Description = "Aggressive client optimization: quality drop, shadows off, FX stripped,\nDecals hidden, MeshParts Performance, Sky children removed, Clouds off.",
     Tab         = Settings,
 })
-
 Window:AddToggle({
     Title = "Enable FPS Boost",
-    Description = "Client-side graphics optimization (stronger)",
+    Description = "Client-side graphics optimization (strong)",
     Tab = Settings, Default = false,
     Callback = function(state)
-        if state then
-            enableBoost(); notify("Hyko • FPS Boost", "FPS Boost enabled (strong)", 3)
-        else
-            disableBoost(); notify("Hyko • FPS Boost", "FPS Boost disabled — restored", 3)
-        end
+        if state then enableBoost(); notify("Hyko • FPS Boost", "FPS Boost enabled", 3)
+        else disableBoost(); notify("Hyko • FPS Boost", "FPS Boost disabled — restored", 3) end
     end,
 })
 
 Window:AddSection({ Name = "Interface", Tab = Settings })
-
 Window:AddKeybind({
     Title = "Minimize Keybind",
     Description = "Set the keybind for minimizing the UI",
@@ -1271,22 +1354,15 @@ Window:AddKeybind({
         notify("Hyko • Settings", "Minimize keybind set to " .. tostring(Key), 3)
     end,
 })
-
 Window:AddDropdown({
-    Title = "Set Theme",
+    Title = "Set Theme", Tab = Settings,
     Description = "Set the theme of the library",
-    Tab = Settings,
-    Options = {
-        ["Light Mode"] = "Light",
-        ["Dark Mode"]  = "Dark",
-        ["Extra Dark"] = "Void",
-    },
+    Options = { ["Light Mode"] = "Light", ["Dark Mode"] = "Dark", ["Extra Dark"] = "Void" },
     Callback = function(theme)
         Window:SetTheme(Themes[theme])
         notify("Hyko • Theme", "Theme switched to " .. theme, 3)
     end,
 })
-
 Window:AddToggle({
     Title = "UI Blur",
     Description = "Requires Roblox graphics quality 8 or higher",
@@ -1296,19 +1372,15 @@ Window:AddToggle({
         notify("Hyko • Blur", Boolean and "UI blur enabled" or "UI blur disabled", 3)
     end,
 })
-
 Window:AddSlider({
-    Title = "UI Transparency",
+    Title = "UI Transparency", Tab = Settings,
     Description = "Set the transparency of the UI",
-    Tab = Settings, AllowDecimals = true, MaxValue = 1,
-    Callback = function(Amount)
-        Window:SetSetting("Transparency", Amount)
-    end,
+    AllowDecimals = true, MaxValue = 1,
+    Callback = function(Amount) Window:SetSetting("Transparency", Amount) end,
 })
 
 --============================================================--
--- GLASS "SHOW / HIDE UI" TOGGLE (TOP-RIGHT)
---   Reverted: hides the entire lates-lib ScreenGui (notifications too).
+-- SHOW / HIDE UI  — redesigned to match lates-lib light theme
 --============================================================--
 do
     local pg = LP:WaitForChild("PlayerGui")
@@ -1325,9 +1397,9 @@ do
     btn.Name = "HykoShowUI"
     btn.AnchorPoint = Vector2.new(1, 0)
     btn.Position = UDim2.new(1, -18, 0, 18)
-    btn.Size = UDim2.fromOffset(120, 40)
+    btn.Size = UDim2.fromOffset(122, 40)
     btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    btn.BackgroundTransparency = 0.35
+    btn.BackgroundTransparency = 0.05
     btn.BorderSizePixel = 0
     btn.Text = ""
     btn.AutoButtonColor = false
@@ -1335,36 +1407,36 @@ do
     btn.Parent = gui
     makeCorner(btn, 12)
 
-    local stroke = makeStroke(btn, Color3.fromRGB(255, 255, 255), 0.15, 1)
+    local stroke = makeStroke(btn, Color3.fromRGB(228, 231, 237), 0.25, 1)
 
+    -- Gentle top-to-bottom light gradient (glass, not heavy)
     local grad = Instance.new("UIGradient")
     grad.Rotation = 90
-    grad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.05),
-        NumberSequenceKeypoint.new(1, 0.55),
-    })
     grad.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(235, 240, 250)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(244, 246, 250)),
     })
     grad.Parent = btn
 
-    local dot = Instance.new("Frame")
-    dot.Name = "Dot"
-    dot.Size = UDim2.fromOffset(8, 8)
-    dot.Position = UDim2.fromOffset(14, 16)
-    dot.BackgroundColor3 = Color3.fromRGB(10, 132, 255)
-    dot.BorderSizePixel = 0
-    dot.Parent = btn
-    makeCorner(dot, 4)
+    -- Eye icon (from lates-lib style sheet)
+    local ICON_EYE  = "rbxassetid://10734899531"
+    local ICON_HIDE = "rbxassetid://10734898481"
+
+    local icon = Instance.new("ImageLabel")
+    icon.BackgroundTransparency = 1
+    icon.Position = UDim2.fromOffset(14, 12)
+    icon.Size = UDim2.fromOffset(16, 16)
+    icon.Image = ICON_EYE
+    icon.ImageColor3 = Color3.fromRGB(28, 32, 40)
+    icon.Parent = btn
 
     local label = Instance.new("TextLabel")
     label.BackgroundTransparency = 1
-    label.Position = UDim2.fromOffset(30, 0)
-    label.Size = UDim2.new(1, -38, 1, 0)
-    label.Font = Enum.Font.GothamSemibold
+    label.Position = UDim2.fromOffset(38, 0)
+    label.Size = UDim2.new(1, -46, 1, 0)
+    label.Font = Enum.Font.GothamMedium
     label.TextSize = 12
-    label.TextColor3 = Color3.fromRGB(17, 19, 24)
+    label.TextColor3 = Color3.fromRGB(28, 32, 40)
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.Text = "Hide UI"
@@ -1375,51 +1447,50 @@ do
     local function setVisible(v)
         uiVisible = v
         label.Text = v and "Hide UI" or "Show UI"
-        dot.BackgroundColor3 = v and Color3.fromRGB(10, 132, 255)
-                                 or Color3.fromRGB(160, 165, 175)
+        icon.Image = v and ICON_EYE or ICON_HIDE
         if libGui and libGui.Parent then
             libGui.Enabled = v
         end
     end
 
     btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.18}):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.15), {Transparency = 0}):Play()
+        TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {
+            BackgroundTransparency = 0,
+        }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.18), {Transparency = 0.05}):Play()
     end)
     btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.35}):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.15), {Transparency = 0.15}):Play()
+        TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {
+            BackgroundTransparency = 0.05,
+        }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.18), {Transparency = 0.25}):Play()
     end)
 
     btn.Activated:Connect(function()
         setVisible(not uiVisible)
     end)
 
+    -- Drag
     local dragging, dragStart, startPos
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = btn.Position
+            dragging = true; dragStart = input.Position; startPos = btn.Position
         end
     end)
     UserInputService.InputChanged:Connect(function(input)
         if not dragging then return end
         if input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch then
-            local delta = input.Position - dragStart
+            local d = input.Position - dragStart
             btn.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y)
         end
     end)
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
+        or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
     end)
 end
 
