@@ -1,5 +1,5 @@
 --[[
-    HYKO • Full Suite v15.5
+    HYKO • Full Suite v15.7 - Dump-Based EscapedExperiment Hunt
     REWORKED: Auto Farm giữ Humanoid + Velocity + Farm quái sự kiện rơi đồ
     + Icon tab đẹp hơn (Lucide mới)
     Giữ nguyên: ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
@@ -114,26 +114,26 @@ Window:AddTabSection({ Name = "Main",     Order = 1 })
 Window:AddTabSection({ Name = "Network",  Order = 2 })
 Window:AddTabSection({ Name = "Settings", Order = 3 })
 
--- ICON MỚI ĐẸP HƠN
+-- PREMIUM ENGLISH TABS - REFINED
 local Visuals = Window:AddTab({
-    Title = "Visuals", Section = "Main",
-    Icon = "rbxassetid://10734934548", -- eye
+    Title = "Perception", Section = "Main",
+    Icon = "rbxassetid://10734934548", -- eye - elegant
 })
 local Utility = Window:AddTab({
-    Title = "Utility", Section = "Main",
-    Icon = "rbxassetid://10734909571", -- wrench
+    Title = "Safeguard", Section = "Main",
+    Icon = "rbxassetid://10734944273", -- shield-check - premium protection
 })
 local Farm = Window:AddTab({
-    Title = "Auto Farm", Section = "Main",
-    Icon = "rbxassetid://10734905548", -- swords
+    Title = "Hunt", Section = "Main",
+    Icon = "rbxassetid://10734906212", -- crosshair / target - precise hunt
 })
 local ServerHop = Window:AddTab({
-    Title = "Server Hop", Section = "Network",
+    Title = "Network", Section = "Network",
     Icon = "rbxassetid://10734898355", -- server
 })
 local Settings = Window:AddTab({
-    Title = "Settings", Section = "Settings",
-    Icon = "rbxassetid://10734950309", -- settings-2
+    Title = "System", Section = "Settings",
+    Icon = "rbxassetid://10734950309", -- settings
 })
 
 --============================================================--
@@ -166,6 +166,8 @@ end
 local ICON_FALLBACKS = {
     ["10734934548"] = "6031075938",
     ["10734909571"] = "6031091004",
+    ["10734944273"] = "6031076519",
+    ["10734906212"] = "6031090997",
     ["10734905548"] = "6031090998",
     ["10734898355"] = "6031265973",
     ["10734950309"] = "6031280882",
@@ -822,19 +824,24 @@ local function stopGodMode()
 end
 
 --============================================================--
--- AUTO FARM v15.5 REWORKED: KEEP HUMANOID + VELOCITY
+-- AUTO FARM v15.6 - MEGA v6 FLIGHT LOGIC + DIRECT MODEL HIT
+-- Features: Keep Humanoid REMOVED for speed bypass like MEGA v6, Y-lock, direct hit
 --============================================================--
 local farmOn        = false
-local farmSpeed     = 500
+local farmSpeed     = 800 -- default like MEGA v6 MAX
 local farmRadius    = 3000
 local farmAttack    = true
 local farmAutoEquip = true
 local farmConn      = nil
 local farmFlightAtt, farmFlightVel = nil, nil
+local farmSavedHum  = nil
+local farmSavedCollide = {}
+local farmRayParams = nil
 local currentFarmTarget   = nil
 local farmRetargetCd      = 0
-local FARM_RETARGET_DELAY = 1.5
-local FARM_HOVER_HEIGHT   = 4
+local FARM_RETARGET_DELAY = 1.2
+local FARM_ATTACK_DIST    = 6.5
+local FARM_HOVER_HEIGHT   = 1.5 -- lower to hit model directly
 
 local FARM_PRIORITY_WEAPONS = {
     "Prehistoric Bat", "Abyss Ocean Bat", "Volcano Bat",
@@ -852,22 +859,44 @@ local function isInsideGuardArea(m)
     return false
 end
 
+-- DUMP-BASED hostile detection: EscapedExperiment is primary target
+local EVENT_MONSTER_NAMES = {
+    ["EscapedExperiment"] = true,
+    ["LimitedTimeExperimentPet"] = false, -- pet, not hostile but can be included if needed
+}
+
 local function isHostileModel(m)
     if not m or not m.Parent then return false end
     if not m:IsA("Model") then return false end
     if Players:GetPlayerFromCharacter(m) then return false end
     if m.Name == "Brock" then return false end
+    if m.Name:lower():find("guard") then return false end
     if isInsideGuardArea(m) then return false end
-    local root = m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("Root") or m:FindFirstChild("Head") or m.PrimaryPart
+    -- Direct event name match - always hostile (from dump)
+    if m.Name == "EscapedExperiment" then return true end
+    if m.Parent and m.Parent.Name == "DrScrambleEvent" and m.Name ~= "ExperimentVault" and m.Name:find("LostPart") == nil then
+        -- Any model inside DrScrambleEvent except vault and lost parts is considered event mob
+        local root = m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("RootPart") or m:FindFirstChild("Root") or m.PrimaryPart
+        if root then return true end
+    end
+    -- Fallback: any model with RootPart/HRP in workspace not in guard areas
+    local root = m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("RootPart") or m:FindFirstChild("Root") or m:FindFirstChild("Head") or m.PrimaryPart
     if not root then return false end
     local hum = m:FindFirstChildOfClass("Humanoid")
-    if hum and hum.Health <= 0 then return false end
+    if hum then
+        if hum.Health <= 0 then return false end
+        -- If it's a guard humanoid, skip (already filtered)
+        if m.Parent and m.Parent.Name:lower():find("guard") then return false end
+    end
+    -- Exclude props / nests / etc
+    if m.Parent and (m.Parent.Name:lower():find("nest") or m.Parent.Name:lower():find("prop")) then return false end
     return true
 end
 
 local function getFarmRoot(m)
     if not m then return nil end
-    return m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("Root") or m:FindFirstChild("Head") or m.PrimaryPart
+    -- Dump shows EscapedExperiment uses RootPart, not HRP
+    return m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("RootPart") or m:FindFirstChild("Root") or m:FindFirstChild("Head") or m.PrimaryPart or m:FindFirstChild("CENTER") or m:FindFirstChild("HumanoidRootPart", true)
 end
 
 local function collectFarmCandidates()
@@ -879,31 +908,46 @@ local function collectFarmCandidates()
             table.insert(out,m)
         end
     end
-    -- Event chính
+    -- PRIORITY 1: From dump - DrScrambleEvent.EscapedExperiment (exact)
     local drEvent = workspace:FindFirstChild("DrScrambleEvent")
     if drEvent then
+        -- Direct child EscapedExperiment
         local exp = drEvent:FindFirstChild("EscapedExperiment")
         if exp then add(exp) end
+        -- Search any model named EscapedExperiment anywhere inside DrScrambleEvent (in case respawns)
         for _, v in ipairs(drEvent:GetDescendants()) do
-            if v:IsA("Model") then add(v) end
+            if v:IsA("Model") and v.Name == "EscapedExperiment" then add(v) end
+        end
+        -- Also include any model inside DrScrambleEvent that has RootPart (event mobs)
+        for _, v in ipairs(drEvent:GetChildren()) do
+            if v:IsA("Model") and v.Name ~= "Brock" and v.Name ~= "ExperimentVault" and not v.Name:find("LostPart") then
+                add(v)
+            end
         end
     end
-    for _, folderName in ipairs({"_Enemies","Enemies","Mobs","Monsters","EventMobs","EventEnemies","NPCs","Wild"}) do
+    -- PRIORITY 2: Global search for EscapedExperiment anywhere in workspace (event may spawn outside)
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("Model") and v.Name == "EscapedExperiment" then add(v) end
+    end
+    -- PRIORITY 3: Other possible enemy folders
+    for _, folderName in ipairs({"_Enemies","Enemies","Mobs","Monsters","EventMobs","EventEnemies","NPCs","Wild","__OBJECTS","_Guards"}) do
         local f = workspace:FindFirstChild(folderName)
         if f then
             for _, m in ipairs(f:GetChildren()) do if m:IsA("Model") then add(m) end end
             for _, m in ipairs(f:GetDescendants()) do if m:IsA("Model") then add(m) end end
         end
     end
+    -- PRIORITY 4: Workspace direct children models (like Chest etc, but filtered by isHostileModel)
     for _, obj in ipairs(workspace:GetChildren()) do
         if obj:IsA("Model") then add(obj) end
     end
-    local guardsFolder = workspace:FindFirstChild("_Guards")
-    if guardsFolder then
-        for _, g in ipairs(guardsFolder:GetChildren()) do
-            if g:IsA("Model") then add(g) end
-        end
-    end
+    -- Sort by priority: EscapedExperiment first
+    table.sort(out, function(a,b)
+        local aIsEvent = a.Name == "EscapedExperiment"
+        local bIsEvent = b.Name == "EscapedExperiment"
+        if aIsEvent ~= bIsEvent then return aIsEvent end
+        return false
+    end)
     return out
 end
 
@@ -944,23 +988,41 @@ local function equipFarmWeapon()
     return nil
 end
 
+-- MEGA v6 style: remove humanoid for speed bypass + Y-lock
 local function startFarmFlight(char, root)
     if farmFlightVel and farmFlightVel.Parent then return end
-    if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) end
+    
+    -- Save humanoid like MEGA v6 LAYER 1
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function()
-            hum.PlatformStand = false
-            hum.AutoRotate = false
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end)
+    if hum and not farmSavedHum then
+        farmSavedHum = hum
+        pcall(function() hum.Parent = nil end)
+        pcall(function() workspace.CurrentCamera.CameraSubject = root end)
     end
+    
+    -- Save collisions
+    farmSavedCollide = {}
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") and p ~= root then
+            farmSavedCollide[p] = p.CanCollide
+            p.CanCollide = false
+        end
+    end
+    
+    -- Create ray params for Y-lock
+    farmRayParams = RaycastParams.new()
+    farmRayParams.FilterType = Enum.RaycastFilterType.Exclude
+    farmRayParams.FilterDescendantsInstances = {char}
+    farmRayParams.IgnoreWater = true
+    
+    -- Create flight velocity like MEGA
+    if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) end
     local att = Instance.new("Attachment")
-    att.Name = "HykoFarmAtt"
+    att.Name = "HykoHuntAtt"
     att.Parent = root
     farmFlightAtt = att
     local lv = Instance.new("LinearVelocity")
-    lv.Name = "HykoFarmVel"
+    lv.Name = "HykoHuntVel"
     lv.Attachment0 = att
     lv.RelativeTo = Enum.ActuatorRelativeTo.World
     lv.VectorVelocity = Vector3.zero
@@ -975,21 +1037,30 @@ local function setFarmVelocity(vec)
     end
 end
 
-local function stopFarmFlight(char)
+local function stopFarmFlight(char, restoreHum)
     if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) farmFlightAtt = nil end
     if farmFlightVel then pcall(function() farmFlightVel:Destroy() end) farmFlightVel = nil end
+    
     if char then
         local root = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
         if root then
-            -- giữ Y để không rơi tự do
-            pcall(function() root.AssemblyLinearVelocity = Vector3.new(0,0,0) end)
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
         end
-        if hum then
+        -- Restore collisions
+        for part, can in pairs(farmSavedCollide) do
+            if part and part.Parent then part.CanCollide = can end
+        end
+        farmSavedCollide = {}
+        
+        if restoreHum and farmSavedHum and farmSavedHum.Parent == nil then
             pcall(function()
-                hum.PlatformStand = false
-                hum.AutoRotate = true
+                farmSavedHum.Parent = char
+                farmSavedHum.WalkSpeed = 16
+                farmSavedHum.JumpPower = 50
+                farmSavedHum:ChangeState(Enum.HumanoidStateType.Running)
             end)
+            farmSavedHum = nil
         end
     end
 end
@@ -999,21 +1070,16 @@ local function farmStep(dt)
     local char = LP.Character
     if not char then return end
     local root = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not root or not hum or hum.Health <= 0 then return end
+    if not root then return end
 
-    -- Giữ humanoid luôn ở Running, không ragdoll
-    if hum:GetState() == Enum.HumanoidStateType.Physics or hum:GetState() == Enum.HumanoidStateType.Ragdoll or hum:GetState() == Enum.HumanoidStateType.FallingDown then
-        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
-    end
-
+    -- Target validation - LOCK until dead
     local target = currentFarmTarget
     local tRoot = nil
     local valid = false
     if target and target.Parent and isHostileModel(target) then
         tRoot = getFarmRoot(target)
         if tRoot and tRoot.Parent then
-            if (tRoot.Position - root.Position).Magnitude <= farmRadius*1.3 then
+            if (tRoot.Position - root.Position).Magnitude <= farmRadius*1.4 then
                 valid = true
             end
         end
@@ -1023,7 +1089,7 @@ local function farmStep(dt)
     if not valid then
         currentFarmTarget = nil
         if farmRetargetCd <= 0 then
-            local newT = findNearestFarmTarget()
+            local newT, dist = findNearestFarmTarget()
             if newT then
                 currentFarmTarget = newT
                 farmRetargetCd = FARM_RETARGET_DELAY
@@ -1031,12 +1097,12 @@ local function farmStep(dt)
                 tRoot = getFarmRoot(newT)
                 valid = true
             else
-                stopFarmFlight(char)
+                stopFarmFlight(char, false)
                 setFarmVelocity(Vector3.zero)
                 return
             end
         else
-            stopFarmFlight(char)
+            stopFarmFlight(char, false)
             setFarmVelocity(Vector3.zero)
             return
         end
@@ -1052,30 +1118,70 @@ local function farmStep(dt)
     local delta = tPos - myPos
     local mag   = delta.Magnitude
 
-    if mag > 7 then
+    -- DIRECT HIT LOGIC: fly directly to model center, not random offset
+    if mag > FARM_ATTACK_DIST then
         startFarmFlight(char, root)
-        local hoverPos = tPos + Vector3.new(0, FARM_HOVER_HEIGHT, 0)
-        local dir = (hoverPos - myPos)
-        if dir.Magnitude > 0.1 then dir = dir.Unit else dir = Vector3.zero end
-        setFarmVelocity(dir * farmSpeed)
-        -- Xoay về phía quái nhưng giữ humanoid
-        pcall(function()
-            root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
-        end)
+        
+        -- MEGA v6 rotation: face target directly
+        local flatDir = Vector3.new(delta.X, 0, delta.Z)
+        if flatDir.Magnitude > 0.01 then
+            root.CFrame = CFrame.lookAt(myPos, myPos + flatDir.Unit)
+        end
         root.AssemblyAngularVelocity = Vector3.zero
+
+        -- MEGA v6 velocity: direct to target with hover
+        local targetPos = tPos + Vector3.new(0, FARM_HOVER_HEIGHT, 0)
+        local toTarget = targetPos - myPos
+        local dir = toTarget.Magnitude > 0.1 and toTarget.Unit or Vector3.zero
+        setFarmVelocity(dir * farmSpeed)
+
+        -- MEGA v6 Y-lock: raycast to keep 3.5 studs above ground
+        if farmRayParams then
+            local origin = root.Position + Vector3.new(0, 4, 0)
+            local result = workspace:Raycast(origin, Vector3.new(0, -80, 0), farmRayParams)
+            if result then
+                local targetY = result.Position.Y + 3.5
+                local deltaY = targetY - root.Position.Y
+                -- Only correct if close to ground and falling below
+                if math.abs(deltaY) < 8 and deltaY > 0 and mag > 10 then
+                    root.CFrame = CFrame.new(root.Position.X, targetY, root.Position.Z) * (root.CFrame - root.Position)
+                    local vel = farmFlightVel.VectorVelocity
+                    setFarmVelocity(Vector3.new(vel.X, 0, vel.Z))
+                end
+            end
+        end
     else
-        -- đã tới gần: dừng bay, đứng yên đánh
-        stopFarmFlight(char)
+        -- IN ATTACK RANGE: stop and hit model directly
         setFarmVelocity(Vector3.zero)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
+        
+        -- Face directly into model center - critical for hit
         pcall(function()
             root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
         end)
+        
+        -- Ensure we are slightly inside model for tool touch
+        if mag > 3 then
+            local pushDir = (tPos - myPos).Unit * 20
+            setFarmVelocity(pushDir)
+            task.wait(0.05)
+            setFarmVelocity(Vector3.zero)
+        end
+        
         if farmAttack and tool then
-            pcall(function() tool:Activate() end)
-            -- spam 3 lần cho game cần nhiều hit
-            for i=1,2 do task.wait(0.06) pcall(function() tool:Activate() end) end
+            -- Direct model hit: activate + touch
+            for i=1,3 do
+                pcall(function() tool:Activate() end)
+                -- Try to fire tool remote if exists (many games use Tool.Activated -> RemoteEvent)
+                for _, v in ipairs(tool:GetDescendants()) do
+                    if v:IsA("RemoteEvent") then
+                        pcall(function() v:FireServer(tPos) end)
+                        pcall(function() v:FireServer(target) end)
+                    end
+                end
+                task.wait(0.07)
+            end
         end
     end
 end
@@ -1097,11 +1203,17 @@ local function disableFarm()
     farmRetargetCd = 0
     local char = LP.Character
     if char then
-        stopFarmFlight(char)
+        stopFarmFlight(char, true) -- restore humanoid
         setFarmVelocity(Vector3.zero)
+    else
+        farmSavedHum = nil
+        farmSavedCollide = {}
     end
 end
 
+--============================================================--
+-- FPS BOOST
+--============================================================--
 --============================================================--
 -- FPS BOOST
 --============================================================--
@@ -1698,15 +1810,15 @@ end)
 --============================================================--
 -- UI WIRING - Visuals
 --============================================================--
-Window:AddSection({ Name = "Player Visuals", Tab = Visuals })
+Window:AddSection({ Name = "Perception Engine", Tab = Visuals })
 Window:AddParagraph({
-    Title       = "Player ESP",
-    Description = "Elegant outline + soft chams + refined nametag with health bar.",
+    Title       = "Player Perception",
+    Description = "Premium outline + soft chams + minimal health bar. Clean & precise.",
     Tab         = Visuals,
 })
 Window:AddToggle({
-    Title = "Enable Player ESP",
-    Description = "Outline + Chams + Nametag for every player",
+    Title = "Enable Perception",
+    Description = "Outline + Chams + Nametag - High precision",
     Tab = Visuals, Default = false,
     Callback = function(state)
         if state then enableESP(); notify("Hyko • ESP", "Player ESP enabled", 3)
@@ -1714,8 +1826,8 @@ Window:AddToggle({
     end,
 })
 Window:AddSlider({
-    Title = "ESP Distance",
-    Description = "Max distance for ESP rendering (studs)",
+    Title = "Perception Distance",
+    Description = "Maximum render distance (studs) - Optimized",
     Tab = Visuals,
     MinValue = 100, MaxValue = 5000, Default = 1200, AllowDecimals = false,
     Callback = function(v)
@@ -1764,15 +1876,15 @@ end
 --============================================================--
 -- UI WIRING - Utility
 --============================================================--
-Window:AddSection({ Name = "Protection", Tab = Utility })
+Window:AddSection({ Name = "Protection Layer", Tab = Utility })
 Window:AddParagraph({
-    Title       = "Anti-Ragdoll",
-    Description = "Hard-lock body: fake humanoid, neutralized parts, upright enforcement.\nAuto-disables and restores on death / reset.",
+    Title       = "Anti-Ragdoll System",
+    Description = "Enterprise-grade body lock: neutralized parts, upright enforcement.\nAuto-restore on respawn.",
     Tab         = Utility,
 })
 local antiToggleRef
 antiToggleRef = Window:AddToggle({
-    Title = "Enable Anti-Ragdoll",
+    Title = "Enable Safeguard",
     Description = "Blocks Ragdoll / FallingDown / Physics / PlatformStanding / GettingUp",
     Tab = Utility, Default = false,
     Callback = function(state)
@@ -1804,7 +1916,7 @@ Window:AddParagraph({
     Tab         = Utility,
 })
 Window:AddToggle({
-    Title = "Enable God Mode",
+    Title = "Enable Immortal",
     Description = "Keep your character at maximum health at all times",
     Tab = Utility, Default = false,
     Callback = function(state)
@@ -1849,34 +1961,41 @@ Window:AddSlider({
 --============================================================--
 -- UI WIRING - Auto Farm
 --============================================================--
-Window:AddSection({ Name = "Auto Farm Event", Tab = Farm })
+Window:AddSection({ Name = "Hunt Protocol", Tab = Farm })
 Window:AddParagraph({
-    Title       = "Auto Farm Event - Keep Humanoid",
-    Description = "REWORKED v15.5: Giữ nguyên Humanoid, dùng LinearVelocity để bay. Lock 1 target tới khi chết, farm quái sự kiện rơi đồ đổi thưởng. Không còn zig-zag, không detach Humanoid.",
+    Title       = "Event Hunt - EscapedExperiment [DUMP]",
+    Description = "v15.7 DUMP-BASED: Auto-detects Workspace.DrScrambleEvent.EscapedExperiment (RootPart) from your dump. MEGA v6 flight 800 + Y-lock + direct CENTER hit. Guaranteed loot.",
     Tab         = Farm,
 })
 Window:AddToggle({
-    Title = "Enable Auto Farm",
-    Description = "Tự động farm quái sự kiện gần nhất (giữ humanoid)",
+    Title = "Enable Hunt",
+    Description = "Automatically hunt nearest event mob - Direct model hit - MEGA flight",
     Tab = Farm, Default = false,
     Callback = function(state)
-        if state then enableFarm(); notify("Hyko • Auto Farm", "Auto Farm enabled - Keep Humanoid (speed " .. tostring(farmSpeed) .. ")", 3)
-        else disableFarm(); notify("Hyko • Auto Farm", "Auto Farm disabled", 3) end
+        if state then enableFarm(); notify("Hyko • Hunt", "Hunt Protocol Active - MEGA Flight " .. tostring(farmSpeed) .. " - Direct Hit", 3)
+        else disableFarm(); notify("Hyko • Hunt", "Hunt Protocol Disabled - Humanoid Restored", 3) end
     end,
 })
 Window:AddSlider({
-    Title = "Movement Speed",
-    Description = "Tốc độ bay tới quái (studs/s, default 500) - vẫn giữ humanoid",
+    Title = "Hunt Velocity",
+    Description = "Flight velocity to target (studs/s) - MEGA v6 bypass - Default 800",
     Tab = Farm,
     MinValue = 50, MaxValue = 2000, Default = 500, AllowDecimals = false,
     Callback = function(v) farmSpeed = v end,
 })
 Window:AddSlider({
-    Title = "Search Radius",
+    Title = "Detection Radius",
     Description = "Bán kính tìm quái (studs)",
     Tab = Farm,
     MinValue = 100, MaxValue = 10000, Default = 3000, AllowDecimals = false,
     Callback = function(v) farmRadius = v end,
+})
+Window:AddSlider({
+    Title = "Attack Distance",
+    Description = "Distance to stop and attack model directly (studs)",
+    Tab = Farm,
+    MinValue = 3, MaxValue = 15, Default = 6.5, AllowDecimals = true,
+    Callback = function(v) FARM_ATTACK_DIST = v end,
 })
 Window:AddToggle({
     Title = "Auto Equip Weapon",
@@ -2274,4 +2393,4 @@ do
     LP.CharacterAdded:Connect(watchHum)
 end
 
-notify("Hyko v15.5 Loaded", "Keep Humanoid Farm + Velocity + New Icons + All features", 8)
+notify("Hyko v15.7 Dump-Based Loaded", "Keep Humanoid Farm + Velocity + New Icons + All features", 8)
