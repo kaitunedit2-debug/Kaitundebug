@@ -1,8 +1,9 @@
 --[[
-    HYKO • Full Suite v15.2
+    HYKO • Full Suite v15.3
     ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
     + Window Background + Server Hop Tab + God Mode + Auto Farm
     + Auto Farm uses LinearVelocity (no CFrame teleport)
+    + Auto Farm detaches Humanoid (restored on disable)
     + Auto Farm ignores GuardAreas
 --]]
 
@@ -114,26 +115,26 @@ Window:AddTabSection({ Name = "Main",     Order = 1 })
 Window:AddTabSection({ Name = "Network",  Order = 2 })
 Window:AddTabSection({ Name = "Settings", Order = 3 })
 
--- === NEW ICONS: utility / farm / server hop no longer duplicate Settings
+-- === Lucide icons ===
 local Visuals = Window:AddTab({
     Title = "Visuals", Section = "Main",
-    Icon = "rbxassetid://11963373994",
+    Icon = "rbxassetid://10734896981",   -- lucide: eye
 })
 local Utility = Window:AddTab({
     Title = "Utility", Section = "Main",
-    Icon = "rbxassetid://10734896352",   -- wrench
+    Icon = "rbxassetid://10734896170",   -- lucide: wrench
 })
 local Farm = Window:AddTab({
     Title = "Auto Farm", Section = "Main",
-    Icon = "rbxassetid://10734895580",   -- crosshair / target
+    Icon = "rbxassetid://10734895487",   -- lucide: crosshair / target
 })
 local ServerHop = Window:AddTab({
     Title = "Server Hop", Section = "Network",
-    Icon = "rbxassetid://10734896081",   -- globe
+    Icon = "rbxassetid://10734895523",   -- lucide: globe
 })
 local Settings = Window:AddTab({
     Title = "Settings", Section = "Settings",
-    Icon = "rbxassetid://11293977610",   -- gear (kept)
+    Icon = "rbxassetid://10734895501",   -- lucide: settings / gear
 })
 
 --============================================================--
@@ -762,7 +763,7 @@ local function stopGodMode()
 end
 
 --============================================================--
--- AUTO FARM (LinearVelocity flight + ignores GuardAreas)
+-- AUTO FARM (LinearVelocity flight + Humanoid detach + ignores GuardAreas)
 --============================================================--
 local farmOn        = false
 local farmSpeed     = 500
@@ -773,7 +774,8 @@ local farmConn      = nil
 
 -- flight state
 local farmFlightAtt, farmFlightVel = nil, nil
-local farmHiddenHum = nil
+local farmSavedHum = nil   -- Humanoid bị detach, sẽ được restore khi tắt farm
+local farmSavedCamSubject = nil
 
 local FARM_PRIORITY_WEAPONS = {
     "Prehistoric Bat", "Abyss Ocean Bat", "Volcano Bat",
@@ -797,15 +799,18 @@ local function isHostileModel(m)
     if not m:IsA("Model") then return false end
     if Players:GetPlayerFromCharacter(m) then return false end
     if m.Name == "Brock" then return false end
-    if isInsideGuardArea(m) then return false end   -- NEW: skip guards
+    if isInsideGuardArea(m) then return false end
 
-    local hum = m:FindFirstChildOfClass("Humanoid")
-    if not hum or hum.Health <= 0 then return false end
-
+    -- Model phải có root để bám theo (không yêu cầu Humanoid vì 1 số mob không có)
     local root = m:FindFirstChild("HumanoidRootPart")
         or m:FindFirstChild("Root")
         or m:FindFirstChild("Head")
-    return root ~= nil
+        or m.PrimaryPart
+    if not root then return false end
+
+    local hum = m:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health <= 0 then return false end
+    return true
 end
 
 local function getFarmRoot(m)
@@ -819,19 +824,16 @@ end
 local function collectFarmCandidates()
     local out = {}
 
-    -- Dr. Scramble event
     local drEvent = workspace:FindFirstChild("DrScrambleEvent")
     if drEvent then
         local exp = drEvent:FindFirstChild("EscapedExperiment")
         if exp then table.insert(out, exp) end
     end
 
-    -- Loose hostile models directly under workspace
     for _, obj in ipairs(workspace:GetChildren()) do
         if isHostileModel(obj) then table.insert(out, obj) end
     end
 
-    -- Any other hostile folders (monster spawns, etc.)
     local guardsFolder = workspace:FindFirstChild("_Guards")
     if guardsFolder then
         for _, g in ipairs(guardsFolder:GetChildren()) do
@@ -892,18 +894,55 @@ local function equipFarmWeapon()
 end
 
 --=== FLIGHT (LinearVelocity) ===
-local function startFarmFlight(char, root)
-    -- If Anti-Ragdoll already controls movement, share its LinearVelocity
-    if antiOn and moveVel then return end
+local function detachHumanoid(char)
+    -- Nếu Anti-Ragdoll đang quản lý, nó đã tự detach Humanoid rồi
+    if antiOn and realHum then return end
+    if farmSavedHum then return end
 
-    -- Hide humanoid (so it doesn't fight our velocity)
-    if not farmHiddenHum then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            farmHiddenHum = hum
-            pcall(function() hum.Parent = nil end)
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        farmSavedHum = hum
+        -- Lưu camera subject trước khi detach
+        pcall(function()
+            farmSavedCamSubject = workspace.CurrentCamera
+                and workspace.CurrentCamera.CameraSubject
+        end)
+        pcall(function() hum.Parent = nil end)
+        -- Camera follow HumanoidRootPart để không bị mất camera khi detach Humanoid
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp and workspace.CurrentCamera then
+            pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
         end
     end
+end
+
+local function restoreHumanoid(char)
+    if not farmSavedHum then return end
+    if char and char.Parent then
+        local existing = char:FindFirstChildOfClass("Humanoid")
+        if existing and existing ~= farmSavedHum then
+            -- Đã có Humanoid mới (do game respawn) -> bỏ cái cũ
+            pcall(function() farmSavedHum:Destroy() end)
+        else
+            pcall(function() farmSavedHum.Parent = char end)
+        end
+        -- Khôi phục camera subject nếu vẫn còn
+        if farmSavedCamSubject and workspace.CurrentCamera
+            and workspace.CurrentCamera.CameraSubject == char:FindFirstChild("HumanoidRootPart") then
+            pcall(function() workspace.CurrentCamera.CameraSubject = farmSavedCamSubject end)
+        end
+    else
+        pcall(function() farmSavedHum:Destroy() end)
+    end
+    farmSavedHum = nil
+    farmSavedCamSubject = nil
+end
+
+local function startFarmFlight(char, root)
+    -- Nếu Anti-Ragdoll đang dùng LinearVelocity, share nó (anti đã detach hum rồi)
+    if antiOn and moveVel then return end
+
+    detachHumanoid(char)
 
     if not farmFlightVel or not farmFlightVel.Parent then
         if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) end
@@ -934,12 +973,7 @@ end
 local function stopFarmFlight(char)
     if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) farmFlightAtt = nil end
     if farmFlightVel then pcall(function() farmFlightVel:Destroy() end) farmFlightVel = nil end
-    if farmHiddenHum then
-        if char and char.Parent then
-            pcall(function() farmHiddenHum.Parent = char end)
-        end
-        farmHiddenHum = nil
-    end
+    restoreHumanoid(char)
 end
 
 local function farmStep(dt)
@@ -948,6 +982,15 @@ local function farmStep(dt)
     if not char then return end
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
+
+    -- Nếu Humanoid bị game tạo lại trong lúc farm -> detach tiếp
+    if not antiOn and not farmSavedHum then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            farmSavedHum = hum
+            pcall(function() hum.Parent = nil end)
+        end
+    end
 
     local target = findNearestFarmTarget()
     if not target then
@@ -971,7 +1014,6 @@ local function farmStep(dt)
         local dir = Vector3.new(delta.X, 0, delta.Z)
         if dir.Magnitude < 0.01 then dir = Vector3.new(0, 0, 0) else dir = dir.Unit end
         setFarmVelocity(dir * farmSpeed)
-        -- keep facing target
         pcall(function()
             root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
         end)
@@ -979,7 +1021,6 @@ local function farmStep(dt)
     else
         stopFarmFlight(char)
         root.AssemblyLinearVelocity = Vector3.zero
-        -- face target
         pcall(function()
             root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
         end)
@@ -1000,7 +1041,15 @@ local function disableFarm()
     if not farmOn then return end
     farmOn = false
     disconnect(farmConn); farmConn = nil
-    stopFarmFlight(LP.Character)
+
+    local char = LP.Character
+    -- Nếu đang share constraint với Anti-Ragdoll, chỉ cần reset velocity
+    if antiOn and moveVel then
+        pcall(function() moveVel.VectorVelocity = Vector3.zero end)
+        -- Humanoid do anti quản lý -> để anti tự restore
+    else
+        stopFarmFlight(char)
+    end
 end
 
 --============================================================--
@@ -1400,9 +1449,9 @@ local function heartbeat(dt)
     if flat.Magnitude > 0.01 then
         faceAlign.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
     end
-    -- if farm is running, skip manual move (farm uses our LinearVelocity)
+    -- if farm is running, farm controls moveVel
     if farmOn then
-        -- farm will set moveVel.VectorVelocity itself; nothing else to do
+        -- farm sets moveVel.VectorVelocity itself
     else
         local mv = readMove()
         local target = Vector3.zero
@@ -1813,7 +1862,7 @@ Window:AddSection({ Name = "Auto Farm Event", Tab = Farm })
 
 Window:AddParagraph({
     Title       = "Auto Farm Event",
-    Description = "Equips a weapon, travels to the nearest hostile unit using LinearVelocity (humanoid hidden), then attacks. Guards in GuardAreas are ignored.",
+    Description = "Detaches Humanoid, flies with LinearVelocity, equips weapon, then attacks.\nGuards in GuardAreas are ignored. Humanoid is restored when disabled.",
     Tab         = Farm,
 })
 
@@ -1827,7 +1876,7 @@ Window:AddToggle({
             notify("Hyko • Auto Farm", "Auto Farm enabled (speed " .. tostring(farmSpeed) .. ")", 3)
         else
             disableFarm()
-            notify("Hyko • Auto Farm", "Auto Farm disabled", 3)
+            notify("Hyko • Auto Farm", "Auto Farm disabled - Humanoid restored", 3)
         end
     end,
 })
@@ -2038,7 +2087,6 @@ Window:AddButton({
 
             hopState.serverList = filtered
             hopState.refreshTick = hopState.refreshTick + 1
-            local tick = hopState.refreshTick
 
             local topN = math.min(10, #filtered)
             for i = 1, topN do
@@ -2332,6 +2380,11 @@ LP.CharacterAdded:Connect(function(char)
     if godModeOn then applyGodHealth(char) end
     task.wait(0.3)
     if bgEnabled then attachBackground() end
+    -- Nếu farm đang bật, chuẩn bị detach Humanoid của nhân vật mới
+    if farmOn then
+        task.wait(0.2)
+        -- farmStep sẽ tự detach ở frame kế tiếp
+    end
 end)
 
 do
