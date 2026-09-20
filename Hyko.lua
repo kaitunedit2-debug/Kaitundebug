@@ -1,10 +1,10 @@
 --[[
-    HYKO • Full Suite v15.3
+    HYKO • Full Suite v15.4
     ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
     + Window Background + Server Hop Tab + God Mode + Auto Farm
-    + Auto Farm uses LinearVelocity (no CFrame teleport)
-    + Auto Farm detaches Humanoid (restored on disable)
-    + Auto Farm ignores GuardAreas
+    + FIXED: Auto Farm target-lock (no more zig-zag)
+    + FIXED: Icon fallback
+    + FIXED: God Mode (PreSimulation + HealthChanged + Died guard)
 --]]
 
 --// Services
@@ -115,26 +115,25 @@ Window:AddTabSection({ Name = "Main",     Order = 1 })
 Window:AddTabSection({ Name = "Network",  Order = 2 })
 Window:AddTabSection({ Name = "Settings", Order = 3 })
 
--- === Lucide icons ===
 local Visuals = Window:AddTab({
     Title = "Visuals", Section = "Main",
-    Icon = "rbxassetid://10734896981",   -- lucide: eye
+    Icon = "rbxassetid://10734896981",
 })
 local Utility = Window:AddTab({
     Title = "Utility", Section = "Main",
-    Icon = "rbxassetid://10734896170",   -- lucide: wrench
+    Icon = "rbxassetid://10734896170",
 })
 local Farm = Window:AddTab({
     Title = "Auto Farm", Section = "Main",
-    Icon = "rbxassetid://10734895487",   -- lucide: crosshair / target
+    Icon = "rbxassetid://10734895487",
 })
 local ServerHop = Window:AddTab({
     Title = "Server Hop", Section = "Network",
-    Icon = "rbxassetid://10734895523",   -- lucide: globe
+    Icon = "rbxassetid://10734895523",
 })
 local Settings = Window:AddTab({
     Title = "Settings", Section = "Settings",
-    Icon = "rbxassetid://10734895501",   -- lucide: settings / gear
+    Icon = "rbxassetid://10734895501",
 })
 
 --============================================================--
@@ -161,21 +160,39 @@ local function notify(title, desc, duration)
     end)
 end
 
+--============================================================--
+-- ICON FALLBACK
+--============================================================--
+local ICON_FALLBACKS = {
+    ["10734896981"] = "6031075939",
+    ["10734896170"] = "6031091005",
+    ["10734895487"] = "6034686929",
+    ["10734895523"] = "6031075939",
+    ["10734895501"] = "6031280882",
+    ["10734896881"] = "6031075939",
+    ["71999030813587"] = "133366726003572",
+}
+
 local function attachImage(img, rawId, fallbackWidget)
     if fallbackWidget then fallbackWidget.Visible = false end
+    local fb = ICON_FALLBACKS[tostring(rawId)]
     local urls = {
         "rbxassetid://" .. tostring(rawId),
+        fb and ("rbxassetid://" .. fb) or nil,
         "rbxthumb://type=Asset&id=" .. tostring(rawId) .. "&w=420&h=420",
     }
+    local clean = {}
+    for _, u in ipairs(urls) do if u then table.insert(clean, u) end end
+
     local function tryUrl(index)
-        if index > #urls then
+        if index > #clean then
             if fallbackWidget then fallbackWidget.Visible = true end
             return
         end
-        img.Image = urls[index]
+        img.Image = clean[index]
         task.spawn(function()
             local t0 = os.clock()
-            while os.clock() - t0 < 2.5 do
+            while os.clock() - t0 < 2 do
                 if img.IsLoaded then
                     if fallbackWidget then fallbackWidget.Visible = false end
                     return
@@ -186,6 +203,31 @@ local function attachImage(img, rawId, fallbackWidget)
         end)
     end
     tryUrl(1)
+end
+
+local function fixBrokenImages(root)
+    if not root then return end
+    for _, d in ipairs(root:GetDescendants()) do
+        if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+            if not d.IsLoaded and d.Image ~= "" then
+                local id = d.Image:match("%d+")
+                local fb = id and ICON_FALLBACKS[id]
+                if fb then
+                    d.Image = "rbxassetid://" .. fb
+                end
+                task.spawn(function()
+                    local t0 = os.clock()
+                    while os.clock() - t0 < 1.5 do
+                        if d.IsLoaded then return end
+                        task.wait(0.1)
+                    end
+                    if not d.IsLoaded and id then
+                        d.Image = "rbxthumb://type=Asset&id=" .. id .. "&w=150&h=150"
+                    end
+                end)
+            end
+        end
+    end
 end
 
 local Theme = {
@@ -325,6 +367,17 @@ task.spawn(function()
             if main and not main:FindFirstChild("HykoBackground") then
                 attachBackground()
             end
+        end
+    end
+end)
+
+task.spawn(function()
+    task.wait(2.5)
+    if libGui then
+        fixBrokenImages(libGui)
+        while libGui and libGui.Parent do
+            task.wait(5)
+            fixBrokenImages(libGui)
         end
     end
 end)
@@ -712,50 +765,104 @@ local function disableAutoLoot()
 end
 
 --============================================================--
--- GOD MODE
+-- GOD MODE (FIXED v3)
 --============================================================--
-local godModeOn   = false
-local godModeConn = nil
-local GOD_HEALTH  = 9e15
+local godModeOn       = false
+local godModeConn     = nil
+local godModeHealthC  = nil
+local godModeDiedC    = nil
+local godModeCharConn = nil
+local GOD_HEALTH      = 9e15
 
 local function applyGodHealth(char)
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hum then return end
     pcall(function()
-        hum.MaxHealth = GOD_HEALTH
-        hum.Health    = GOD_HEALTH
+        hum.MaxHealth           = GOD_HEALTH
+        hum.Health              = GOD_HEALTH
+        hum.BreakJointsOnDeath  = false
+        hum.RequiresNeck        = false
+    end)
+end
+
+local function hookGodHumanoid(hum)
+    if not hum then return end
+    if godModeHealthC then godModeHealthC:Disconnect() end
+    if godModeDiedC   then godModeDiedC:Disconnect()   end
+
+    godModeHealthC = hum.HealthChanged:Connect(function(h)
+        if not godModeOn then return end
+        if h < GOD_HEALTH then
+            pcall(function() hum.Health = GOD_HEALTH end)
+        end
+    end)
+
+    godModeDiedC = hum.Died:Connect(function()
+        if not godModeOn then return end
+        task.defer(function()
+            if not godModeOn then return end
+            local c = LP.Character
+            if c then
+                local h = c:FindFirstChildOfClass("Humanoid")
+                if h then
+                    pcall(function()
+                        h.MaxHealth = GOD_HEALTH
+                        h.Health    = GOD_HEALTH
+                    end)
+                end
+            end
+        end)
     end)
 end
 
 local function startGodMode()
     if godModeOn then return end
     godModeOn = true
-    applyGodHealth(LP.Character)
-    godModeConn = RunService.Heartbeat:Connect(function()
+
+    local char = LP.Character
+    applyGodHealth(char)
+    hookGodHumanoid(char and char:FindFirstChildOfClass("Humanoid"))
+
+    godModeConn = RunService.PreSimulation:Connect(function()
         if not godModeOn then return end
-        local char = LP.Character
-        if not char then return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum and (hum.Health < GOD_HEALTH * 0.9 or hum.MaxHealth ~= GOD_HEALTH) then
-            pcall(function()
-                hum.MaxHealth = GOD_HEALTH
-                hum.Health    = GOD_HEALTH
-            end)
+        local c = LP.Character
+        if not c then return end
+        local hum = c:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        if hum.MaxHealth ~= GOD_HEALTH then
+            pcall(function() hum.MaxHealth = GOD_HEALTH end)
         end
+        if hum.Health < GOD_HEALTH then
+            pcall(function() hum.Health = GOD_HEALTH end)
+        end
+    end)
+
+    godModeCharConn = LP.CharacterAdded:Connect(function(c)
+        if not godModeOn then return end
+        task.wait(0.15)
+        applyGodHealth(c)
+        hookGodHumanoid(c:FindFirstChildOfClass("Humanoid"))
     end)
 end
 
 local function stopGodMode()
     if not godModeOn then return end
     godModeOn = false
-    disconnect(godModeConn); godModeConn = nil
+
+    disconnect(godModeConn);     godModeConn     = nil
+    disconnect(godModeHealthC);  godModeHealthC  = nil
+    disconnect(godModeDiedC);    godModeDiedC    = nil
+    disconnect(godModeCharConn); godModeCharConn = nil
+
     local char = LP.Character
     if char then
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
             pcall(function()
-                hum.MaxHealth = 100
+                hum.MaxHealth          = 100
+                hum.BreakJointsOnDeath = true
+                hum.RequiresNeck       = true
                 if hum.Health > 100 then hum.Health = 100 end
             end)
         end
@@ -763,7 +870,7 @@ local function stopGodMode()
 end
 
 --============================================================--
--- AUTO FARM (LinearVelocity flight + Humanoid detach + ignores GuardAreas)
+-- AUTO FARM (FIXED: target lock)
 --============================================================--
 local farmOn        = false
 local farmSpeed     = 500
@@ -772,10 +879,14 @@ local farmAttack    = true
 local farmAutoEquip = true
 local farmConn      = nil
 
--- flight state
 local farmFlightAtt, farmFlightVel = nil, nil
-local farmSavedHum = nil   -- Humanoid bị detach, sẽ được restore khi tắt farm
+local farmSavedHum = nil
 local farmSavedCamSubject = nil
+
+-- ✅ LOCK target
+local currentFarmTarget   = nil
+local farmRetargetCd      = 0
+local FARM_RETARGET_DELAY = 1.5
 
 local FARM_PRIORITY_WEAPONS = {
     "Prehistoric Bat", "Abyss Ocean Bat", "Volcano Bat",
@@ -784,7 +895,6 @@ local FARM_PRIORITY_WEAPONS = {
     "Bat", "Sword", "Axe",
 }
 
--- true if any ancestor is a GuardAreas folder -> skip
 local function isInsideGuardArea(m)
     local p = m
     while p and p ~= workspace do
@@ -801,7 +911,6 @@ local function isHostileModel(m)
     if m.Name == "Brock" then return false end
     if isInsideGuardArea(m) then return false end
 
-    -- Model phải có root để bám theo (không yêu cầu Humanoid vì 1 số mob không có)
     local root = m:FindFirstChild("HumanoidRootPart")
         or m:FindFirstChild("Root")
         or m:FindFirstChild("Head")
@@ -893,22 +1002,18 @@ local function equipFarmWeapon()
     return nil
 end
 
---=== FLIGHT (LinearVelocity) ===
 local function detachHumanoid(char)
-    -- Nếu Anti-Ragdoll đang quản lý, nó đã tự detach Humanoid rồi
     if antiOn and realHum then return end
     if farmSavedHum then return end
 
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
         farmSavedHum = hum
-        -- Lưu camera subject trước khi detach
         pcall(function()
             farmSavedCamSubject = workspace.CurrentCamera
                 and workspace.CurrentCamera.CameraSubject
         end)
         pcall(function() hum.Parent = nil end)
-        -- Camera follow HumanoidRootPart để không bị mất camera khi detach Humanoid
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp and workspace.CurrentCamera then
             pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
@@ -921,12 +1026,10 @@ local function restoreHumanoid(char)
     if char and char.Parent then
         local existing = char:FindFirstChildOfClass("Humanoid")
         if existing and existing ~= farmSavedHum then
-            -- Đã có Humanoid mới (do game respawn) -> bỏ cái cũ
             pcall(function() farmSavedHum:Destroy() end)
         else
             pcall(function() farmSavedHum.Parent = char end)
         end
-        -- Khôi phục camera subject nếu vẫn còn
         if farmSavedCamSubject and workspace.CurrentCamera
             and workspace.CurrentCamera.CameraSubject == char:FindFirstChild("HumanoidRootPart") then
             pcall(function() workspace.CurrentCamera.CameraSubject = farmSavedCamSubject end)
@@ -939,7 +1042,6 @@ local function restoreHumanoid(char)
 end
 
 local function startFarmFlight(char, root)
-    -- Nếu Anti-Ragdoll đang dùng LinearVelocity, share nó (anti đã detach hum rồi)
     if antiOn and moveVel then return end
 
     detachHumanoid(char)
@@ -983,7 +1085,6 @@ local function farmStep(dt)
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
 
-    -- Nếu Humanoid bị game tạo lại trong lúc farm -> detach tiếp
     if not antiOn and not farmSavedHum then
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
@@ -992,14 +1093,47 @@ local function farmStep(dt)
         end
     end
 
-    local target = findNearestFarmTarget()
-    if not target then
-        stopFarmFlight(char)
-        return
+    setFarmVelocity(Vector3.zero)
+
+    local target = currentFarmTarget
+    local targetValid = false
+    local tRoot = nil
+
+    if target and target.Parent and isHostileModel(target) then
+        tRoot = getFarmRoot(target)
+        if tRoot and tRoot.Parent then
+            local d = (tRoot.Position - root.Position).Magnitude
+            if d <= farmRadius * 1.2 then
+                targetValid = true
+            end
+        end
     end
 
-    local tRoot = getFarmRoot(target)
-    if not tRoot then return end
+    farmRetargetCd = farmRetargetCd - dt
+    if not targetValid then
+        currentFarmTarget = nil
+        if farmRetargetCd <= 0 then
+            local newT = findNearestFarmTarget()
+            if newT then
+                currentFarmTarget = newT
+                farmRetargetCd = FARM_RETARGET_DELAY
+                target = newT
+                tRoot  = getFarmRoot(newT)
+                targetValid = true
+            else
+                stopFarmFlight(char)
+                return
+            end
+        else
+            stopFarmFlight(char)
+            return
+        end
+    end
+
+    if not target or not tRoot then
+        currentFarmTarget = nil
+        return
+    end
 
     local tool = nil
     if farmAutoEquip then tool = equipFarmWeapon() end
@@ -1011,8 +1145,8 @@ local function farmStep(dt)
 
     if mag > 7 then
         startFarmFlight(char, root)
-        local dir = Vector3.new(delta.X, 0, delta.Z)
-        if dir.Magnitude < 0.01 then dir = Vector3.new(0, 0, 0) else dir = dir.Unit end
+        local flat = Vector3.new(delta.X, 0, delta.Z)
+        local dir  = flat.Magnitude > 0.01 and flat.Unit or Vector3.zero
         setFarmVelocity(dir * farmSpeed)
         pcall(function()
             root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
@@ -1020,7 +1154,8 @@ local function farmStep(dt)
         root.AssemblyAngularVelocity = Vector3.zero
     else
         stopFarmFlight(char)
-        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyLinearVelocity  = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
         pcall(function()
             root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
         end)
@@ -1033,6 +1168,8 @@ end
 local function enableFarm()
     if farmOn then return end
     farmOn = true
+    currentFarmTarget = nil
+    farmRetargetCd    = 0
     disconnect(farmConn)
     farmConn = RunService.Heartbeat:Connect(farmStep)
 end
@@ -1042,11 +1179,12 @@ local function disableFarm()
     farmOn = false
     disconnect(farmConn); farmConn = nil
 
+    currentFarmTarget = nil
+    farmRetargetCd    = 0
+
     local char = LP.Character
-    -- Nếu đang share constraint với Anti-Ragdoll, chỉ cần reset velocity
     if antiOn and moveVel then
         pcall(function() moveVel.VectorVelocity = Vector3.zero end)
-        -- Humanoid do anti quản lý -> để anti tự restore
     else
         stopFarmFlight(char)
     end
@@ -1449,9 +1587,8 @@ local function heartbeat(dt)
     if flat.Magnitude > 0.01 then
         faceAlign.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
     end
-    -- if farm is running, farm controls moveVel
     if farmOn then
-        -- farm sets moveVel.VectorVelocity itself
+        -- farm controls moveVel
     else
         local mv = readMove()
         local target = Vector3.zero
@@ -1800,7 +1937,7 @@ Window:AddSlider({
 
 Window:AddParagraph({
     Title       = "God Mode",
-    Description = "Continuously maintains max/current health at a very high value.",
+    Description = "PreSimulation + HealthChanged + Died guard. Immortal at all times.",
     Tab         = Utility,
 })
 
@@ -1862,7 +1999,7 @@ Window:AddSection({ Name = "Auto Farm Event", Tab = Farm })
 
 Window:AddParagraph({
     Title       = "Auto Farm Event",
-    Description = "Detaches Humanoid, flies with LinearVelocity, equips weapon, then attacks.\nGuards in GuardAreas are ignored. Humanoid is restored when disabled.",
+    Description = "Locks onto 1 target until it dies or leaves range. Detaches Humanoid, flies with LinearVelocity, equips weapon, then attacks.\nGuards in GuardAreas are ignored.",
     Tab         = Farm,
 })
 
@@ -2380,11 +2517,6 @@ LP.CharacterAdded:Connect(function(char)
     if godModeOn then applyGodHealth(char) end
     task.wait(0.3)
     if bgEnabled then attachBackground() end
-    -- Nếu farm đang bật, chuẩn bị detach Humanoid của nhân vật mới
-    if farmOn then
-        task.wait(0.2)
-        -- farmStep sẽ tự detach ở frame kế tiếp
-    end
 end)
 
 do
