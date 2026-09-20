@@ -1,7 +1,8 @@
 --[[
-    HYKO • Full Suite v14 FINAL
+    HYKO • Full Suite v15 FINAL
     ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
     + Window Background + Server Hop Tab (integrated)
+    + God Mode + Auto Farm Event
 --]]
 
 --// Services
@@ -119,6 +120,10 @@ local Visuals = Window:AddTab({
 local Utility = Window:AddTab({
     Title = "Utility", Section = "Main",
     Icon = "rbxassetid://11293977610",
+})
+local Farm = Window:AddTab({
+    Title = "Auto Farm", Section = "Main",
+    Icon = "rbxassetid://10734896881",
 })
 local ServerHop = Window:AddTab({
     Title = "Server Hop", Section = "Network",
@@ -704,6 +709,245 @@ local function disableAutoLoot()
 end
 
 --============================================================--
+-- GOD MODE  (NEW)
+--============================================================--
+local godModeOn   = false
+local godModeConn = nil
+local GOD_HEALTH  = 9e15
+
+local function applyGodHealth(char)
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    pcall(function()
+        hum.MaxHealth = GOD_HEALTH
+        hum.Health    = GOD_HEALTH
+    end)
+end
+
+local function startGodMode()
+    if godModeOn then return end
+    godModeOn = true
+    applyGodHealth(LP.Character)
+    godModeConn = RunService.Heartbeat:Connect(function()
+        if not godModeOn then return end
+        local char = LP.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and (hum.Health < GOD_HEALTH * 0.9 or hum.MaxHealth ~= GOD_HEALTH) then
+            pcall(function()
+                hum.MaxHealth = GOD_HEALTH
+                hum.Health    = GOD_HEALTH
+            end)
+        end
+    end)
+end
+
+local function stopGodMode()
+    if not godModeOn then return end
+    godModeOn = false
+    disconnect(godModeConn); godModeConn = nil
+    local char = LP.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function()
+                hum.MaxHealth = 100
+                if hum.Health > 100 then hum.Health = 100 end
+            end)
+        end
+    end
+end
+
+--============================================================--
+-- AUTO FARM  (NEW)
+--============================================================--
+local farmOn        = false
+local farmSpeed     = 500
+local farmRadius    = 3000
+local farmAttack    = true
+local farmAutoEquip = true
+local farmConn      = nil
+
+local FARM_PRIORITY_WEAPONS = {
+    "Prehistoric Bat", "Abyss Ocean Bat", "Volcano Bat",
+    "Cosmic Bat", "Snow Bat", "Jungle Bat", "Desert Bat",
+    "Lake Bat", "Forest Bat", "Katana", "Titan Axe",
+    "Bat", "Sword", "Axe",
+}
+
+local function isHostileModel(m)
+    if not m or not m.Parent then return false end
+    if not m:IsA("Model") then return false end
+    if Players:GetPlayerFromCharacter(m) then return false end
+    if m.Name == "Brock" then return false end
+    local hum = m:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    local root = m:FindFirstChild("HumanoidRootPart")
+        or m:FindFirstChild("Root")
+        or m:FindFirstChild("Head")
+    return root ~= nil
+end
+
+local function getFarmRoot(m)
+    if not m then return nil end
+    return m:FindFirstChild("HumanoidRootPart")
+        or m:FindFirstChild("Root")
+        or m:FindFirstChild("Head")
+        or m.PrimaryPart
+end
+
+local function collectFarmCandidates()
+    local out = {}
+
+    -- Guard areas (Forest, Desert, Prehistoric, Abyss Ocean, Snow, Cosmic,
+    -- Lake, Volcano, Cherry Blossom, Jungle, Titan Temple, Light Dark)
+    local objects = workspace:FindFirstChild("__OBJECTS")
+    local areas   = objects and objects:FindFirstChild("Areas")
+    local gAreas  = areas   and areas:FindFirstChild("GuardAreas")
+    if gAreas then
+        for _, area in ipairs(gAreas:GetChildren()) do
+            local g = area:FindFirstChild("Guard")
+            if g then table.insert(out, g) end
+        end
+    end
+
+    -- Dr. Scramble event
+    local drEvent = workspace:FindFirstChild("DrScrambleEvent")
+    if drEvent then
+        local exp = drEvent:FindFirstChild("EscapedExperiment")
+        if exp then table.insert(out, exp) end
+    end
+
+    -- Plot monster spawns
+    local plots = workspace:FindFirstChild("Plots")
+    if plots then
+        for _, plot in ipairs(plots:GetChildren()) do
+            local markers = plot:FindFirstChild("MonsterParasiteMarkers")
+            if markers then
+                for _, mk in ipairs(markers:GetChildren()) do
+                    for _, ch in ipairs(workspace:GetChildren()) do
+                        -- skip; monsters spawn at runtime
+                    end
+                end
+            end
+        end
+    end
+
+    -- Loose hostile models directly under workspace
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if isHostileModel(obj) then table.insert(out, obj) end
+    end
+
+    -- Also scan Workspace._Guards container if present
+    local guardsFolder = workspace:FindFirstChild("_Guards")
+    if guardsFolder then
+        for _, g in ipairs(guardsFolder:GetChildren()) do
+            if isHostileModel(g) then table.insert(out, g) end
+        end
+    end
+
+    return out
+end
+
+local function findNearestFarmTarget()
+    local char = LP.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local myPos = root.Position
+
+    local best, bestDist = nil, farmRadius
+    for _, m in ipairs(collectFarmCandidates()) do
+        if isHostileModel(m) then
+            local mRoot = getFarmRoot(m)
+            if mRoot then
+                local d = (mRoot.Position - myPos).Magnitude
+                if d < bestDist then
+                    best, bestDist = m, d
+                end
+            end
+        end
+    end
+    return best, bestDist
+end
+
+local function equipFarmWeapon()
+    local char = LP.Character
+    if not char then return nil end
+
+    local equipped = char:FindFirstChildOfClass("Tool")
+    if equipped then return equipped end
+
+    local backpack = LP:FindFirstChild("Backpack")
+    if not backpack then return nil end
+
+    for _, key in ipairs(FARM_PRIORITY_WEAPONS) do
+        for _, tool in ipairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") and tool.Name:lower():find(key:lower(), 1, true) then
+                tool.Parent = char
+                return tool
+            end
+        end
+    end
+
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") then
+            tool.Parent = char
+            return tool
+        end
+    end
+    return nil
+end
+
+local function farmStep(dt)
+    if not farmOn then return end
+    local char = LP.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local target = findNearestFarmTarget()
+    if not target then return end
+
+    local tRoot = getFarmRoot(target)
+    if not tRoot then return end
+
+    local tool = nil
+    if farmAutoEquip then tool = equipFarmWeapon() end
+
+    local myPos = root.Position
+    local tPos  = tRoot.Position
+    local delta = tPos - myPos
+    local mag   = delta.Magnitude
+
+    if mag > 6 then
+        local step = math.min(farmSpeed * dt, mag - 4)
+        local newPos = myPos + delta.Unit * step
+        root.CFrame = CFrame.lookAt(newPos, Vector3.new(tPos.X, newPos.Y, tPos.Z))
+        root.AssemblyLinearVelocity  = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    else
+        root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
+        if farmAttack and tool then
+            pcall(function() tool:Activate() end)
+        end
+    end
+end
+
+local function enableFarm()
+    if farmOn then return end
+    farmOn = true
+    disconnect(farmConn)
+    farmConn = RunService.Heartbeat:Connect(farmStep)
+end
+
+local function disableFarm()
+    if not farmOn then return end
+    farmOn = false
+    disconnect(farmConn); farmConn = nil
+end
+
+--============================================================--
 -- FPS BOOST
 --============================================================--
 local boostOn, boostBusy = false, false
@@ -1233,7 +1477,7 @@ local function handleAntiDeath()
     antiOn = false
     stopAnti()
     if setAntiToggleVisual then pcall(setAntiToggleVisual, false) end
-    notify("Hyko • Anti-Ragdoll", "Character respawned — Anti-Ragdoll disabled", 3)
+    notify("Hyko • Anti-Ragdoll", "Character respawned - Anti-Ragdoll disabled", 3)
 end
 
 --============================================================--
@@ -1327,7 +1571,7 @@ task.spawn(function()
 end)
 
 --============================================================--
--- UI WIRING — Visuals
+-- UI WIRING - Visuals
 --============================================================--
 Window:AddSection({ Name = "Player Visuals", Tab = Visuals })
 
@@ -1404,7 +1648,7 @@ do
 end
 
 --============================================================--
--- UI WIRING — Utility
+-- UI WIRING - Utility
 --============================================================--
 Window:AddSection({ Name = "Protection", Tab = Utility })
 Window:AddParagraph({
@@ -1444,6 +1688,27 @@ Window:AddSlider({
     Callback = function(v) antiSpeed = v end,
 })
 
+Window:AddParagraph({
+    Title       = "God Mode",
+    Description = "Continuously maintains max/current health at a very high value.\nNo animations or visuals changed.",
+    Tab         = Utility,
+})
+
+Window:AddToggle({
+    Title = "Enable God Mode",
+    Description = "Keep your character at maximum health at all times",
+    Tab = Utility, Default = false,
+    Callback = function(state)
+        if state then
+            startGodMode()
+            notify("Hyko • God Mode", "God Mode enabled", 3)
+        else
+            stopGodMode()
+            notify("Hyko • God Mode", "God Mode disabled", 3)
+        end
+    end,
+})
+
 Window:AddSection({ Name = "Interaction", Tab = Utility })
 Window:AddParagraph({
     Title       = "Fast Loot",
@@ -1481,7 +1746,63 @@ Window:AddSlider({
 })
 
 --============================================================--
--- SERVER HOP TAB (integrated — no icons)
+-- UI WIRING - Auto Farm
+--============================================================--
+Window:AddSection({ Name = "Auto Farm Event", Tab = Farm })
+
+Window:AddParagraph({
+    Title       = "Auto Farm Event",
+    Description = "Automatically equips a weapon, moves to the nearest hostile unit at the configured speed, and attacks it. Hostile units include Guard areas, Dr. Scramble event monsters, and hostile NPCs with a Humanoid.",
+    Tab         = Farm,
+})
+
+Window:AddToggle({
+    Title = "Enable Auto Farm",
+    Description = "Automatically engage the nearest hostile unit",
+    Tab = Farm, Default = false,
+    Callback = function(state)
+        if state then
+            enableFarm()
+            notify("Hyko • Auto Farm", "Auto Farm enabled (speed " .. tostring(farmSpeed) .. ")", 3)
+        else
+            disableFarm()
+            notify("Hyko • Auto Farm", "Auto Farm disabled", 3)
+        end
+    end,
+})
+
+Window:AddSlider({
+    Title = "Movement Speed",
+    Description = "Travel speed when approaching a target (studs/s, default 500)",
+    Tab = Farm,
+    MinValue = 50, MaxValue = 2000, Default = 500, AllowDecimals = false,
+    Callback = function(v) farmSpeed = v end,
+})
+
+Window:AddSlider({
+    Title = "Search Radius",
+    Description = "Maximum distance to search for targets (studs)",
+    Tab = Farm,
+    MinValue = 100, MaxValue = 10000, Default = 3000, AllowDecimals = false,
+    Callback = function(v) farmRadius = v end,
+})
+
+Window:AddToggle({
+    Title = "Auto Equip Weapon",
+    Description = "Automatically equip the best available weapon from the Backpack",
+    Tab = Farm, Default = true,
+    Callback = function(state) farmAutoEquip = state end,
+})
+
+Window:AddToggle({
+    Title = "Auto Attack",
+    Description = "Activate the equipped tool while in melee range of the target",
+    Tab = Farm, Default = true,
+    Callback = function(state) farmAttack = state end,
+})
+
+--============================================================--
+-- SERVER HOP TAB (integrated - no icons)
 --============================================================--
 local hopState = {
     autoOn        = false,
@@ -1662,7 +1983,7 @@ Window:AddButton({
             for i = 1, topN do
                 local srv = filtered[i]
                 local sid = tostring(srv.id)
-                local label = string.format("Server %d — %d/%d players",
+                local label = string.format("Server %d - %d/%d players",
                     i, srv.playing or 0, srv.maxPlayers or 0)
 
                 Window:AddButton({
@@ -1676,7 +1997,7 @@ Window:AddButton({
                 })
             end
 
-            notify("Hyko • Server List", tostring(#filtered) .. " servers found — top " .. topN .. " listed", 4)
+            notify("Hyko • Server List", tostring(#filtered) .. " servers found - top " .. topN .. " listed", 4)
         end)
     end,
 })
@@ -1746,7 +2067,7 @@ Window:AddButton({
 })
 
 --============================================================--
--- UI WIRING — Settings
+-- UI WIRING - Settings
 --============================================================--
 Window:AddSection({ Name = "Appearance", Tab = Settings })
 
@@ -1783,7 +2104,7 @@ Window:AddToggle({
     Tab = Settings, Default = false,
     Callback = function(state)
         if state then enableBoost(); notify("Hyko • FPS Boost", "FPS Boost enabled", 3)
-        else disableBoost(); notify("Hyko • FPS Boost", "FPS Boost disabled — restored", 3) end
+        else disableBoost(); notify("Hyko • FPS Boost", "FPS Boost disabled - restored", 3) end
     end,
 })
 
@@ -1946,7 +2267,9 @@ LP.CharacterAdded:Connect(function(char)
         task.wait(0.2)
         handleAntiDeath()
     end
-    task.wait(0.5)
+    task.wait(0.2)
+    if godModeOn then applyGodHealth(char) end
+    task.wait(0.3)
     if bgEnabled then attachBackground() end
 end)
 
@@ -1956,6 +2279,7 @@ do
         if not hum then return end
         hum.Died:Connect(function()
             handleAntiDeath()
+            -- God Mode will reapply on CharacterAdded
         end)
     end
     if LP.Character then watchHum(LP.Character) end
@@ -1964,6 +2288,6 @@ end
 
 notify(
     "Hyko Loaded",
-    "ESP • Anti-Ragdoll • Loot • FPS Boost • Server Hop\nBackground & Show-UI ready",
+    "ESP • Anti-Ragdoll • God Mode • Auto Farm • Loot • FPS Boost • Server Hop",
     8
 )
