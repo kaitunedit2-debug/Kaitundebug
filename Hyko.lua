@@ -1,41 +1,16 @@
 --// MEGA v15 — Dual Anti-NPC: v6.1 (mềm) ⇄ v6.2 (cứng) — cả 2 mặc định TẮT
---// + Tương thích đa executor (Xeno / Synapse / Krnl / Fluxus / Solara / Delta / Codex ...)
+--// • Toggle 1: v6.1 — anchor HRP + Humanoid off + CanCollide off + filter AlertGui theo tên
+--// • Toggle 2: v6.2 — thêm CFrame-lock mỗi Heartbeat, TouchTransmitter destroy,
+--//              CanTouch/CanQuery off, part đặc biệt (Collider/EggPoint/CENTER/HeadProxy),
+--//              tắt MỌI BillboardGui, tắt CanTouch trên player char
+--// • Loại trừ nhau: bật cái này tự tắt cái kia (unlock toàn bộ trước khi đổi)
+--// • Cả 2 OFF khi script mới load
 
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
 local LP               = Players.LocalPlayer
-
---============================================================--
--- [0] EXECUTOR COMPAT LAYER
---============================================================--
-local EXEC = {
-	hookmetamethod   = type(hookmetamethod)   == "function" and hookmetamethod   or nil,
-	getnamecallmethod= type(getnamecallmethod)=="function" and getnamecallmethod or nil,
-	getrawmetatable  = type(getrawmetatable)  == "function" and getrawmetatable  or nil,
-	setreadonly      = type(setreadonly)      == "function" and setreadonly      or nil,
-	newcclosure      = type(newcclosure)      == "function" and newcclosure      or nil,
-	fireprompt       = type(fireproximityprompt) == "function" and fireproximityprompt or nil,
-}
-
--- fallback cho fireproximityprompt nếu executor không có
-if not EXEC.fireprompt then
-	local genv = (type(getgenv) == "function") and getgenv() or _G
-	if type(genv.fireproximityprompt) == "function" then
-		EXEC.fireprompt = genv.fireproximityprompt
-	else
-		EXEC.fireprompt = function(p)
-			pcall(function()
-				if type(p.InputHoldBegin) == "function" then
-					p:InputHoldBegin()
-					task.wait(0.05)
-					p:InputHoldEnd()
-				end
-			end)
-		end
-	end
-end
 
 --============================================================--
 -- [A] READ INPUT
@@ -97,73 +72,37 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 			end
 		end
 	end
-	if best then pcall(EXEC.fireprompt, best) end
+	if best then pcall(function() fireproximityprompt(best) end) end
 end)
 
 --============================================================--
--- [C] HOOK namecall — resilient install
+-- [C] HOOK namecall
 --============================================================--
 local blockRouse = true
-local blockedNames = {
-	Rouse = true, ForestStrike = true, ForestHandoff = true,
-	Alert = true, Wake = true, Chase = true, Detect = true,
-	SpeedTollOffer = true, SpeedTollWarning = true,
-}
 
-local function shouldBlock(self, method)
-	if not blockRouse then return false end
-	if method ~= "FireServer" then return false end
-	if typeof(self) ~= "Instance" then return false end
-	return blockedNames[self.Name] == true
-end
-
-local hookInstalled = false
-
--- Cách 1: hookmetamethod (Xeno, Synapse, Krnl, Fluxus, Solara, Delta, Codex, ...)
-if EXEC.hookmetamethod and EXEC.getnamecallmethod then
-	hookInstalled = pcall(function()
-		local old
-		old = EXEC.hookmetamethod(game, "__namecall", function(self, ...)
-			local ok, method = pcall(EXEC.getnamecallmethod)
-			if ok and shouldBlock(self, method) then return end
-			return old(self, ...)
-		end)
-	end)
-end
-
--- Cách 2: getrawmetatable fallback
-if not hookInstalled and EXEC.getrawmetatable then
-	hookInstalled = pcall(function()
-		local ok, mt = pcall(EXEC.getrawmetatable, game)
-		if not ok or not mt or not mt.__namecall then error("no mt") end
-		local oldNC = mt.__namecall
-		if EXEC.setreadonly then pcall(EXEC.setreadonly, mt, false) end
-		local wrapper = function(self, ...)
-			local method = ""
-			if EXEC.getnamecallmethod then
-				local ok2, m = pcall(EXEC.getnamecallmethod)
-				if ok2 then method = m end
-			end
-			if shouldBlock(self, method) then return end
-			return oldNC(self, ...)
+local mt = getrawmetatable(game)
+local oldNC = mt.__namecall
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(self, ...)
+	local m = getnamecallmethod()
+	if blockRouse and m == "FireServer" and typeof(self) == "Instance" then
+		local n = self.Name
+		if n == "Rouse" or n == "ForestStrike" or n == "ForestHandoff"
+		or n == "Alert" or n == "Wake" or n == "Chase" or n == "Detect"
+		or n == "SpeedTollOffer" or n == "SpeedTollWarning" then
+			return
 		end
-		if EXEC.newcclosure then wrapper = EXEC.newcclosure(wrapper) end
-		mt.__namecall = wrapper
-		if EXEC.setreadonly then pcall(EXEC.setreadonly, mt, true) end
-	end)
-end
-
-if not hookInstalled then
-	warn("[MEGA v15] Executor không hỗ trợ hook namecall — Block Rouse sẽ tự tắt.")
-	blockRouse = false
-end
+	end
+	return oldNC(self, ...)
+end)
+setreadonly(mt, true)
 
 --============================================================--
 -- [D] ANTI-NPC — 2 MODE (loại trừ nhau, cả 2 mặc định OFF)
 --============================================================--
-local antiMode      = "off"
-local frozenNPCs    = {}
-local lockedCFrames = {}
+local antiMode      = "off"   -- "off" | "v61" | "v62"
+local frozenNPCs    = {}      -- [model] = data
+local lockedCFrames = {}      -- [model] = CFrame (chỉ v62 dùng)
 local playerChrs    = {}
 
 local function refreshPlayerChrs()
@@ -202,6 +141,7 @@ local function lockNPC_v61(npc)
 
 	local data = { mode = "v61", collides = {}, alerts = {}, vfx = {} }
 
+	-- 1) Network ownership + anchor
 	if hrp and hrp:IsA("BasePart") then
 		data.hrp = hrp
 		data.origAnchored = hrp.Anchored
@@ -211,6 +151,7 @@ local function lockNPC_v61(npc)
 		end)
 	end
 
+	-- 2) Humanoid off
 	if hum then
 		data.hum = hum
 		data.origWalk = hum.WalkSpeed
@@ -222,6 +163,7 @@ local function lockNPC_v61(npc)
 		end)
 	end
 
+	-- 3) CanCollide off
 	for _, p in ipairs(npc:GetDescendants()) do
 		if p:IsA("BasePart") and p.CanCollide then
 			data.collides[p] = p.CanCollide
@@ -234,6 +176,7 @@ local function lockNPC_v61(npc)
 		pcall(function() collider.CanCollide = false end)
 	end
 
+	-- 4) AlertGui: filter theo tên alert/warn/detect
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("BillboardGui") and (d.Name:lower():find("alert")
 			or d.Name:lower():find("warn") or d.Name:lower():find("detect")) then
@@ -245,6 +188,7 @@ local function lockNPC_v61(npc)
 		end
 	end
 
+	-- 5) VFX detection
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("ParticleEmitter") and d.Enabled then
 			local nm = d.Name:lower()
@@ -273,6 +217,7 @@ local function lockNPC_v62(npc)
 
 	local data = { mode = "v62", parts = {}, alerts = {}, vfx = {} }
 
+	-- 1) Network owner: unanchor → set owner → anchor → lock CFrame
 	if hrp and hrp:IsA("BasePart") then
 		data.hrp = hrp
 		data.origAnchored = hrp.Anchored
@@ -289,6 +234,7 @@ local function lockNPC_v62(npc)
 		lockedCFrames[npc] = hrp.CFrame
 	end
 
+	-- 2) Humanoid off toàn diện
 	if hum then
 		data.hum = hum
 		data.origWalk = hum.WalkSpeed
@@ -306,6 +252,7 @@ local function lockNPC_v62(npc)
 		end)
 	end
 
+	-- 3) CanCollide / CanTouch / CanQuery off trên MỌI part
 	for _, p in ipairs(npc:GetDescendants()) do
 		if p:IsA("BasePart") then
 			table.insert(data.parts, {
@@ -321,12 +268,14 @@ local function lockNPC_v62(npc)
 		end
 	end
 
+	-- 4) Destroy TouchTransmitter
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("TouchTransmitter") then
 			pcall(function() d:Destroy() end)
 		end
 	end
 
+	-- 5) Vô hiệu part đặc biệt
 	for _, nm in ipairs({"Collider", "EggPoint", "CENTER", "HeadProxy"}) do
 		local pt = npc:FindFirstChild(nm)
 		if pt and pt:IsA("BasePart") then
@@ -344,6 +293,7 @@ local function lockNPC_v62(npc)
 		end
 	end
 
+	-- 6) TẮT MỌI BillboardGui + dừng sound
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("BillboardGui") then
 			data.alerts[d] = d.Enabled
@@ -354,6 +304,7 @@ local function lockNPC_v62(npc)
 		end
 	end
 
+	-- 7) VFX detection
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("ParticleEmitter") and d.Enabled then
 			local nm = d.Name:lower()
@@ -369,7 +320,7 @@ local function lockNPC_v62(npc)
 end
 
 --------------------------------------------------------------
--- UNLOCK
+-- UNLOCK (dùng chung cho cả 2)
 --------------------------------------------------------------
 local function unlockNPC(npc)
 	local data = frozenNPCs[npc]
@@ -456,6 +407,7 @@ local function scanAllNPCs()
 	return found
 end
 
+-- CanTouch=false cho player char (chỉ v62)
 local function applyPlayerNoTouch()
 	if antiMode ~= "v62" then return end
 	local c = LP.Character
@@ -585,6 +537,7 @@ closeBtn.ZIndex = 4
 mkCorner(closeBtn, 12)
 closeBtn.MouseButton1Click:Connect(function() Window.Visible = false end)
 
+-- Kéo cửa sổ
 local dragging, dragStart, startPos
 header.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -879,7 +832,7 @@ makeToggle(boostCard, "Invisible", false, 34, function(state)
 end)
 y = y + 62 + gap
 
--- ANTI-NPC card
+-- ANTI-NPC card: 2 anti + block rouse = 88px
 local protCard = makeCard(y, 88)
 
 local anti61Handle, anti62Handle
@@ -902,7 +855,7 @@ anti62Handle = makeToggle(protCard, "Anti-NPC v6.2 (cứng)", false, 34, functio
 	if state then switchAntiMode("v62") else switchAntiMode("off") end
 end)
 
-makeToggle(protCard, "Block Rouse", blockRouse, 60, function(state)
+makeToggle(protCard, "Block Rouse", true, 60, function(state)
 	blockRouse = state
 end)
 
@@ -1175,5 +1128,3 @@ LP.CharacterAdded:Connect(function()
 end)
 
 print("[MEGA v15] Loaded • v6.1 ⇄ v6.2 dual anti-NPC (cả 2 OFF) + Speed + ESP + Loot")
-print("[MEGA v15] Hook namecall: " .. (hookInstalled and "OK" or "FAILED (Block Rouse disabled)"))
-print("[MEGA v15] fireproximityprompt: " .. (EXEC.fireprompt and "OK" or "fallback"))
