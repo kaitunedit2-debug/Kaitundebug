@@ -1,15 +1,93 @@
 --// Hyko Suite — Dual Anti-NPC (v6.1 ⇄ v6.2) + Server Hop + NPC Blocker
+--// Executor-agnostic: Xeno / Delta / Synapse / Script-Ware / Fluxus / Solara / Wave / etc.
 --// Lucide icons • Auto-sync shadow • Optimized lock loops
 
-local Players          = game:GetService("Players")
-local RunService       = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService     = game:GetService("TweenService")
-local HttpService      = game:GetService("HttpService")
-local TeleportService  = game:GetService("TeleportService")
-local PhysicsService   = game:GetService("PhysicsService")
-local LP               = Players.LocalPlayer
-local PlaceId          = game.PlaceId
+--============================================================--
+-- [0] EXECUTOR COMPATIBILITY LAYER
+--============================================================--
+local cloneref = cloneref or function(o) return o end
+local function safeService(name)
+	local ok, s = pcall(function() return cloneref(game:GetService(name)) end)
+	if ok and s then return s end
+	return game:GetService(name)
+end
+
+local Players          = safeService("Players")
+local RunService       = safeService("RunService")
+local UserInputService = safeService("UserInputService")
+local TweenService     = safeService("TweenService")
+local HttpService      = safeService("HttpService")
+local TeleportService  = safeService("TeleportService")
+local PhysicsService   = safeService("PhysicsService")
+
+local LP        = Players.LocalPlayer
+local PlaceId   = game.PlaceId
+
+-- Executor function aliases (works across Xeno, Delta, Synapse, SW, Fluxus, ...)
+local rawgetmt          = rawgetmetatable
+	or (debug and debug.getmetatable)
+	or getrawmetatable
+local setreadonlyFn     = setreadonly
+	or make_writeable
+	or (debug and debug.setreadonly)
+local newcclosureFn     = newcclosure
+	or (function(f) return f end)
+local getnamecallFn     = getnamecallmethod
+	or (function() return "" end)
+
+-- HTTP GET wrapper — try every known executor API before falling back
+local function httpGet(url)
+	-- Synapse / Script-Ware / KRNL
+	if syn and syn.request then
+		local ok, res = pcall(syn.request, {Url = url, Method = "GET"})
+		if ok and res and res.Body then return res.Body end
+	end
+	-- Xeno / Solara / Wave / generic `request`
+	if request then
+		local ok, res = pcall(request, {Url = url, Method = "GET"})
+		if ok and res and res.Body then return res.Body end
+	end
+	-- Fluxus / older
+	if http_request then
+		local ok, res = pcall(http_request, {Url = url, Method = "GET"})
+		if ok and res and res.Body then return res.Body end
+	end
+	if http and http.request then
+		local ok, res = pcall(http.request, {Url = url, Method = "GET"})
+		if ok and res and res.Body then return res.Body end
+	end
+	-- Native Roblox (available on Xeno + most modern execs)
+	if game.HttpGet then
+		local ok, res = pcall(function() return game:HttpGet(url) end)
+		if ok and type(res) == "string" then return res end
+	end
+	if game.HttpGetAsync then
+		local ok, res = pcall(function() return game:HttpGetAsync(url) end)
+		if ok and type(res) == "string" then return res end
+	end
+	return nil
+end
+
+-- fireproximityprompt wrapper
+local fireProxPrompt = fireproximityprompt
+	or (fireproximityprompt and function(p) fireproximityprompt(p) end)
+	or nil
+
+local function doFireProximityPrompt(prompt)
+	if not prompt then return end
+	if fireProxPrompt then
+		pcall(fireProxPrompt, prompt)
+		return
+	end
+	-- Fallback: use built-in methods (works on some executors without fireproximityprompt)
+	if prompt.InputHoldBegin and prompt.InputHoldEnd then
+		pcall(function()
+			prompt:InputHoldBegin()
+			task.wait()
+			prompt:InputHoldEnd()
+		end)
+	end
+end
 
 local Icons = {
 	Close    = "rbxassetid://10747384394",
@@ -85,29 +163,44 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 			end
 		end
 	end
-	if best then pcall(function() fireproximityprompt(best) end) end
+	if best then doFireProximityPrompt(best) end
 end)
 
 --============================================================--
--- [C] NAMECALL HOOK
+-- [C] NAMECALL HOOK  (fully optional — skips if executor unsupported)
 --============================================================--
 local blockRouse = true
-local mt = getrawmetatable(game)
-local oldNC = mt.__namecall
-setreadonly(mt, false)
-mt.__namecall = newcclosure(function(self, ...)
-	local m = getnamecallmethod()
-	if blockRouse and m == "FireServer" and typeof(self) == "Instance" then
-		local n = self.Name
-		if n == "Rouse" or n == "ForestStrike" or n == "ForestHandoff"
-		or n == "Alert" or n == "Wake" or n == "Chase" or n == "Detect"
-		or n == "SpeedTollOffer" or n == "SpeedTollWarning" then
-			return
-		end
+local hookInstalled = false
+
+local hookOk, hookErr = pcall(function()
+	if not rawgetmt or not setreadonlyFn then
+		error("executor missing metatable APIs")
 	end
-	return oldNC(self, ...)
+	local mt = rawgetmt(game)
+	if not mt then error("no metatable") end
+	local oldNC = mt.__namecall
+	if not oldNC then error("no __namecall") end
+
+	setreadonlyFn(mt, false)
+	mt.__namecall = newcclosureFn(function(self, ...)
+		local m = getnamecallFn()
+		if blockRouse and m == "FireServer" and typeof(self) == "Instance" then
+			local n = self.Name
+			if n == "Rouse" or n == "ForestStrike" or n == "ForestHandoff"
+			or n == "Alert" or n == "Wake" or n == "Chase" or n == "Detect"
+			or n == "SpeedTollOffer" or n == "SpeedTollWarning" then
+				return
+			end
+		end
+		return oldNC(self, ...)
+	end)
+	setreadonlyFn(mt, true)
+	hookInstalled = true
 end)
-setreadonly(mt, true)
+
+if not hookOk then
+	warn("[Hyko Suite] Namecall hook skipped: " .. tostring(hookErr))
+end
 
 --============================================================--
 -- [D] HELPERS
@@ -355,7 +448,7 @@ local function applyPlayerNoTouch()
 end
 
 --============================================================--
--- [E2] NPC BLOCKER — cầu chắn quái quanh player
+-- [E2] NPC BLOCKER
 --============================================================--
 local BLOCKER_GROUP = "HykoNPCBlocker"
 local PLAYER_GROUP  = "HykoPlayerParts"
@@ -649,13 +742,14 @@ end)
 --============================================================--
 -- [H] UI
 --============================================================--
-local ScreenGui = LP:WaitForChild("PlayerGui"):FindFirstChild("HykoGui")
+local PlayerGui = LP:WaitForChild("PlayerGui")
+local ScreenGui = PlayerGui:FindFirstChild("HykoGui")
 if not ScreenGui then
 	ScreenGui = Instance.new("ScreenGui")
 	ScreenGui.Name = "HykoGui"
 	ScreenGui.ResetOnSpawn = false
 	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	ScreenGui.Parent = LP:WaitForChild("PlayerGui")
+	ScreenGui.Parent = PlayerGui
 end
 local oldUI = ScreenGui:FindFirstChild("HykoWindow")
 if oldUI then oldUI:Destroy() end
@@ -1319,7 +1413,6 @@ makeToggle(boostCard, "Invisible", false, 6 + ROW_H,
 		setInvis(invisOn)
 	end)
 
--- protCard cao hơn để chứa 3 toggle + slider Blocker
 local protCard = makeCard(MainContent, 164, 160)
 local anti61Handle, anti62Handle
 
@@ -1604,7 +1697,7 @@ local function clearServerCards()
 end
 
 local function teleportToServer(serverId)
-	if not serverId then return false end
+	if not serverId then return false, "no server id" end
 	local ok, err = pcall(function()
 		TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
 	end)
@@ -1700,8 +1793,8 @@ end
 local function fetchServers()
 	local url = "https://games.roblox.com/v1/games/" .. PlaceId
 		.. "/servers/Public?sortOrder=Asc&limit=100"
-	local ok, raw = pcall(function() return game:HttpGet(url) end)
-	if not ok or not raw or raw == "" then return nil end
+	local raw = httpGet(url)
+	if not raw or raw == "" then return nil end
 	local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
 	if not ok2 or not data or not data.data then return nil end
 	return data.data
@@ -1712,7 +1805,7 @@ local function updateServerList()
 	task.spawn(function()
 		local servers = fetchServers()
 		if not servers or #servers == 0 then
-			StatusLabel.Text = "No servers found"
+			StatusLabel.Text = "No servers found (executor HTTP?)"
 			StatusLabel.TextColor3 = P.red
 			return
 		end
@@ -1889,4 +1982,7 @@ end)
 
 tagAllPlayerParts()
 
-print("[Hyko Suite] Loaded · Lucide UI · Auto-sync shadow · NPC Blocker")
+print("[Hyko Suite] Loaded · Executor-agnostic · Namecall hook:",
+	hookInstalled and "ON" or "OFF",
+	"· HTTP:", httpGet ~= nil and "OK" or "NONE",
+	"· fireproximityprompt:", fireProxPrompt and "OK" or "MISSING")
