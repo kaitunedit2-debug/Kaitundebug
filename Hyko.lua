@@ -1,4 +1,4 @@
---// Hyko Suite — Dual Anti-NPC (v6.1 ⇄ v6.2) + Server Hop
+--// Hyko Suite — Dual Anti-NPC (v6.1 ⇄ v6.2) + Server Hop + NPC Blocker
 --// Lucide icons • Auto-sync shadow • Optimized lock loops
 
 local Players          = game:GetService("Players")
@@ -7,6 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
 local HttpService      = game:GetService("HttpService")
 local TeleportService  = game:GetService("TeleportService")
+local PhysicsService   = game:GetService("PhysicsService")
 local LP               = Players.LocalPlayer
 local PlaceId          = game.PlaceId
 
@@ -354,6 +355,70 @@ local function applyPlayerNoTouch()
 end
 
 --============================================================--
+-- [E2] NPC BLOCKER — cầu chắn quái quanh player
+--============================================================--
+local BLOCKER_GROUP = "HykoNPCBlocker"
+local PLAYER_GROUP  = "HykoPlayerParts"
+
+pcall(function() PhysicsService:RegisterCollisionGroup(BLOCKER_GROUP) end)
+pcall(function() PhysicsService:RegisterCollisionGroup(PLAYER_GROUP) end)
+pcall(function()
+	PhysicsService:CollisionGroupSetCollidable(BLOCKER_GROUP, PLAYER_GROUP, false)
+end)
+
+local blockerSize = 18
+local blockerPart = nil
+
+local function tagAllPlayerParts()
+	for _, plr in ipairs(Players:GetPlayers()) do
+		local c = plr.Character
+		if c then
+			for _, d in ipairs(c:GetDescendants()) do
+				if d:IsA("BasePart") and d.CollisionGroup ~= PLAYER_GROUP then
+					pcall(function() d.CollisionGroup = PLAYER_GROUP end)
+				end
+			end
+		end
+	end
+end
+
+local function ensureBlocker()
+	if blockerPart and blockerPart.Parent then return blockerPart end
+	local p = Instance.new("Part")
+	p.Name = "HykoNPCBlocker"
+	p.Shape = Enum.PartType.Ball
+	p.Size = Vector3.new(blockerSize, blockerSize, blockerSize)
+	p.Anchored = true
+	p.CanCollide = true
+	p.CanTouch = true
+	p.CanQuery = false
+	p.CastShadow = false
+	p.Transparency = 1
+	p.Massless = true
+	p.CollisionGroup = BLOCKER_GROUP
+	p.Parent = workspace
+	blockerPart = p
+	return p
+end
+
+local function removeBlocker()
+	if blockerPart then pcall(function() blockerPart:Destroy() end) end
+	blockerPart = nil
+end
+
+local function updateBlocker()
+	if antiMode ~= "v62" then removeBlocker(); return end
+	local c = LP.Character
+	local hrp = c and c:FindFirstChild("HumanoidRootPart")
+	if not hrp then removeBlocker(); return end
+	local p = ensureBlocker()
+	if p.Size.X ~= blockerSize then
+		p.Size = Vector3.new(blockerSize, blockerSize, blockerSize)
+	end
+	p.CFrame = CFrame.new(hrp.Position)
+end
+
+--============================================================--
 -- [F] INVISIBLE
 --============================================================--
 local invisOn = false
@@ -621,11 +686,10 @@ local P = {
 }
 
 local WINDOW_W      = 340
-local WINDOW_H      = 540
+local WINDOW_H      = 600
 local WINDOW_H_MINI = 64
 local SHADOW_PAD    = 8
 
--- Auto-sync shadow (small, matches window)
 local Shadow = Instance.new("Frame", ScreenGui)
 Shadow.Name = "HykoShadow"
 Shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -726,7 +790,6 @@ subtitle.TextSize = 10
 subtitle.TextXAlignment = Enum.TextXAlignment.Left
 subtitle.ZIndex = 4
 
--- Minimize button (drawn − / +)
 local minBtn = Instance.new("TextButton", header)
 minBtn.Size = UDim2.fromOffset(28, 28)
 minBtn.Position = UDim2.new(1, -68, 0, 16)
@@ -754,7 +817,6 @@ minBarV.Visible = false
 minBarV.ZIndex = 5
 mkCorner(minBarV, 1)
 
--- Close button
 local closeBtn = Instance.new("TextButton", header)
 closeBtn.Size = UDim2.fromOffset(28, 28)
 closeBtn.Position = UDim2.new(1, -36, 0, 16)
@@ -775,7 +837,6 @@ closeIcon.ZIndex = 5
 
 closeBtn.MouseButton1Click:Connect(function() Window.Visible = false end)
 
--- Drag
 local dragging, dragStart, startPos
 header.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -801,7 +862,6 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- Divider
 local divider = Instance.new("Frame", Window)
 divider.Size = UDim2.new(1, -32, 0, 1)
 divider.Position = UDim2.fromOffset(16, 60)
@@ -829,7 +889,6 @@ tabIndicator.ZIndex = 4
 mkCorner(tabIndicator, 8)
 mkStroke(tabIndicator, P.borderSoft, 0.2, 1)
 
--- Tab button with centered inner container (icon + label grouped, no overlap)
 local function makeTabButton(parent, text, iconId, xScale)
 	local btn = Instance.new("TextButton", parent)
 	btn.Size = UDim2.new(0.5, 0, 1, 0)
@@ -956,9 +1015,9 @@ end)
 --============================================================--
 -- [I] UI BUILDERS
 --============================================================--
-local ROW_H = 34          -- toggle row height
-local BADGE = 22          -- icon badge size
-local LABEL_X = 48        -- label start X (badge 14..36 + 12 gap)
+local ROW_H = 34
+local BADGE = 22
+local LABEL_X = 48
 
 local function makeCard(parent, yPos, height)
 	local card = Instance.new("Frame", parent)
@@ -1260,7 +1319,8 @@ makeToggle(boostCard, "Invisible", false, 6 + ROW_H,
 		setInvis(invisOn)
 	end)
 
-local protCard = makeCard(MainContent, 164, 114)
+-- protCard cao hơn để chứa 3 toggle + slider Blocker
+local protCard = makeCard(MainContent, 164, 160)
 local anti61Handle, anti62Handle
 
 local function switchAntiMode(newMode)
@@ -1270,7 +1330,12 @@ local function switchAntiMode(newMode)
 	antiMode = newMode
 	anti61Handle.setState(newMode == "v61")
 	anti62Handle.setState(newMode == "v62")
-	if newMode == "v62" then applyPlayerNoTouch() end
+	if newMode == "v62" then
+		applyPlayerNoTouch()
+		tagAllPlayerParts()
+	else
+		removeBlocker()
+	end
 end
 
 anti61Handle = makeToggle(protCard, "Anti-NPC · Soft (v6.1)", false, 6,
@@ -1288,7 +1353,15 @@ makeToggle(protCard, "Block Rouse", true, 6 + ROW_H * 2,
 		blockRouse = state
 	end)
 
-local espCard = makeCard(MainContent, 286, 80)
+makeSlider(protCard, "Blocker Size", 6, 80, 18, 6 + ROW_H * 3,
+	Icons.Check, P.purpleSoft, P.purple, function(val)
+		blockerSize = val
+		if blockerPart and blockerPart.Parent then
+			blockerPart.Size = Vector3.new(val, val, val)
+		end
+	end)
+
+local espCard = makeCard(MainContent, 332, 80)
 makeToggle(espCard, "Player ESP", false, 6,
 	Icons.Players, P.accentSoft, P.accent, function(state)
 		if state then enableESP() else disableESP() end
@@ -1379,7 +1452,6 @@ MaxBox.TextXAlignment = Enum.TextXAlignment.Center
 MaxBox.ZIndex = 6
 mkCorner(MaxBox, 6)
 
--- Hop Now button
 local HopBtn = Instance.new("TextButton", HopContent)
 HopBtn.Position = UDim2.fromOffset(0, 132)
 HopBtn.Size = UDim2.new(0.48, 0, 0, 40)
@@ -1416,7 +1488,6 @@ hopText.TextSize = 11
 hopText.TextXAlignment = Enum.TextXAlignment.Left
 hopText.ZIndex = 7
 
--- Auto button
 local AutoBtn = Instance.new("TextButton", HopContent)
 AutoBtn.Position = UDim2.new(0.52, 0, 0, 132)
 AutoBtn.Size = UDim2.new(0.48, 0, 0, 40)
@@ -1454,7 +1525,6 @@ autoText.TextSize = 11
 autoText.TextXAlignment = Enum.TextXAlignment.Left
 autoText.ZIndex = 7
 
--- Search bar
 local SearchBar = Instance.new("Frame", HopContent)
 SearchBar.Position = UDim2.fromOffset(0, 180)
 SearchBar.Size = UDim2.new(1, 0, 0, 36)
@@ -1505,7 +1575,6 @@ refreshIcon.ImageColor3 = P.accent
 refreshIcon.ScaleType = Enum.ScaleType.Fit
 refreshIcon.ZIndex = 7
 
--- Server list
 local ServerListFrame = Instance.new("Frame", HopContent)
 ServerListFrame.Position = UDim2.fromOffset(0, 224)
 ServerListFrame.Size = UDim2.new(1, 0, 1, -224)
@@ -1784,7 +1853,7 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-	while task.wait(0.4) do
+	while task.wait(0.1) do
 		if antiMode ~= "off" then
 			local list = scanAllNPCs()
 			for _, npc in ipairs(list) do
@@ -1794,8 +1863,12 @@ task.spawn(function()
 					pcall(lockNPC_v62, npc)
 				end
 			end
-			if antiMode == "v62" then applyPlayerNoTouch() end
+			if antiMode == "v62" then
+				applyPlayerNoTouch()
+				tagAllPlayerParts()
+			end
 		end
+		updateBlocker()
 		if invisOn then setInvis(true) end
 	end
 end)
@@ -1805,6 +1878,7 @@ LP.CharacterAdded:Connect(function()
 	refreshPlayerChrs()
 	if invisOn then setInvis(true) end
 	if antiMode == "v62" then applyPlayerNoTouch() end
+	tagAllPlayerParts()
 	if speedOn then
 		pcall(function()
 			if mainConn then mainConn:Disconnect() mainConn = nil end
@@ -1813,4 +1887,6 @@ LP.CharacterAdded:Connect(function()
 	end
 end)
 
-print("[Hyko Suite] Loaded · Lucide UI · Auto-sync shadow")
+tagAllPlayerParts()
+
+print("[Hyko Suite] Loaded · Lucide UI · Auto-sync shadow · NPC Blocker")
