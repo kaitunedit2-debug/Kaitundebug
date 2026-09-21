@@ -1,5 +1,5 @@
 --// Hyko Suite — Dual Anti-NPC (v6.1 ⇄ v6.2) + Server Hop
---// Lucide icons • Soft badges • Clean English UI
+--// Lucide icons • Auto-sync shadow • Optimized lock loops
 
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -10,23 +10,18 @@ local TeleportService  = game:GetService("TeleportService")
 local LP               = Players.LocalPlayer
 local PlaceId          = game.PlaceId
 
---============================================================--
--- ICON ASSETS (Lucide)
---============================================================--
 local Icons = {
-	Close        = "rbxassetid://10747384394",
-	Refresh      = "rbxassetid://10734933222",
-	Server       = "rbxassetid://10734949856",
-	Players      = "rbxassetid://10747373426",
-	Teleport     = "rbxassetid://10723434830",
-	List         = "rbxassetid://10723433811",
-	Hop          = "rbxassetid://10734923549",
-	Auto         = "rbxassetid://10734933966",
-	Search       = "rbxassetid://10734943674",
-	ChevronRight = "rbxassetid://10709791437",
-	ChevronLeft  = "rbxassetid://10709791281",
-	Check        = "rbxassetid://10709790644",
-	Settings     = "rbxassetid://10734950309",
+	Close    = "rbxassetid://10747384394",
+	Refresh  = "rbxassetid://10734933222",
+	Server   = "rbxassetid://10734949856",
+	Players  = "rbxassetid://10747373426",
+	Teleport = "rbxassetid://10723434830",
+	List     = "rbxassetid://10723433811",
+	Hop      = "rbxassetid://10734923549",
+	Auto     = "rbxassetid://10734933966",
+	Search   = "rbxassetid://10734943674",
+	Check    = "rbxassetid://10709790644",
+	Settings = "rbxassetid://10734950309",
 }
 
 --============================================================--
@@ -118,17 +113,12 @@ setreadonly(mt, true)
 --============================================================--
 local function mkCorner(parent, radius)
 	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	c.Parent = parent
-	return c
+	c.CornerRadius = UDim.new(0, radius); c.Parent = parent; return c
 end
 local function mkStroke(parent, color, transparency, thickness)
 	local s = Instance.new("UIStroke")
-	s.Color = color
-	s.Transparency = transparency or 0
-	s.Thickness = thickness or 1
-	s.Parent = parent
-	return s
+	s.Color = color; s.Transparency = transparency or 0
+	s.Thickness = thickness or 1; s.Parent = parent; return s
 end
 local function safeDestroy(x) if x then pcall(function() x:Destroy() end) end end
 local function disconnect(x)
@@ -150,9 +140,7 @@ local function refreshPlayerChrs()
 	end
 end
 refreshPlayerChrs()
-Players.PlayerAdded:Connect(function(pl)
-	pl.CharacterAdded:Connect(refreshPlayerChrs)
-end)
+Players.PlayerAdded:Connect(function(pl) pl.CharacterAdded:Connect(refreshPlayerChrs) end)
 Players.PlayerRemoving:Connect(refreshPlayerChrs)
 
 local function isNPC(model)
@@ -165,11 +153,11 @@ end
 local function lockNPC_v61(npc)
 	if frozenNPCs[npc] or not npc.Parent then return end
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
-		or npc:FindFirstChild("Torso")
-		or npc:FindFirstChild("UpperTorso")
-	local hum      = npc:FindFirstChildOfClass("Humanoid")
+		or npc:FindFirstChild("Torso") or npc:FindFirstChild("UpperTorso")
+	local hum = npc:FindFirstChildOfClass("Humanoid")
 	local collider = npc:FindFirstChild("Collider")
 	local data = { mode = "v61", collides = {}, alerts = {}, vfx = {} }
+
 	if hrp and hrp:IsA("BasePart") then
 		data.hrp = hrp; data.origAnchored = hrp.Anchored
 		pcall(function() hrp:SetNetworkOwner(LP); hrp.Anchored = true end)
@@ -181,24 +169,19 @@ local function lockNPC_v61(npc)
 			hum:ChangeState(Enum.HumanoidStateType.Physics)
 		end)
 	end
-	for _, p in ipairs(npc:GetDescendants()) do
-		if p:IsA("BasePart") and p.CanCollide then
-			data.collides[p] = p.CanCollide
-			pcall(function() p.CanCollide = false end)
-		end
-	end
-	if collider then
-		data.collider = collider; data.origCollide = collider.CanCollide
-		pcall(function() collider.CanCollide = false end)
-	end
+
 	for _, d in ipairs(npc:GetDescendants()) do
-		if d:IsA("BillboardGui") and (d.Name:lower():find("alert")
-			or d.Name:lower():find("warn") or d.Name:lower():find("detect")) then
-			data.alerts[d] = d.Enabled; d.Enabled = false
+		if d:IsA("BasePart") and d.CanCollide then
+			data.collides[d] = d.CanCollide
+			pcall(function() d.CanCollide = false end)
+		end
+		if d:IsA("BillboardGui") then
+			local nm = d.Name:lower()
+			if nm:find("alert") or nm:find("warn") or nm:find("detect") then
+				data.alerts[d] = d.Enabled; d.Enabled = false
+			end
 		end
 		if d:IsA("Sound") and d.Playing then pcall(function() d:Stop() end) end
-	end
-	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("ParticleEmitter") and d.Enabled then
 			local nm = d.Name:lower()
 			if nm:find("alert") or nm:find("detect") or nm:find("wake")
@@ -207,16 +190,22 @@ local function lockNPC_v61(npc)
 			end
 		end
 	end
+
+	if collider then
+		data.collider = collider; data.origCollide = collider.CanCollide
+		pcall(function() collider.CanCollide = false end)
+	end
+
 	frozenNPCs[npc] = data
 end
 
 local function lockNPC_v62(npc)
 	if frozenNPCs[npc] or not npc.Parent then return end
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
-		or npc:FindFirstChild("Torso")
-		or npc:FindFirstChild("UpperTorso")
+		or npc:FindFirstChild("Torso") or npc:FindFirstChild("UpperTorso")
 	local hum = npc:FindFirstChildOfClass("Humanoid")
 	local data = { mode = "v62", parts = {}, alerts = {}, vfx = {} }
+
 	if hrp and hrp:IsA("BasePart") then
 		data.hrp = hrp; data.origAnchored = hrp.Anchored
 		pcall(function() hrp.Anchored = false; hrp:SetNetworkOwner(LP) end)
@@ -240,20 +229,31 @@ local function lockNPC_v62(npc)
 			hum:SetStateEnabled(Enum.HumanoidStateType.Climbing,  false)
 		end)
 	end
-	for _, p in ipairs(npc:GetDescendants()) do
-		if p:IsA("BasePart") then
+
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("BasePart") then
 			table.insert(data.parts, {
-				part = p, cc = p.CanCollide, ct = p.CanTouch,
-				cq = p.CanQuery, tr = p.Transparency,
+				part = d, cc = d.CanCollide, ct = d.CanTouch,
+				cq = d.CanQuery, tr = d.Transparency,
 			})
 			pcall(function()
-				p.CanCollide = false; p.CanTouch = false; p.CanQuery = false
+				d.CanCollide = false; d.CanTouch = false; d.CanQuery = false
 			end)
 		end
-	end
-	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("TouchTransmitter") then pcall(function() d:Destroy() end) end
+		if d:IsA("BillboardGui") then
+			data.alerts[d] = d.Enabled; d.Enabled = false
+		end
+		if d:IsA("Sound") and d.Playing then pcall(function() d:Stop() end) end
+		if d:IsA("ParticleEmitter") and d.Enabled then
+			local nm = d.Name:lower()
+			if nm:find("alert") or nm:find("detect") or nm:find("wake")
+				or nm:find("sleep") or nm:find("anger") then
+				data.vfx[d] = d.Enabled; d.Enabled = false
+			end
+		end
 	end
+
 	for _, nm in ipairs({"Collider", "EggPoint", "CENTER", "HeadProxy"}) do
 		local pt = npc:FindFirstChild(nm)
 		if pt and pt:IsA("BasePart") then
@@ -267,21 +267,7 @@ local function lockNPC_v62(npc)
 			end)
 		end
 	end
-	for _, d in ipairs(npc:GetDescendants()) do
-		if d:IsA("BillboardGui") then
-			data.alerts[d] = d.Enabled; d.Enabled = false
-		end
-		if d:IsA("Sound") and d.Playing then pcall(function() d:Stop() end) end
-	end
-	for _, d in ipairs(npc:GetDescendants()) do
-		if d:IsA("ParticleEmitter") and d.Enabled then
-			local nm = d.Name:lower()
-			if nm:find("alert") or nm:find("detect") or nm:find("wake")
-				or nm:find("sleep") or nm:find("anger") then
-				data.vfx[d] = d.Enabled; d.Enabled = false
-			end
-		end
-	end
+
 	frozenNPCs[npc] = data
 end
 
@@ -309,8 +295,7 @@ local function unlockNPC(npc)
 		local p = rec.part
 		if p and p.Parent then
 			pcall(function()
-				p.CanCollide = rec.cc; p.CanTouch = rec.ct
-				p.CanQuery = rec.cq
+				p.CanCollide = rec.cc; p.CanTouch = rec.ct; p.CanQuery = rec.cq
 				if rec.tr ~= nil then p.Transparency = rec.tr end
 			end)
 		end
@@ -336,8 +321,7 @@ RunService.Heartbeat:Connect(function()
 			lockedCFrames[npc] = nil
 		else
 			local hrp = npc:FindFirstChild("HumanoidRootPart")
-				or npc:FindFirstChild("Torso")
-				or npc:FindFirstChild("UpperTorso")
+				or npc:FindFirstChild("Torso") or npc:FindFirstChild("UpperTorso")
 			if hrp and hrp:IsA("BasePart") then
 				hrp.CFrame = cf
 				hrp.AssemblyLinearVelocity  = Vector3.zero
@@ -386,7 +370,7 @@ local function setInvis(on)
 end
 
 --============================================================--
--- [G] ESP  (declared before UI)
+-- [G] ESP
 --============================================================--
 local espOn = false
 local ESP_MAX_DISTANCE = 5000
@@ -610,48 +594,45 @@ if not ScreenGui then
 end
 local oldUI = ScreenGui:FindFirstChild("HykoWindow")
 if oldUI then oldUI:Destroy() end
+local oldShadow = ScreenGui:FindFirstChild("HykoShadow")
+if oldShadow then oldShadow:Destroy() end
 
--- Palette
 local P = {
-	bgTop    = Color3.fromRGB(252, 253, 255),
-	bgBot    = Color3.fromRGB(244, 246, 250),
-	card     = Color3.fromRGB(255, 255, 255),
-	cardSoft = Color3.fromRGB(246, 248, 252),
-	border   = Color3.fromRGB(228, 231, 238),
+	bgTop      = Color3.fromRGB(252, 253, 255),
+	bgBot      = Color3.fromRGB(244, 246, 250),
+	card       = Color3.fromRGB(255, 255, 255),
+	cardSoft   = Color3.fromRGB(246, 248, 252),
+	border     = Color3.fromRGB(228, 231, 238),
 	borderSoft = Color3.fromRGB(237, 240, 245),
-	text     = Color3.fromRGB(23, 26, 33),
-	sub      = Color3.fromRGB(138, 144, 158),
-	dim      = Color3.fromRGB(180, 186, 198),
-	accent   = Color3.fromRGB(10, 132, 255),
+	text       = Color3.fromRGB(23, 26, 33),
+	sub        = Color3.fromRGB(138, 144, 158),
+	dim        = Color3.fromRGB(180, 186, 198),
+	accent     = Color3.fromRGB(10, 132, 255),
 	accentSoft = Color3.fromRGB(230, 241, 255),
-	green    = Color3.fromRGB(48, 209, 88),
-	greenSoft= Color3.fromRGB(228, 249, 233),
-	amber    = Color3.fromRGB(255, 159, 10),
-	amberSoft= Color3.fromRGB(255, 245, 224),
-	red      = Color3.fromRGB(255, 69, 58),
-	redSoft  = Color3.fromRGB(255, 235, 232),
-	purple   = Color3.fromRGB(140, 90, 255),
+	green      = Color3.fromRGB(48, 209, 88),
+	greenSoft  = Color3.fromRGB(228, 249, 233),
+	amber      = Color3.fromRGB(255, 159, 10),
+	amberSoft  = Color3.fromRGB(255, 245, 224),
+	red        = Color3.fromRGB(255, 69, 58),
+	redSoft    = Color3.fromRGB(255, 235, 232),
+	purple     = Color3.fromRGB(140, 90, 255),
 	purpleSoft = Color3.fromRGB(240, 233, 255),
-	off      = Color3.fromRGB(210, 214, 220),
+	off        = Color3.fromRGB(210, 214, 220),
 }
 
 local WINDOW_W      = 340
 local WINDOW_H      = 540
 local WINDOW_H_MINI = 64
+local SHADOW_PAD    = 8
 
--- Shadow
-local shadow = Instance.new("ImageLabel", ScreenGui)
-shadow.Name = "HykoShadow"
-shadow.AnchorPoint = Vector2.new(0.5, 0.5)
-shadow.Position = UDim2.new(0, 20 + WINDOW_W/2, 0.5, 0)
-shadow.Size = UDim2.fromOffset(WINDOW_W + 40, WINDOW_H + 40)
-shadow.BackgroundTransparency = 1
-shadow.Image = "rbxassetid://1316045217"
-shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
-shadow.ImageTransparency = 0.88
-shadow.ScaleType = Enum.ScaleType.Slice
-shadow.SliceCenter = Rect.new(10, 10, 118, 118)
-shadow.ZIndex = 1
+-- Auto-sync shadow (small, matches window)
+local Shadow = Instance.new("Frame", ScreenGui)
+Shadow.Name = "HykoShadow"
+Shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+Shadow.BackgroundTransparency = 0.85
+Shadow.BorderSizePixel = 0
+Shadow.ZIndex = 1
+mkCorner(Shadow, 20)
 
 local Window = Instance.new("Frame", ScreenGui)
 Window.Name = "HykoWindow"
@@ -666,13 +647,21 @@ mkCorner(Window, 14)
 mkStroke(Window, P.border, 0.2, 1)
 
 local function syncShadow()
-	shadow.Position = UDim2.new(
-		Window.Position.X.Scale,
-		Window.Position.X.Offset + Window.Size.X.Offset / 2,
-		Window.Position.Y.Scale,
-		Window.Position.Y.Offset + Window.Size.Y.Offset / 2
+	Shadow.Position = UDim2.new(
+		Window.Position.X.Scale, Window.Position.X.Offset - SHADOW_PAD,
+		Window.Position.Y.Scale, Window.Position.Y.Offset - SHADOW_PAD
+	)
+	Shadow.Size = UDim2.new(
+		Window.Size.X.Scale, Window.Size.X.Offset + SHADOW_PAD * 2,
+		Window.Size.Y.Scale, Window.Size.Y.Offset + SHADOW_PAD * 2
 	)
 end
+Window:GetPropertyChangedSignal("Position"):Connect(syncShadow)
+Window:GetPropertyChangedSignal("Size"):Connect(syncShadow)
+Window:GetPropertyChangedSignal("Visible"):Connect(function()
+	Shadow.Visible = Window.Visible
+end)
+syncShadow()
 
 --================= HEADER =================
 local header = Instance.new("Frame", Window)
@@ -681,7 +670,6 @@ header.Position = UDim2.fromOffset(0, 0)
 header.BackgroundTransparency = 1
 header.ZIndex = 3
 
--- Avatar
 local avatarWrap = Instance.new("Frame", header)
 avatarWrap.Size = UDim2.fromOffset(36, 36)
 avatarWrap.Position = UDim2.fromOffset(16, 12)
@@ -706,7 +694,6 @@ task.spawn(function()
 	if ok and url then avatar.Image = url end
 end)
 
--- Status dot
 local statusDot = Instance.new("Frame", header)
 statusDot.Size = UDim2.fromOffset(10, 10)
 statusDot.Position = UDim2.fromOffset(44, 38)
@@ -716,7 +703,6 @@ statusDot.ZIndex = 6
 mkCorner(statusDot, 5)
 mkStroke(statusDot, Color3.fromRGB(255,255,255), 0, 2)
 
--- Title
 local title = Instance.new("TextLabel", header)
 title.Size = UDim2.new(1, -150, 0, 18)
 title.Position = UDim2.fromOffset(62, 12)
@@ -740,7 +726,7 @@ subtitle.TextSize = 10
 subtitle.TextXAlignment = Enum.TextXAlignment.Left
 subtitle.ZIndex = 4
 
--- Minimize
+-- Minimize button (drawn − / +)
 local minBtn = Instance.new("TextButton", header)
 minBtn.Size = UDim2.fromOffset(28, 28)
 minBtn.Position = UDim2.new(1, -68, 0, 16)
@@ -768,7 +754,7 @@ minBarV.Visible = false
 minBarV.ZIndex = 5
 mkCorner(minBarV, 1)
 
--- Close
+-- Close button
 local closeBtn = Instance.new("TextButton", header)
 closeBtn.Size = UDim2.fromOffset(28, 28)
 closeBtn.Position = UDim2.new(1, -36, 0, 16)
@@ -787,10 +773,7 @@ closeIcon.ImageColor3 = P.red
 closeIcon.ScaleType = Enum.ScaleType.Fit
 closeIcon.ZIndex = 5
 
-closeBtn.MouseButton1Click:Connect(function()
-	Window.Visible = false
-	shadow.Visible = false
-end)
+closeBtn.MouseButton1Click:Connect(function() Window.Visible = false end)
 
 -- Drag
 local dragging, dragStart, startPos
@@ -809,7 +792,6 @@ UserInputService.InputChanged:Connect(function(input)
 		local d = input.Position - dragStart
 		Window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
 			startPos.Y.Scale, startPos.Y.Offset + d.Y)
-		syncShadow()
 	end
 end)
 UserInputService.InputEnded:Connect(function(input)
@@ -847,6 +829,7 @@ tabIndicator.ZIndex = 4
 mkCorner(tabIndicator, 8)
 mkStroke(tabIndicator, P.borderSoft, 0.2, 1)
 
+-- Tab button with centered inner container (icon + label grouped, no overlap)
 local function makeTabButton(parent, text, iconId, xScale)
 	local btn = Instance.new("TextButton", parent)
 	btn.Size = UDim2.new(0.5, 0, 1, 0)
@@ -856,25 +839,32 @@ local function makeTabButton(parent, text, iconId, xScale)
 	btn.AutoButtonColor = false
 	btn.ZIndex = 5
 
-	local icon = Instance.new("ImageLabel", btn)
+	local inner = Instance.new("Frame", btn)
+	inner.AnchorPoint = Vector2.new(0.5, 0.5)
+	inner.Position = UDim2.fromScale(0.5, 0.5)
+	inner.Size = UDim2.fromOffset(110, 16)
+	inner.BackgroundTransparency = 1
+	inner.ZIndex = 6
+
+	local icon = Instance.new("ImageLabel", inner)
 	icon.Size = UDim2.fromOffset(13, 13)
-	icon.Position = UDim2.new(0.5, -44, 0.5, -6.5)
+	icon.Position = UDim2.fromOffset(0, 1.5)
 	icon.BackgroundTransparency = 1
 	icon.Image = iconId
 	icon.ImageColor3 = P.sub
 	icon.ScaleType = Enum.ScaleType.Fit
-	icon.ZIndex = 6
+	icon.ZIndex = 7
 
-	local lbl = Instance.new("TextLabel", btn)
-	lbl.Position = UDim2.fromOffset(30, 0)
-	lbl.Size = UDim2.new(1, -34, 1, 0)
+	local lbl = Instance.new("TextLabel", inner)
+	lbl.Position = UDim2.fromOffset(19, 0)
+	lbl.Size = UDim2.fromOffset(91, 16)
 	lbl.BackgroundTransparency = 1
 	lbl.Text = text
 	lbl.TextColor3 = P.sub
 	lbl.Font = Enum.Font.GothamBold
 	lbl.TextSize = 11
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
-	lbl.ZIndex = 6
+	lbl.ZIndex = 7
 
 	return btn, icon, lbl
 end
@@ -882,7 +872,6 @@ end
 local MainTabBtn, mainTabIcon, mainTabLabel = makeTabButton(TabBar, "Dashboard", Icons.List, 0)
 local HopTabBtn,  hopTabIcon,  hopTabLabel  = makeTabButton(TabBar, "Server Hop", Icons.Server, 0.5)
 
--- Active styling
 mainTabIcon.ImageColor3 = P.accent
 mainTabLabel.TextColor3 = P.text
 
@@ -949,7 +938,6 @@ minBtn.MouseButton1Click:Connect(function()
 				TabBar.Visible = true
 				content.Visible = true
 				divider.Visible = true
-				syncShadow()
 			end
 		end)
 	else
@@ -958,20 +946,20 @@ minBtn.MouseButton1Click:Connect(function()
 		TabBar.Visible = false
 		content.Visible = false
 		divider.Visible = false
-		local tw = TweenService:Create(Window, TweenInfo.new(0.24,
+		TweenService:Create(Window, TweenInfo.new(0.24,
 			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Size = UDim2.fromOffset(WINDOW_W, WINDOW_H_MINI)
-		})
-		tw:Play()
-		tw.Completed:Connect(function() syncShadow() end)
+		}):Play()
 	end
 end)
-
-syncShadow()
 
 --============================================================--
 -- [I] UI BUILDERS
 --============================================================--
+local ROW_H = 34          -- toggle row height
+local BADGE = 22          -- icon badge size
+local LABEL_X = 48        -- label start X (badge 14..36 + 12 gap)
+
 local function makeCard(parent, yPos, height)
 	local card = Instance.new("Frame", parent)
 	card.Size = UDim2.new(1, 0, 0, height)
@@ -985,7 +973,7 @@ local function makeCard(parent, yPos, height)
 end
 
 local function makeIconBadge(parent, iconId, bgColor, iconColor, x, y, size)
-	size = size or 22
+	size = size or BADGE
 	local badge = Instance.new("Frame", parent)
 	badge.Size = UDim2.fromOffset(size, size)
 	badge.Position = UDim2.fromOffset(x, y)
@@ -1008,12 +996,13 @@ local function makeIconBadge(parent, iconId, bgColor, iconColor, x, y, size)
 end
 
 local function makeToggle(card, name, defaultState, yOffset, iconId, badgeBg, iconColor, callback)
-	makeIconBadge(card, iconId, badgeBg, iconColor, 14, yOffset + 5, 22)
+	local badgeY = yOffset + (ROW_H - BADGE) / 2
+	makeIconBadge(card, iconId, badgeBg, iconColor, 14, badgeY, BADGE)
 
 	local lbl = Instance.new("TextLabel", card)
 	lbl.BackgroundTransparency = 1
-	lbl.Position = UDim2.fromOffset(44, yOffset)
-	lbl.Size = UDim2.new(1, -110, 0, 32)
+	lbl.Position = UDim2.fromOffset(LABEL_X, yOffset)
+	lbl.Size = UDim2.new(1, -LABEL_X - 66, 0, ROW_H)
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.TextSize = 11
 	lbl.TextColor3 = P.text
@@ -1022,15 +1011,15 @@ local function makeToggle(card, name, defaultState, yOffset, iconId, badgeBg, ic
 	lbl.Text = name
 	lbl.ZIndex = 5
 
-	local switchBg = Instance.new("Frame", card)
-	switchBg.Size = UDim2.fromOffset(38, 21)
-	switchBg.Position = UDim2.new(1, -52, 0, yOffset + 6)
-	switchBg.BackgroundColor3 = defaultState and P.green or P.off
-	switchBg.BorderSizePixel = 0
-	switchBg.ZIndex = 5
-	mkCorner(switchBg, 11)
+	local sw = Instance.new("Frame", card)
+	sw.Size = UDim2.fromOffset(38, 21)
+	sw.Position = UDim2.new(1, -52, 0, yOffset + (ROW_H - 21) / 2)
+	sw.BackgroundColor3 = defaultState and P.green or P.off
+	sw.BorderSizePixel = 0
+	sw.ZIndex = 5
+	mkCorner(sw, 11)
 
-	local thumb = Instance.new("Frame", switchBg)
+	local thumb = Instance.new("Frame", sw)
 	thumb.Size = UDim2.fromOffset(17, 17)
 	thumb.Position = defaultState and UDim2.fromOffset(19, 2) or UDim2.fromOffset(2, 2)
 	thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -1039,7 +1028,7 @@ local function makeToggle(card, name, defaultState, yOffset, iconId, badgeBg, ic
 	mkCorner(thumb, 9)
 
 	local btn = Instance.new("TextButton", card)
-	btn.Size = UDim2.new(1, 0, 0, 32)
+	btn.Size = UDim2.new(1, 0, 0, ROW_H)
 	btn.Position = UDim2.fromOffset(0, yOffset)
 	btn.BackgroundTransparency = 1
 	btn.Text = ""
@@ -1048,7 +1037,7 @@ local function makeToggle(card, name, defaultState, yOffset, iconId, badgeBg, ic
 	local state = defaultState
 	local function applyState(s, fire)
 		state = s
-		TweenService:Create(switchBg, TweenInfo.new(0.2, Enum.EasingStyle.Quart),
+		TweenService:Create(sw, TweenInfo.new(0.2, Enum.EasingStyle.Quart),
 			{BackgroundColor3 = state and P.green or P.off}):Play()
 		TweenService:Create(thumb, TweenInfo.new(0.2, Enum.EasingStyle.Quart),
 			{Position = state and UDim2.fromOffset(19, 2) or UDim2.fromOffset(2, 2)}):Play()
@@ -1061,13 +1050,14 @@ local function makeToggle(card, name, defaultState, yOffset, iconId, badgeBg, ic
 	}
 end
 
-local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset, iconId, badgeBg, iconColor, callback)
-	makeIconBadge(card, iconId, badgeBg, iconColor, 14, yOffset + 2, 22)
+local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset,
+	iconId, badgeBg, iconColor, callback)
+	makeIconBadge(card, iconId, badgeBg, iconColor, 14, yOffset, BADGE)
 
 	local lbl = Instance.new("TextLabel", card)
 	lbl.BackgroundTransparency = 1
-	lbl.Position = UDim2.fromOffset(44, yOffset - 2)
-	lbl.Size = UDim2.new(1, -100, 0, 16)
+	lbl.Position = UDim2.fromOffset(LABEL_X, yOffset)
+	lbl.Size = UDim2.new(1, -LABEL_X - 60, 0, BADGE)
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.TextSize = 11
 	lbl.TextColor3 = P.text
@@ -1077,7 +1067,7 @@ local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset, iconI
 
 	local valChip = Instance.new("Frame", card)
 	valChip.Size = UDim2.fromOffset(46, 20)
-	valChip.Position = UDim2.new(1, -60, 0, yOffset + 2)
+	valChip.Position = UDim2.new(1, -60, 0, yOffset + 1)
 	valChip.BackgroundColor3 = badgeBg
 	valChip.BorderSizePixel = 0
 	valChip.ZIndex = 5
@@ -1094,7 +1084,7 @@ local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset, iconI
 
 	local track = Instance.new("TextButton", card)
 	track.Size = UDim2.new(1, -28, 0, 4)
-	track.Position = UDim2.fromOffset(14, yOffset + 32)
+	track.Position = UDim2.fromOffset(14, yOffset + 34)
 	track.BackgroundColor3 = P.borderSoft
 	track.Text = ""
 	track.AutoButtonColor = false
@@ -1159,16 +1149,14 @@ local savedHum, savedCollide, mainConn = nil, {}, nil
 local yLockOn  = true
 _G.curSpeed = curSpeed
 
--- Speed card
 local speedCard = makeCard(MainContent, 0, 68)
-makeSlider(speedCard, "Movement Speed", 10, 800, 60, 12,
+makeSlider(speedCard, "Movement Speed", 10, 800, 60, 10,
 	Icons.Auto, P.accentSoft, P.accent, function(val)
 		curSpeed = val
 		_G.curSpeed = val
 	end)
 
--- Boost / Invisible card
-local boostCard = makeCard(MainContent, 76, 76)
+local boostCard = makeCard(MainContent, 76, 80)
 
 local function enableSpeed()
 	local c = LP.Character
@@ -1256,7 +1244,7 @@ local function disableSpeed()
 	pcall(function() LP:LoadCharacter() end)
 end
 
-makeToggle(boostCard, "Speed Boost", false, 8,
+makeToggle(boostCard, "Speed Boost", false, 6,
 	Icons.Hop, P.accentSoft, P.accent, function(state)
 		if state then
 			if enableSpeed() then speedOn = true end
@@ -1266,14 +1254,13 @@ makeToggle(boostCard, "Speed Boost", false, 8,
 		end
 	end)
 
-makeToggle(boostCard, "Invisible", false, 42,
+makeToggle(boostCard, "Invisible", false, 6 + ROW_H,
 	Icons.Settings, P.purpleSoft, P.purple, function(state)
 		invisOn = state
 		setInvis(invisOn)
 	end)
 
--- Anti-NPC card
-local protCard = makeCard(MainContent, 160, 110)
+local protCard = makeCard(MainContent, 164, 114)
 local anti61Handle, anti62Handle
 
 local function switchAntiMode(newMode)
@@ -1286,28 +1273,27 @@ local function switchAntiMode(newMode)
 	if newMode == "v62" then applyPlayerNoTouch() end
 end
 
-anti61Handle = makeToggle(protCard, "Anti-NPC · Soft (v6.1)", false, 8,
+anti61Handle = makeToggle(protCard, "Anti-NPC · Soft (v6.1)", false, 6,
 	Icons.List, P.greenSoft, P.green, function(state)
 		if state then switchAntiMode("v61") else switchAntiMode("off") end
 	end)
 
-anti62Handle = makeToggle(protCard, "Anti-NPC · Hard (v6.2)", false, 42,
+anti62Handle = makeToggle(protCard, "Anti-NPC · Hard (v6.2)", false, 6 + ROW_H,
 	Icons.Check, P.greenSoft, P.green, function(state)
 		if state then switchAntiMode("v62") else switchAntiMode("off") end
 	end)
 
-makeToggle(protCard, "Block Rouse", true, 76,
+makeToggle(protCard, "Block Rouse", true, 6 + ROW_H * 2,
 	Icons.Close, P.redSoft, P.red, function(state)
 		blockRouse = state
 	end)
 
--- ESP / Loot card
-local espCard = makeCard(MainContent, 278, 76)
-makeToggle(espCard, "Player ESP", false, 8,
+local espCard = makeCard(MainContent, 286, 80)
+makeToggle(espCard, "Player ESP", false, 6,
 	Icons.Players, P.accentSoft, P.accent, function(state)
 		if state then enableESP() else disableESP() end
 	end)
-makeToggle(espCard, "Fast Loot", true, 42,
+makeToggle(espCard, "Fast Loot", true, 6 + ROW_H,
 	Icons.Search, P.amberSoft, P.amber, function(state)
 		fastLootOn = state
 	end)
@@ -1316,28 +1302,28 @@ makeToggle(espCard, "Fast Loot", true, 42,
 -- [K] SERVER HOP TAB
 --============================================================--
 local InfoCard = Instance.new("Frame", HopContent)
-InfoCard.Size = UDim2.new(1, 0, 0, 44)
+InfoCard.Size = UDim2.new(1, 0, 0, 48)
 InfoCard.BackgroundColor3 = P.card
 InfoCard.BorderSizePixel = 0
 InfoCard.ZIndex = 5
 mkCorner(InfoCard, 10)
 mkStroke(InfoCard, P.borderSoft, 0.25, 1)
 
-makeIconBadge(InfoCard, Icons.Players, P.accentSoft, P.accent, 14, 11, 22)
+makeIconBadge(InfoCard, Icons.Players, P.accentSoft, P.accent, 14, 13, BADGE)
 
 local InfoLabel = Instance.new("TextLabel", InfoCard)
-InfoLabel.Position = UDim2.fromOffset(44, 0)
-InfoLabel.Size = UDim2.new(1, -110, 1, 0)
+InfoLabel.Position = UDim2.fromOffset(LABEL_X, 0)
+InfoLabel.Size = UDim2.new(1, -LABEL_X - 70, 1, 0)
 InfoLabel.BackgroundTransparency = 1
 InfoLabel.Font = Enum.Font.GothamMedium
 InfoLabel.Text = "Players in this server"
-InfoLabel.TextColor3 = P.sub
+InfoLabel.TextColor3 = P.text
 InfoLabel.TextSize = 11
 InfoLabel.TextXAlignment = Enum.TextXAlignment.Left
 InfoLabel.ZIndex = 6
 
 local NowCount = Instance.new("TextLabel", InfoCard)
-NowCount.Size = UDim2.fromOffset(60, 44)
+NowCount.Size = UDim2.fromOffset(60, 48)
 NowCount.Position = UDim2.new(1, -70, 0, 0)
 NowCount.BackgroundTransparency = 1
 NowCount.Font = Enum.Font.GothamBold
@@ -1348,7 +1334,7 @@ NowCount.TextXAlignment = Enum.TextXAlignment.Right
 NowCount.ZIndex = 6
 
 local StatusLabel = Instance.new("TextLabel", HopContent)
-StatusLabel.Position = UDim2.fromOffset(4, 50)
+StatusLabel.Position = UDim2.fromOffset(4, 54)
 StatusLabel.Size = UDim2.new(1, -8, 0, 16)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Font = Enum.Font.Gotham
@@ -1359,23 +1345,23 @@ StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatusLabel.ZIndex = 5
 
 local InputCard = Instance.new("Frame", HopContent)
-InputCard.Position = UDim2.fromOffset(0, 72)
-InputCard.Size = UDim2.new(1, 0, 0, 44)
+InputCard.Position = UDim2.fromOffset(0, 76)
+InputCard.Size = UDim2.new(1, 0, 0, 48)
 InputCard.BackgroundColor3 = P.card
 InputCard.BorderSizePixel = 0
 InputCard.ZIndex = 5
 mkCorner(InputCard, 10)
 mkStroke(InputCard, P.borderSoft, 0.25, 1)
 
-makeIconBadge(InputCard, Icons.Settings, P.amberSoft, P.amber, 14, 11, 22)
+makeIconBadge(InputCard, Icons.Settings, P.amberSoft, P.amber, 14, 13, BADGE)
 
 local MaxLabel = Instance.new("TextLabel", InputCard)
-MaxLabel.Position = UDim2.fromOffset(44, 0)
-MaxLabel.Size = UDim2.new(1, -100, 1, 0)
+MaxLabel.Position = UDim2.fromOffset(LABEL_X, 0)
+MaxLabel.Size = UDim2.new(1, -LABEL_X - 70, 1, 0)
 MaxLabel.BackgroundTransparency = 1
 MaxLabel.Font = Enum.Font.GothamMedium
 MaxLabel.Text = "Hop when players exceed"
-MaxLabel.TextColor3 = P.sub
+MaxLabel.TextColor3 = P.text
 MaxLabel.TextSize = 11
 MaxLabel.TextXAlignment = Enum.TextXAlignment.Left
 MaxLabel.ZIndex = 6
@@ -1393,9 +1379,9 @@ MaxBox.TextXAlignment = Enum.TextXAlignment.Center
 MaxBox.ZIndex = 6
 mkCorner(MaxBox, 6)
 
--- Hop Now button (with icon)
+-- Hop Now button
 local HopBtn = Instance.new("TextButton", HopContent)
-HopBtn.Position = UDim2.fromOffset(0, 124)
+HopBtn.Position = UDim2.fromOffset(0, 132)
 HopBtn.Size = UDim2.new(0.48, 0, 0, 40)
 HopBtn.BackgroundColor3 = P.accent
 HopBtn.Text = ""
@@ -1403,29 +1389,36 @@ HopBtn.AutoButtonColor = false
 HopBtn.ZIndex = 5
 mkCorner(HopBtn, 10)
 
-local hopBtnIcon = Instance.new("ImageLabel", HopBtn)
-hopBtnIcon.Size = UDim2.fromOffset(13, 13)
-hopBtnIcon.Position = UDim2.new(0.5, -42, 0.5, -6.5)
-hopBtnIcon.BackgroundTransparency = 1
-hopBtnIcon.Image = Icons.Hop
-hopBtnIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
-hopBtnIcon.ScaleType = Enum.ScaleType.Fit
-hopBtnIcon.ZIndex = 6
+local hopInner = Instance.new("Frame", HopBtn)
+hopInner.AnchorPoint = Vector2.new(0.5, 0.5)
+hopInner.Position = UDim2.fromScale(0.5, 0.5)
+hopInner.Size = UDim2.fromOffset(90, 16)
+hopInner.BackgroundTransparency = 1
+hopInner.ZIndex = 6
 
-local hopBtnText = Instance.new("TextLabel", HopBtn)
-hopBtnText.Position = UDim2.fromOffset(30, 0)
-hopBtnText.Size = UDim2.new(1, -34, 1, 0)
-hopBtnText.BackgroundTransparency = 1
-hopBtnText.Font = Enum.Font.GothamBold
-hopBtnText.Text = "Hop Now"
-hopBtnText.TextColor3 = Color3.fromRGB(255, 255, 255)
-hopBtnText.TextSize = 11
-hopBtnText.TextXAlignment = Enum.TextXAlignment.Left
-hopBtnText.ZIndex = 6
+local hopIcon = Instance.new("ImageLabel", hopInner)
+hopIcon.Size = UDim2.fromOffset(13, 13)
+hopIcon.Position = UDim2.fromOffset(0, 1.5)
+hopIcon.BackgroundTransparency = 1
+hopIcon.Image = Icons.Hop
+hopIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+hopIcon.ScaleType = Enum.ScaleType.Fit
+hopIcon.ZIndex = 7
+
+local hopText = Instance.new("TextLabel", hopInner)
+hopText.Position = UDim2.fromOffset(19, 0)
+hopText.Size = UDim2.fromOffset(71, 16)
+hopText.BackgroundTransparency = 1
+hopText.Font = Enum.Font.GothamBold
+hopText.Text = "Hop Now"
+hopText.TextColor3 = Color3.fromRGB(255, 255, 255)
+hopText.TextSize = 11
+hopText.TextXAlignment = Enum.TextXAlignment.Left
+hopText.ZIndex = 7
 
 -- Auto button
 local AutoBtn = Instance.new("TextButton", HopContent)
-AutoBtn.Position = UDim2.new(0.52, 0, 0, 124)
+AutoBtn.Position = UDim2.new(0.52, 0, 0, 132)
 AutoBtn.Size = UDim2.new(0.48, 0, 0, 40)
 AutoBtn.BackgroundColor3 = P.card
 AutoBtn.Text = ""
@@ -1434,29 +1427,36 @@ AutoBtn.ZIndex = 5
 mkCorner(AutoBtn, 10)
 mkStroke(AutoBtn, P.borderSoft, 0.25, 1)
 
-local autoBtnIcon = Instance.new("ImageLabel", AutoBtn)
-autoBtnIcon.Size = UDim2.fromOffset(13, 13)
-autoBtnIcon.Position = UDim2.new(0.5, -32, 0.5, -6.5)
-autoBtnIcon.BackgroundTransparency = 1
-autoBtnIcon.Image = Icons.Auto
-autoBtnIcon.ImageColor3 = P.sub
-autoBtnIcon.ScaleType = Enum.ScaleType.Fit
-autoBtnIcon.ZIndex = 6
+local autoInner = Instance.new("Frame", AutoBtn)
+autoInner.AnchorPoint = Vector2.new(0.5, 0.5)
+autoInner.Position = UDim2.fromScale(0.5, 0.5)
+autoInner.Size = UDim2.fromOffset(90, 16)
+autoInner.BackgroundTransparency = 1
+autoInner.ZIndex = 6
 
-local autoBtnText = Instance.new("TextLabel", AutoBtn)
-autoBtnText.Position = UDim2.fromOffset(26, 0)
-autoBtnText.Size = UDim2.new(1, -30, 1, 0)
-autoBtnText.BackgroundTransparency = 1
-autoBtnText.Font = Enum.Font.GothamBold
-autoBtnText.Text = "Auto: OFF"
-autoBtnText.TextColor3 = P.sub
-autoBtnText.TextSize = 11
-autoBtnText.TextXAlignment = Enum.TextXAlignment.Left
-autoBtnText.ZIndex = 6
+local autoIcon = Instance.new("ImageLabel", autoInner)
+autoIcon.Size = UDim2.fromOffset(13, 13)
+autoIcon.Position = UDim2.fromOffset(0, 1.5)
+autoIcon.BackgroundTransparency = 1
+autoIcon.Image = Icons.Auto
+autoIcon.ImageColor3 = P.sub
+autoIcon.ScaleType = Enum.ScaleType.Fit
+autoIcon.ZIndex = 7
+
+local autoText = Instance.new("TextLabel", autoInner)
+autoText.Position = UDim2.fromOffset(19, 0)
+autoText.Size = UDim2.fromOffset(71, 16)
+autoText.BackgroundTransparency = 1
+autoText.Font = Enum.Font.GothamBold
+autoText.Text = "Auto: OFF"
+autoText.TextColor3 = P.sub
+autoText.TextSize = 11
+autoText.TextXAlignment = Enum.TextXAlignment.Left
+autoText.ZIndex = 7
 
 -- Search bar
 local SearchBar = Instance.new("Frame", HopContent)
-SearchBar.Position = UDim2.fromOffset(0, 172)
+SearchBar.Position = UDim2.fromOffset(0, 180)
 SearchBar.Size = UDim2.new(1, 0, 0, 36)
 SearchBar.BackgroundColor3 = P.card
 SearchBar.BorderSizePixel = 0
@@ -1507,8 +1507,8 @@ refreshIcon.ZIndex = 7
 
 -- Server list
 local ServerListFrame = Instance.new("Frame", HopContent)
-ServerListFrame.Position = UDim2.fromOffset(0, 216)
-ServerListFrame.Size = UDim2.new(1, 0, 1, -216)
+ServerListFrame.Position = UDim2.fromOffset(0, 224)
+ServerListFrame.Size = UDim2.new(1, 0, 1, -224)
 ServerListFrame.BackgroundTransparency = 1
 ServerListFrame.ClipsDescendants = true
 ServerListFrame.ZIndex = 5
@@ -1559,22 +1559,23 @@ local function createServerCard(serverData, index)
 	mkCorner(card, 10)
 	mkStroke(card, P.borderSoft, 0.25, 1)
 
-	makeIconBadge(card, Icons.Server, P.accentSoft, P.accent, 12, 15, 22)
+	makeIconBadge(card, Icons.Server, P.accentSoft, P.accent, 14, 15, BADGE)
 
 	local jobIdLabel = Instance.new("TextLabel", card)
-	jobIdLabel.Size = UDim2.fromOffset(150, 16)
-	jobIdLabel.Position = UDim2.fromOffset(44, 7)
+	jobIdLabel.Size = UDim2.new(1, -LABEL_X - 90, 0, 16)
+	jobIdLabel.Position = UDim2.fromOffset(LABEL_X, 7)
 	jobIdLabel.BackgroundTransparency = 1
 	jobIdLabel.Font = Enum.Font.GothamBold
 	jobIdLabel.Text = formatJobId(serverData.id)
 	jobIdLabel.TextColor3 = P.text
 	jobIdLabel.TextSize = 11
 	jobIdLabel.TextXAlignment = Enum.TextXAlignment.Left
+	jobIdLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	jobIdLabel.ZIndex = 6
 
 	local playerCount = Instance.new("TextLabel", card)
-	playerCount.Size = UDim2.fromOffset(150, 12)
-	playerCount.Position = UDim2.fromOffset(44, 28)
+	playerCount.Size = UDim2.new(1, -LABEL_X - 90, 0, 12)
+	playerCount.Position = UDim2.fromOffset(LABEL_X, 28)
 	playerCount.BackgroundTransparency = 1
 	playerCount.Font = Enum.Font.Gotham
 	playerCount.Text = (serverData.playing or 0) .. " / " ..
@@ -1649,9 +1650,7 @@ local function updateServerList()
 		local currentId = tostring(game.JobId)
 		local filtered = {}
 		for _, s in ipairs(servers) do
-			if tostring(s.id) ~= currentId then
-				table.insert(filtered, s)
-			end
+			if tostring(s.id) ~= currentId then table.insert(filtered, s) end
 		end
 		table.sort(filtered, function(a, b)
 			return (a.playing or 0) < (b.playing or 0)
@@ -1661,9 +1660,7 @@ local function updateServerList()
 			query = query:lower()
 			local q = {}
 			for _, s in ipairs(filtered) do
-				if tostring(s.id):lower():find(query, 1, true) then
-					table.insert(q, s)
-				end
+				if tostring(s.id):lower():find(query, 1, true) then table.insert(q, s) end
 			end
 			filtered = q
 		end
@@ -1736,9 +1733,9 @@ local autoThread = nil
 AutoBtn.MouseButton1Click:Connect(function()
 	autoEnabled = not autoEnabled
 	if autoEnabled then
-		autoBtnText.Text = "Auto: ON"
-		autoBtnText.TextColor3 = Color3.fromRGB(255, 255, 255)
-		autoBtnIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+		autoText.Text = "Auto: ON"
+		autoText.TextColor3 = Color3.fromRGB(255, 255, 255)
+		autoIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
 		AutoBtn.BackgroundColor3 = P.green
 		autoThread = task.spawn(function()
 			while autoEnabled do
@@ -1755,9 +1752,9 @@ AutoBtn.MouseButton1Click:Connect(function()
 			end
 		end)
 	else
-		autoBtnText.Text = "Auto: OFF"
-		autoBtnText.TextColor3 = P.sub
-		autoBtnIcon.ImageColor3 = P.sub
+		autoText.Text = "Auto: OFF"
+		autoText.TextColor3 = P.sub
+		autoIcon.ImageColor3 = P.sub
 		AutoBtn.BackgroundColor3 = P.card
 		if autoThread then task.cancel(autoThread); autoThread = nil end
 		StatusLabel.Text = "Auto Hop disabled"
@@ -1816,4 +1813,4 @@ LP.CharacterAdded:Connect(function()
 	end
 end)
 
-print("[Hyko Suite] Loaded · Lucide UI · Dashboard + Server Hop")
+print("[Hyko Suite] Loaded · Lucide UI · Auto-sync shadow")
