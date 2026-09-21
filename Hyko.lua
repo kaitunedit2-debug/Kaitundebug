@@ -1,6 +1,5 @@
 --// Hyko Suite — Ultra Anti-NPC (v6.1 ⇄ v6.2) + Server Hop + NPC Blocker
---// MAX-OPTIMIZED build · event-driven · distance-gated · watchdog re-freeze
---// Logic unchanged for user-facing features — internal freeze is stronger
+--// UI-FIXED build · Heartbeat fallback · gethui parent · defensive
 
 --============================================================--
 -- [0] EXECUTOR COMPATIBILITY LAYER
@@ -27,6 +26,7 @@ local rawgetmt      = rawgetmetatable or (debug and debug.getmetatable) or getra
 local setreadonlyFn = setreadonly or make_writeable or (debug and debug.setreadonly)
 local newcclosureFn = newcclosure or (function(f) return f end)
 local getnamecallFn = getnamecallmethod or (function() return "" end)
+local gethuiFn      = gethui or function() return nil end
 
 local function httpGet(url)
 	if syn and syn.request then
@@ -149,8 +149,8 @@ end)
 --============================================================--
 local blockRouse = true
 local hookInstalled = false
-local hookOk, hookErr = pcall(function()
-	if not rawgetmt or not setreadonlyFn then error("executor missing metatable APIs") end
+pcall(function()
+	if not rawgetmt or not setreadonlyFn then error("no metatable APIs") end
 	local mt = rawgetmt(game)
 	if not mt then error("no metatable") end
 	local oldNC = mt.__namecall
@@ -171,7 +171,6 @@ local hookOk, hookErr = pcall(function()
 	setreadonlyFn(mt, true)
 	hookInstalled = true
 end)
-if not hookOk then warn("[Hyko] Namecall hook skipped: " .. tostring(hookErr)) end
 
 --============================================================--
 -- [D] HELPERS
@@ -194,12 +193,12 @@ end
 -- [E] ANTI-NPC  — ULTRA FREEZE
 --============================================================--
 local antiMode      = "off"
-local frozenNPCs    = {}        -- npc → data (đang frozen)
+local frozenNPCs    = {}
 local playerChrs    = {}
 
-local LOCK_RADIUS       = 600   -- chỉ CFrame-lock NPC trong bán kính này
+local LOCK_RADIUS       = 600
 local LOCK_RADIUS_SQ    = LOCK_RADIUS * LOCK_RADIUS
-local CFrameLockRate    = 4      -- chạy mỗi N PreSimulation (4 ≈ 15Hz)
+local CFrameLockRate    = 4   -- mỗi 4 heartbeat ≈ 15Hz
 
 local function refreshPlayerChrs()
 	playerChrs = {}
@@ -218,22 +217,21 @@ local function isNPC(model)
 	return model:FindFirstChildOfClass("Humanoid") ~= nil
 end
 
--- Danh sách state cần tắt (dùng chung 2 mode)
-local DISABLED_STATES = {
-	Enum.HumanoidStateType.Walking,
-	Enum.HumanoidStateType.Running,
-	Enum.HumanoidStateType.Jumping,
-	Enum.HumanoidStateType.Climbing,
-	Enum.HumanoidStateType.GettingUp,
-	Enum.HumanoidStateType.FallingDown,
-	Enum.HumanoidStateType.Ragdoll,
-	Enum.HumanoidStateType.Landed,
-	Enum.HumanoidStateType.Freefall,
-	Enum.HumanoidStateType.Swimming,
-	Enum.HumanoidStateType.Flying,
-	Enum.HumanoidStateType.PlatformStanding,
-	Enum.HumanoidStateType.Dead,
+-- Safe list of state names (Enum lookup by name avoids missing-enum errors)
+local DISABLED_STATE_NAMES = {
+	"Walking", "Running", "Jumping", "Climbing", "GettingUp",
+	"FallingDown", "Ragdoll", "Landed", "Freefall", "Swimming",
+	"Flying", "PlatformStanding", "Dead",
 }
+
+local function disableHumanoidStates(hum)
+	for _, name in ipairs(DISABLED_STATE_NAMES) do
+		local st = Enum.HumanoidStateType[name]
+		if st then
+			pcall(function() hum:SetStateEnabled(st, false) end)
+		end
+	end
+end
 
 --=========== v6.1 (SOFT) ===========--
 local function lockNPC_v61(npc)
@@ -256,7 +254,6 @@ local function lockNPC_v61(npc)
 		end)
 	end
 
-	-- Chỉ lưu các part THỰC SỰ cần restore (CanCollide=true)
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("BasePart") and d.CanCollide then
 			data.collides[d] = true
@@ -282,7 +279,6 @@ local function lockNPC_v61(npc)
 		data.collider = collider; data.origCollide = collider.CanCollide
 		pcall(function() collider.CanCollide = false end)
 	end
-
 	frozenNPCs[npc] = data
 end
 
@@ -294,7 +290,6 @@ local function lockNPC_v62(npc)
 	local hum = npc:FindFirstChildOfClass("Humanoid")
 	local data = { mode = "v62", parts = {}, alerts = {}, vfx = {} }
 
-	-- HRP: anchor + network owner + zero velocity
 	if hrp and hrp:IsA("BasePart") then
 		data.hrp = hrp; data.origAnchored = hrp.Anchored
 		pcall(function()
@@ -306,35 +301,33 @@ local function lockNPC_v62(npc)
 		data.lockedCF = hrp.CFrame
 	end
 
-	-- Humanoid: hard freeze
 	if hum then
 		data.hum = hum
 		data.origWalk = hum.WalkSpeed
 		data.origJump = hum.JumpPower
-		data.origStateMachine = hum.EvaluateStateMachine
+		local hasESM = pcall(function() return hum.EvaluateStateMachine end)
+		if hasESM then
+			data.origStateMachine = hum.EvaluateStateMachine
+		end
 		pcall(function()
 			hum.WalkSpeed = 0
 			hum.JumpPower = 0
 			hum.AutoRotate = false
 			hum.PlatformStand = true
-			hum.EvaluateStateMachine = false   -- ★ BIG: stops state-machine from driving motion
+			if hasESM then hum.EvaluateStateMachine = false end
 			hum:ChangeState(Enum.HumanoidStateType.Physics)
 			hum:UnequipTools()
-			for _, st in ipairs(DISABLED_STATES) do
-				hum:SetStateEnabled(st, false)
-			end
 		end)
+		disableHumanoidStates(hum)
 		pcall(function() hum.MoveDirection = Vector3.zero end)
 	end
 
-	-- Animator kill — animations won't try to move parts
 	local animator = hum and hum:FindFirstChildOfClass("Animator")
 	if animator then
 		data.animator = animator
 		pcall(function() animator:Destroy() end)
 	end
 
-	-- Parts: disable collision/query/touch, remove TT, set Massless (giảm lực đẩy)
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("BasePart") then
 			local rec = { part = d }
@@ -364,7 +357,6 @@ local function lockNPC_v62(npc)
 		end
 	end
 
-	-- Special parts
 	for _, nm in ipairs({"Collider", "EggPoint", "CENTER", "HeadProxy", "Hitbox"}) do
 		local pt = npc:FindFirstChild(nm)
 		if pt and pt:IsA("BasePart") then
@@ -433,7 +425,7 @@ local function unlockAll()
 	for npc in pairs(frozenNPCs) do unlockNPC(npc) end
 end
 
---=========== ASYNC LOCK QUEUE ===========--
+-- Async lock queue
 local pendingLocks = setmetatable({}, {__mode = "k"})
 local function tryLockNPC(npc, mode)
 	if frozenNPCs[npc] or pendingLocks[npc] then return end
@@ -447,7 +439,7 @@ local function tryLockNPC(npc, mode)
 	end)
 end
 
---=========== CFrame LOCK (PreSimulation, distance-gated) ===========--
+-- CFrame lock — Heartbeat (universal, works on all executors)
 local psCounter = 0
 local cachedMyRoot = nil
 
@@ -457,7 +449,7 @@ local function updateMyRoot()
 end
 updateMyRoot()
 
-RunService.PreSimulation:Connect(function()
+RunService.Heartbeat:Connect(function()
 	if next(frozenNPCs) == nil then return end
 	psCounter = (psCounter + 1) % CFrameLockRate
 	if psCounter ~= 0 then return end
@@ -478,7 +470,6 @@ RunService.PreSimulation:Connect(function()
 		if not npc.Parent or not hrp or not hrp.Parent then
 			frozenNPCs[npc] = nil
 		else
-			-- distance gate: chỉ lock NPC gần player
 			local lockIt = true
 			if myRoot then
 				local p = hrp.Position
@@ -496,7 +487,7 @@ RunService.PreSimulation:Connect(function()
 	end
 end)
 
---=========== NPC DETECTION (event-driven) ===========--
+-- NPC detection event-driven
 workspace.DescendantAdded:Connect(function(inst)
 	if antiMode == "off" then return end
 	if not inst:IsA("Model") then return end
@@ -506,7 +497,6 @@ workspace.DescendantAdded:Connect(function(inst)
 	end)
 end)
 
--- Backstop scan: 3s/lần (thay vì 0.1s) — bắt NPC spawn trước khi bật mode
 local function scanAndLockAll()
 	refreshPlayerChrs()
 	local mode = antiMode
@@ -518,29 +508,32 @@ local function scanAndLockAll()
 	end
 end
 
---=========== WATCHDOG — re-freeze nếu bị script khác phá ===========--
+-- Watchdog — re-freeze
 task.spawn(function()
 	while task.wait(1.2) do
-		if antiMode == "off" then continue end
-		for npc, data in pairs(frozenNPCs) do
-			if not npc.Parent then
-				frozenNPCs[npc] = nil
-			else
-				local hum = data.hum
-				if hum and hum.Parent then
-					if hum.WalkSpeed > 0 then hum.WalkSpeed = 0 end
-					if hum.JumpPower > 0 then hum.JumpPower = 0 end
-					if hum.EvaluateStateMachine then
-						pcall(function() hum.EvaluateStateMachine = false end)
+		if antiMode ~= "off" then
+			for npc, data in pairs(frozenNPCs) do
+				if not npc.Parent then
+					frozenNPCs[npc] = nil
+				else
+					local hum = data.hum
+					if hum and hum.Parent then
+						pcall(function()
+							if hum.WalkSpeed > 0 then hum.WalkSpeed = 0 end
+							if hum.JumpPower > 0 then hum.JumpPower = 0 end
+							if hum.EvaluateStateMachine then
+								hum.EvaluateStateMachine = false
+							end
+						end)
 					end
-				end
-				local hrp = data.hrp
-				if hrp and hrp.Parent and not hrp.Anchored then
-					pcall(function()
-						hrp.Anchored = true
-						hrp.AssemblyLinearVelocity = Vector3.zero
-						hrp.AssemblyAngularVelocity = Vector3.zero
-					end)
+					local hrp = data.hrp
+					if hrp and hrp.Parent and not hrp.Anchored then
+						pcall(function()
+							hrp.Anchored = true
+							hrp.AssemblyLinearVelocity = Vector3.zero
+							hrp.AssemblyAngularVelocity = Vector3.zero
+						end)
+					end
 				end
 			end
 		end
@@ -850,21 +843,51 @@ task.spawn(function()
 end)
 
 --============================================================--
--- [H] UI
+-- [H] UI  — UI-FIX: dùng gethui() + syn.protect_gui + fallbacks
 --============================================================--
 local PlayerGui = LP:WaitForChild("PlayerGui")
-local ScreenGui = PlayerGui:FindFirstChild("HykoGui")
-if not ScreenGui then
+
+-- Chọn parent an toàn nhất
+local function pickUiParent()
+	-- ưu tiên gethui() nếu có
+	local ok, hui = pcall(gethuiFn)
+	if ok and hui and typeof(hui) == "Instance" then return hui end
+	-- fallback PlayerGui
+	if PlayerGui and PlayerGui.Parent then return PlayerGui end
+	-- fallback CoreGui (một số executor cho phép)
+	local cg = game:GetService("CoreGui")
+	if cg then return cg end
+	return PlayerGui
+end
+
+local uiParent = pickUiParent()
+
+local ScreenGui = nil
+do
+	-- reuse nếu đã có
+	local existing
+	for _, parent in ipairs({uiParent, PlayerGui}) do
+		local ok, found = pcall(function() return parent:FindFirstChild("HykoGui") end)
+		if ok and found then existing = found break end
+	end
+	if existing then
+		existing:Destroy()
+	end
 	ScreenGui = Instance.new("ScreenGui")
 	ScreenGui.Name = "HykoGui"
 	ScreenGui.ResetOnSpawn = false
 	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	ScreenGui.Parent = PlayerGui
+	ScreenGui.IgnoreGuiInset = true
+	ScreenGui.DisplayOrder = 999999
+	-- protect_gui (Synapse / Script-Ware / một số executor)
+	pcall(function()
+		if syn and syn.protect_gui then syn.protect_gui(ScreenGui) end
+	end)
+	pcall(function()
+		if protect_gui then protect_gui(ScreenGui) end
+	end)
+	ScreenGui.Parent = uiParent
 end
-local oldUI = ScreenGui:FindFirstChild("HykoWindow")
-if oldUI then oldUI:Destroy() end
-local oldShadow = ScreenGui:FindFirstChild("HykoShadow")
-if oldShadow then oldShadow:Destroy() end
 
 local P = {
 	bgTop      = Color3.fromRGB(252, 253, 255),
@@ -1510,8 +1533,8 @@ local function switchAntiMode(newMode)
 	if antiMode == newMode then return end
 	unlockAll()
 	antiMode = newMode
-	anti61Handle.setState(newMode == "v61")
-	anti62Handle.setState(newMode == "v62")
+	if anti61Handle then anti61Handle.setState(newMode == "v61") end
+	if anti62Handle then anti62Handle.setState(newMode == "v62") end
 	if newMode ~= "off" then
 		task.spawn(scanAndLockAll)
 		if newMode == "v62" then
@@ -2029,28 +2052,24 @@ end)
 --============================================================--
 -- [L] LOOPS
 --============================================================--
--- Invis loop (0.5s)
 task.spawn(function()
 	while task.wait(0.5) do
 		if invisOn then setInvis(true) end
 	end
 end)
 
--- Backstop scan 3s — chỉ chạy khi anti bật, bù cho event-driven
 task.spawn(function()
 	while task.wait(3) do
 		if antiMode ~= "off" then scanAndLockAll() end
 	end
 end)
 
--- Blocker update 0.1s (rẻ, chỉ 1 part)
 task.spawn(function()
 	while task.wait(0.1) do
 		updateBlocker()
 	end
 end)
 
--- tag/applyNoTouch backstop 3s
 task.spawn(function()
 	while task.wait(3) do
 		if antiMode == "v62" then
@@ -2094,4 +2113,5 @@ tagAllPlayerParts()
 print("[Hyko Suite] ULTRA loaded · Namecall:",
 	hookInstalled and "ON" or "OFF",
 	"· HTTP:", httpGet and "OK" or "NONE",
-	"· fireprox:", fireProxPrompt and "OK" or "MISSING")
+	"· fireprox:", fireProxPrompt and "OK" or "MISSING",
+	"· UI:", ScreenGui and ScreenGui.Parent and "OK" or "FAIL")
