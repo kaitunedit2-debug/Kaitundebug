@@ -1,86 +1,44 @@
---// Hyko Suite — Anti-NPC (v6.1) + Server Hop
---// Logic v6.1 gốc · Async lock · Distance-gated CFrame · Event-driven
---// Không blocker · Không dual mode · UI-FIXED
+--// MEGA v15 — Dual Anti-NPC: v6.1 (mềm) ⇄ v6.2 (cứng) — cả 2 mặc định TẮT
+--// + Tương thích đa executor (Xeno / Synapse / Krnl / Fluxus / Solara / Delta / Codex ...)
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local LP               = Players.LocalPlayer
 
 --============================================================--
--- [0] EXECUTOR COMPATIBILITY LAYER
+-- [0] EXECUTOR COMPAT LAYER
 --============================================================--
-local cloneref = cloneref or function(o) return o end
-local function safeService(name)
-	local ok, s = pcall(function() return cloneref(game:GetService(name)) end)
-	if ok and s then return s end
-	return game:GetService(name)
-end
-
-local Players          = safeService("Players")
-local RunService       = safeService("RunService")
-local UserInputService = safeService("UserInputService")
-local TweenService     = safeService("TweenService")
-local HttpService      = safeService("HttpService")
-local TeleportService  = safeService("TeleportService")
-
-local LP      = Players.LocalPlayer
-local PlaceId = game.PlaceId
-
-local rawgetmt      = rawgetmetatable or (debug and debug.getmetatable) or getrawmetatable
-local setreadonlyFn = setreadonly or make_writeable or (debug and debug.setreadonly)
-local newcclosureFn = newcclosure or (function(f) return f end)
-local getnamecallFn = getnamecallmethod or (function() return "" end)
-local gethuiFn      = gethui or function() return nil end
-
-local function httpGet(url)
-	if syn and syn.request then
-		local ok, r = pcall(syn.request, {Url=url, Method="GET"})
-		if ok and r and r.Body then return r.Body end
-	end
-	if request then
-		local ok, r = pcall(request, {Url=url, Method="GET"})
-		if ok and r and r.Body then return r.Body end
-	end
-	if http_request then
-		local ok, r = pcall(http_request, {Url=url, Method="GET"})
-		if ok and r and r.Body then return r.Body end
-	end
-	if http and http.request then
-		local ok, r = pcall(http.request, {Url=url, Method="GET"})
-		if ok and r and r.Body then return r.Body end
-	end
-	if game.HttpGet then
-		local ok, r = pcall(function() return game:HttpGet(url) end)
-		if ok and type(r)=="string" then return r end
-	end
-	if game.HttpGetAsync then
-		local ok, r = pcall(function() return game:HttpGetAsync(url) end)
-		if ok and type(r)=="string" then return r end
-	end
-	return nil
-end
-
-local fireProxPrompt = fireproximityprompt
-local function doFireProximityPrompt(p)
-	if not p then return end
-	if fireProxPrompt then pcall(fireProxPrompt, p); return end
-	if p.InputHoldBegin and p.InputHoldEnd then
-		pcall(function() p:InputHoldBegin(); task.wait(); p:InputHoldEnd() end)
-	end
-end
-
-local Icons = {
-	Close    = "rbxassetid://10747384394",
-	Refresh  = "rbxassetid://10734933222",
-	Server   = "rbxassetid://10734949856",
-	Players  = "rbxassetid://10747373426",
-	Teleport = "rbxassetid://10723434830",
-	List     = "rbxassetid://10723433811",
-	Hop      = "rbxassetid://10734923549",
-	Auto     = "rbxassetid://10734933966",
-	Search   = "rbxassetid://10734943674",
-	Check    = "rbxassetid://10709790644",
-	Settings = "rbxassetid://10734950309",
+local EXEC = {
+	hookmetamethod   = type(hookmetamethod)   == "function" and hookmetamethod   or nil,
+	getnamecallmethod= type(getnamecallmethod)=="function" and getnamecallmethod or nil,
+	getrawmetatable  = type(getrawmetatable)  == "function" and getrawmetatable  or nil,
+	setreadonly      = type(setreadonly)      == "function" and setreadonly      or nil,
+	newcclosure      = type(newcclosure)      == "function" and newcclosure      or nil,
+	fireprompt       = type(fireproximityprompt) == "function" and fireproximityprompt or nil,
 }
 
+-- fallback cho fireproximityprompt nếu executor không có
+if not EXEC.fireprompt then
+	local genv = (type(getgenv) == "function") and getgenv() or _G
+	if type(genv.fireproximityprompt) == "function" then
+		EXEC.fireprompt = genv.fireproximityprompt
+	else
+		EXEC.fireprompt = function(p)
+			pcall(function()
+				if type(p.InputHoldBegin) == "function" then
+					p:InputHoldBegin()
+					task.wait(0.05)
+					p:InputHoldEnd()
+				end
+			end)
+		end
+	end
+end
+
 --============================================================--
--- [A] INPUT
+-- [A] READ INPUT
 --============================================================--
 local Controls
 pcall(function()
@@ -90,13 +48,15 @@ end)
 local function readMove()
 	if Controls then
 		local ok, v = pcall(function() return Controls:GetMoveVector() end)
-		if ok and v and v.Magnitude > 0.05 then return Vector3.new(v.X, 0, v.Z) end
+		if ok and v and v.Magnitude > 0.05 then
+			return Vector3.new(v.X, 0, v.Z)
+		end
 	end
 	local d = Vector3.zero
-	if UserInputService:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0,0,-1) end
-	if UserInputService:IsKeyDown(Enum.KeyCode.S) then d += Vector3.new(0,0,1) end
-	if UserInputService:IsKeyDown(Enum.KeyCode.A) then d += Vector3.new(-1,0,0) end
-	if UserInputService:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1,0,0) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0, 0, -1) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then d += Vector3.new(0, 0, 1)  end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then d += Vector3.new(-1, 0, 0) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1, 0, 0)  end
 	return d
 end
 
@@ -120,7 +80,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 	local c = LP.Character
 	local hrp = c and c:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
-	local best, bd = nil, math.huge
+	local best, bestDist = nil, math.huge
 	for _, d in ipairs(workspace:GetDescendants()) do
 		if d:IsA("ProximityPrompt") and d.Enabled then
 			local par = d.Parent
@@ -131,72 +91,80 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 			end
 			if pos then
 				local dist = (pos - hrp.Position).Magnitude
-				if dist <= d.MaxActivationDistance + 4 and dist < bd then
-					best, bd = d, dist
+				if dist <= d.MaxActivationDistance + 4 and dist < bestDist then
+					best, bestDist = d, dist
 				end
 			end
 		end
 	end
-	if best then doFireProximityPrompt(best) end
+	if best then pcall(EXEC.fireprompt, best) end
 end)
 
 --============================================================--
--- [C] NAMECALL HOOK
+-- [C] HOOK namecall — resilient install
 --============================================================--
 local blockRouse = true
+local blockedNames = {
+	Rouse = true, ForestStrike = true, ForestHandoff = true,
+	Alert = true, Wake = true, Chase = true, Detect = true,
+	SpeedTollOffer = true, SpeedTollWarning = true,
+}
+
+local function shouldBlock(self, method)
+	if not blockRouse then return false end
+	if method ~= "FireServer" then return false end
+	if typeof(self) ~= "Instance" then return false end
+	return blockedNames[self.Name] == true
+end
+
 local hookInstalled = false
-pcall(function()
-	if not rawgetmt or not setreadonlyFn then error("no metatable APIs") end
-	local mt = rawgetmt(game)
-	if not mt then error("no metatable") end
-	local oldNC = mt.__namecall
-	if not oldNC then error("no __namecall") end
-	setreadonlyFn(mt, false)
-	mt.__namecall = newcclosureFn(function(self, ...)
-		local m = getnamecallFn()
-		if blockRouse and m == "FireServer" and typeof(self) == "Instance" then
-			local n = self.Name
-			if n == "Rouse" or n == "ForestStrike" or n == "ForestHandoff"
-			or n == "Alert" or n == "Wake" or n == "Chase" or n == "Detect"
-			or n == "SpeedTollOffer" or n == "SpeedTollWarning" then
-				return
-			end
-		end
-		return oldNC(self, ...)
+
+-- Cách 1: hookmetamethod (Xeno, Synapse, Krnl, Fluxus, Solara, Delta, Codex, ...)
+if EXEC.hookmetamethod and EXEC.getnamecallmethod then
+	hookInstalled = pcall(function()
+		local old
+		old = EXEC.hookmetamethod(game, "__namecall", function(self, ...)
+			local ok, method = pcall(EXEC.getnamecallmethod)
+			if ok and shouldBlock(self, method) then return end
+			return old(self, ...)
+		end)
 	end)
-	setreadonlyFn(mt, true)
-	hookInstalled = true
-end)
-
---============================================================--
--- [D] HELPERS
---============================================================--
-local function mkCorner(parent, radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius); c.Parent = parent; return c
-end
-local function mkStroke(parent, color, transparency, thickness)
-	local s = Instance.new("UIStroke")
-	s.Color = color; s.Transparency = transparency or 0
-	s.Thickness = thickness or 1; s.Parent = parent; return s
-end
-local function safeDestroy(x) if x then pcall(function() x:Destroy() end) end end
-local function disconnect(x)
-	if x and typeof(x) == "RBXScriptConnection" then pcall(function() x:Disconnect() end) end
 end
 
---============================================================--
--- [E] ANTI-NPC — v6.1 LOGIC, OPTIMIZED
---============================================================--
-local antiOn     = false
-local frozenNPCs = {}
-local playerChrs = {}
+-- Cách 2: getrawmetatable fallback
+if not hookInstalled and EXEC.getrawmetatable then
+	hookInstalled = pcall(function()
+		local ok, mt = pcall(EXEC.getrawmetatable, game)
+		if not ok or not mt or not mt.__namecall then error("no mt") end
+		local oldNC = mt.__namecall
+		if EXEC.setreadonly then pcall(EXEC.setreadonly, mt, false) end
+		local wrapper = function(self, ...)
+			local method = ""
+			if EXEC.getnamecallmethod then
+				local ok2, m = pcall(EXEC.getnamecallmethod)
+				if ok2 then method = m end
+			end
+			if shouldBlock(self, method) then return end
+			return oldNC(self, ...)
+		end
+		if EXEC.newcclosure then wrapper = EXEC.newcclosure(wrapper) end
+		mt.__namecall = wrapper
+		if EXEC.setreadonly then pcall(EXEC.setreadonly, mt, true) end
+	end)
+end
 
--- Perf tuning (không đổi logic)
-local LOCK_RADIUS       = 600
-local LOCK_RADIUS_SQ    = LOCK_RADIUS * LOCK_RADIUS
-local CFrameLockRate    = 4      -- CFrame lock mỗi N Heartbeat (~15Hz)
-local WATCHDOG_INTERVAL = 1.5    -- re-anchor nếu bị phá
+if not hookInstalled then
+	warn("[MEGA v15] Executor không hỗ trợ hook namecall — Block Rouse sẽ tự tắt.")
+	blockRouse = false
+end
+
+--============================================================--
+-- [D] ANTI-NPC — 2 MODE (loại trừ nhau, cả 2 mặc định OFF)
+--============================================================--
+local antiMode      = "off"
+local frozenNPCs    = {}
+local lockedCFrames = {}
+local playerChrs    = {}
 
 local function refreshPlayerChrs()
 	playerChrs = {}
@@ -205,31 +173,44 @@ local function refreshPlayerChrs()
 	end
 end
 refreshPlayerChrs()
-Players.PlayerAdded:Connect(function(pl) pl.CharacterAdded:Connect(refreshPlayerChrs) end)
+Players.PlayerAdded:Connect(function(pl)
+	pl.CharacterAdded:Connect(refreshPlayerChrs)
+end)
 Players.PlayerRemoving:Connect(refreshPlayerChrs)
 
 local function isNPC(model)
 	if not model or not model:IsA("Model") then return false end
 	if playerChrs[model] then return false end
 	if LP.Character == model then return false end
-	return model:FindFirstChildOfClass("Humanoid") ~= nil
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	if not hum then return false end
+	return true
 end
 
---=========== LOCK (giống v6.1 gốc) ===========--
-local function lockNPC(npc)
-	if frozenNPCs[npc] or not npc.Parent then return end
+--------------------------------------------------------------
+-- LOCK v6.1 — MỀM
+--------------------------------------------------------------
+local function lockNPC_v61(npc)
+	if frozenNPCs[npc] then return end
+	if not npc.Parent then return end
+
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
-		or npc:FindFirstChild("Torso") or npc:FindFirstChild("UpperTorso")
-	local hum = npc:FindFirstChildOfClass("Humanoid")
+		or npc:FindFirstChild("Torso")
+		or npc:FindFirstChild("UpperTorso")
+	local hum      = npc:FindFirstChildOfClass("Humanoid")
 	local collider = npc:FindFirstChild("Collider")
-	local data = { collides = {}, alerts = {}, vfx = {} }
+
+	local data = { mode = "v61", collides = {}, alerts = {}, vfx = {} }
 
 	if hrp and hrp:IsA("BasePart") then
 		data.hrp = hrp
 		data.origAnchored = hrp.Anchored
-		pcall(function() hrp:SetNetworkOwner(LP); hrp.Anchored = true end)
-		data.lockedCF = hrp.CFrame
+		pcall(function()
+			hrp:SetNetworkOwner(LP)
+			hrp.Anchored = true
+		end)
 	end
+
 	if hum then
 		data.hum = hum
 		data.origWalk = hum.WalkSpeed
@@ -241,60 +222,198 @@ local function lockNPC(npc)
 		end)
 	end
 
-	for _, d in ipairs(npc:GetDescendants()) do
-		if d:IsA("BasePart") and d.CanCollide then
-			data.collides[d] = true
-			pcall(function() d.CanCollide = false end)
-		end
-		if d:IsA("BillboardGui") then
-			local nm = d.Name:lower()
-			if nm:find("alert") or nm:find("warn") or nm:find("detect") then
-				data.alerts[d] = d.Enabled; d.Enabled = false
-			end
-		end
-		if d:IsA("Sound") and d.Playing then pcall(function() d:Stop() end) end
-		if d:IsA("ParticleEmitter") and d.Enabled then
-			local nm = d.Name:lower()
-			if nm:find("alert") or nm:find("detect") or nm:find("wake")
-			or nm:find("sleep") or nm:find("anger") then
-				data.vfx[d] = d.Enabled; d.Enabled = false
-			end
+	for _, p in ipairs(npc:GetDescendants()) do
+		if p:IsA("BasePart") and p.CanCollide then
+			data.collides[p] = p.CanCollide
+			pcall(function() p.CanCollide = false end)
 		end
 	end
-
 	if collider then
 		data.collider = collider
 		data.origCollide = collider.CanCollide
 		pcall(function() collider.CanCollide = false end)
 	end
 
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("BillboardGui") and (d.Name:lower():find("alert")
+			or d.Name:lower():find("warn") or d.Name:lower():find("detect")) then
+			data.alerts[d] = d.Enabled
+			d.Enabled = false
+		end
+		if d:IsA("Sound") and d.Playing then
+			pcall(function() d:Stop() end)
+		end
+	end
+
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("ParticleEmitter") and d.Enabled then
+			local nm = d.Name:lower()
+			if nm:find("alert") or nm:find("detect") or nm:find("wake")
+				or nm:find("sleep") or nm:find("anger") then
+				data.vfx[d] = d.Enabled
+				d.Enabled = false
+			end
+		end
+	end
+
 	frozenNPCs[npc] = data
 end
 
+--------------------------------------------------------------
+-- LOCK v6.2 — CỨNG
+--------------------------------------------------------------
+local function lockNPC_v62(npc)
+	if frozenNPCs[npc] then return end
+	if not npc.Parent then return end
+
+	local hrp = npc:FindFirstChild("HumanoidRootPart")
+		or npc:FindFirstChild("Torso")
+		or npc:FindFirstChild("UpperTorso")
+	local hum = npc:FindFirstChildOfClass("Humanoid")
+
+	local data = { mode = "v62", parts = {}, alerts = {}, vfx = {} }
+
+	if hrp and hrp:IsA("BasePart") then
+		data.hrp = hrp
+		data.origAnchored = hrp.Anchored
+		pcall(function()
+			hrp.Anchored = false
+			hrp:SetNetworkOwner(LP)
+		end)
+		task.wait(0.03)
+		pcall(function()
+			hrp.Anchored = true
+			hrp.AssemblyLinearVelocity  = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+		end)
+		lockedCFrames[npc] = hrp.CFrame
+	end
+
+	if hum then
+		data.hum = hum
+		data.origWalk = hum.WalkSpeed
+		data.origJump = hum.JumpPower
+		pcall(function()
+			hum.WalkSpeed     = 0
+			hum.JumpPower     = 0
+			hum.AutoRotate    = false
+			hum.PlatformStand = true
+			hum:ChangeState(Enum.HumanoidStateType.Physics)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping,   false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Running,   false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Climbing,  false)
+		end)
+	end
+
+	for _, p in ipairs(npc:GetDescendants()) do
+		if p:IsA("BasePart") then
+			table.insert(data.parts, {
+				part = p,
+				cc = p.CanCollide, ct = p.CanTouch, cq = p.CanQuery,
+				tr = p.Transparency,
+			})
+			pcall(function()
+				p.CanCollide = false
+				p.CanTouch   = false
+				p.CanQuery   = false
+			end)
+		end
+	end
+
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("TouchTransmitter") then
+			pcall(function() d:Destroy() end)
+		end
+	end
+
+	for _, nm in ipairs({"Collider", "EggPoint", "CENTER", "HeadProxy"}) do
+		local pt = npc:FindFirstChild(nm)
+		if pt and pt:IsA("BasePart") then
+			table.insert(data.parts, {
+				part = pt,
+				cc = pt.CanCollide, ct = pt.CanTouch, cq = pt.CanQuery,
+				tr = pt.Transparency,
+			})
+			pcall(function()
+				pt.CanCollide   = false
+				pt.CanTouch     = false
+				pt.CanQuery     = false
+				pt.Transparency = 1
+			end)
+		end
+	end
+
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("BillboardGui") then
+			data.alerts[d] = d.Enabled
+			d.Enabled = false
+		end
+		if d:IsA("Sound") and d.Playing then
+			pcall(function() d:Stop() end)
+		end
+	end
+
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("ParticleEmitter") and d.Enabled then
+			local nm = d.Name:lower()
+			if nm:find("alert") or nm:find("detect") or nm:find("wake")
+				or nm:find("sleep") or nm:find("anger") then
+				data.vfx[d] = d.Enabled
+				d.Enabled = false
+			end
+		end
+	end
+
+	frozenNPCs[npc] = data
+end
+
+--------------------------------------------------------------
+-- UNLOCK
+--------------------------------------------------------------
 local function unlockNPC(npc)
 	local data = frozenNPCs[npc]
 	if not data then return end
+
 	if data.hrp and data.hrp.Parent then
 		pcall(function() data.hrp.Anchored = data.origAnchored or false end)
 	end
 	if data.hum and data.hum.Parent then
 		pcall(function()
-			data.hum.WalkSpeed = data.origWalk or 16
-			data.hum.JumpPower = data.origJump or 50
+			data.hum.WalkSpeed     = data.origWalk or 16
+			data.hum.JumpPower     = data.origJump or 50
+			data.hum.PlatformStand = false
+			data.hum.AutoRotate    = true
 		end)
 	end
-	for p in pairs(data.collides or {}) do
-		if p and p.Parent then pcall(function() p.CanCollide = true end) end
+
+	for p, can in pairs(data.collides or {}) do
+		if p and p.Parent then pcall(function() p.CanCollide = can end) end
 	end
 	if data.collider and data.collider.Parent then
 		pcall(function() data.collider.CanCollide = data.origCollide ~= false end)
 	end
+
+	for _, rec in ipairs(data.parts or {}) do
+		local p = rec.part
+		if p and p.Parent then
+			pcall(function()
+				p.CanCollide   = rec.cc
+				p.CanTouch     = rec.ct
+				p.CanQuery     = rec.cq
+				if rec.tr ~= nil then p.Transparency = rec.tr end
+			end)
+		end
+	end
+
 	for d, en in pairs(data.alerts or {}) do
 		if d and d.Parent then d.Enabled = en end
 	end
 	for d, en in pairs(data.vfx or {}) do
 		if d and d.Parent then d.Enabled = en end
 	end
+
+	lockedCFrames[npc] = nil
 	frozenNPCs[npc] = nil
 end
 
@@ -302,55 +421,20 @@ local function unlockAll()
 	for npc in pairs(frozenNPCs) do unlockNPC(npc) end
 end
 
--- Async queue — không block main thread
-local pendingLocks = setmetatable({}, {__mode = "k"})
-local function tryLockNPC(npc)
-	if frozenNPCs[npc] or pendingLocks[npc] then return end
-	if not npc.Parent then return end
-	pendingLocks[npc] = true
-	task.defer(function()
-		pcall(lockNPC, npc)
-		pendingLocks[npc] = nil
-	end)
-end
-
--- CFrame lock — Heartbeat/4 + distance-gated
-local hbCounter = 0
-local cachedMyRoot = nil
-local function updateMyRoot()
-	local c = LP.Character
-	cachedMyRoot = c and c:FindFirstChild("HumanoidRootPart")
-end
-updateMyRoot()
-
+--============================================================--
+-- [E] HEARTBEAT FORCE — chỉ v62
+--============================================================--
 RunService.Heartbeat:Connect(function()
-	if next(frozenNPCs) == nil then return end
-	hbCounter = (hbCounter + 1) % CFrameLockRate
-	if hbCounter ~= 0 then return end
-
-	local myRoot = cachedMyRoot
-	if not myRoot or not myRoot.Parent then
-		updateMyRoot(); myRoot = cachedMyRoot
-	end
-	local mx, my, mz = 0, 0, 0
-	if myRoot then
-		local mp = myRoot.Position
-		mx, my, mz = mp.X, mp.Y, mp.Z
-	end
-
-	for npc, data in pairs(frozenNPCs) do
-		local hrp = data.hrp
-		if not npc.Parent or not hrp or not hrp.Parent then
-			frozenNPCs[npc] = nil
+	if not next(lockedCFrames) then return end
+	for npc, cf in pairs(lockedCFrames) do
+		if not npc.Parent then
+			lockedCFrames[npc] = nil
 		else
-			local lockIt = true
-			if myRoot then
-				local p = hrp.Position
-				local dx, dy, dz = p.X - mx, p.Y - my, p.Z - mz
-				if dx*dx + dy*dy + dz*dz > LOCK_RADIUS_SQ then lockIt = false end
-			end
-			if lockIt then
-				hrp.CFrame = data.lockedCF
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+				or npc:FindFirstChild("Torso")
+				or npc:FindFirstChild("UpperTorso")
+			if hrp and hrp:IsA("BasePart") then
+				hrp.CFrame = cf
 				hrp.AssemblyLinearVelocity  = Vector3.zero
 				hrp.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -358,51 +442,33 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
--- Event-driven: NPC mới spawn → lock ngay
-workspace.DescendantAdded:Connect(function(inst)
-	if not antiOn then return end
-	if not inst:IsA("Model") then return end
-	task.defer(function()
-		if not antiOn then return end
-		if isNPC(inst) then tryLockNPC(inst) end
-	end)
-end)
-
--- Backstop scan — 3s/lần
-local function scanAndLockAll()
+--============================================================--
+-- [F] SCAN
+--============================================================--
+local function scanAllNPCs()
 	refreshPlayerChrs()
-	if not antiOn then return end
+	local found = {}
 	for _, obj in ipairs(workspace:GetDescendants()) do
-		if obj:IsA("Model") and not frozenNPCs[obj] and isNPC(obj) then
-			tryLockNPC(obj)
+		if obj:IsA("Model") and isNPC(obj) then
+			table.insert(found, obj)
+		end
+	end
+	return found
+end
+
+local function applyPlayerNoTouch()
+	if antiMode ~= "v62" then return end
+	local c = LP.Character
+	if not c then return end
+	for _, p in ipairs(c:GetDescendants()) do
+		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+			pcall(function() p.CanTouch = false end)
 		end
 	end
 end
 
--- Watchdog — re-anchor nếu bị phá
-task.spawn(function()
-	while task.wait(WATCHDOG_INTERVAL) do
-		if antiOn then
-			for npc, data in pairs(frozenNPCs) do
-				if not npc.Parent then
-					frozenNPCs[npc] = nil
-				else
-					local hrp = data.hrp
-					if hrp and hrp.Parent and not hrp.Anchored then
-						pcall(function()
-							hrp.Anchored = true
-							hrp.AssemblyLinearVelocity = Vector3.zero
-							hrp.AssemblyAngularVelocity = Vector3.zero
-						end)
-					end
-				end
-			end
-		end
-	end
-end)
-
 --============================================================--
--- [F] INVISIBLE
+-- [G] INVISIBLE
 --============================================================--
 local invisOn = false
 local function setInvis(on)
@@ -418,416 +484,105 @@ local function setInvis(on)
 end
 
 --============================================================--
--- [G] ESP
---============================================================--
-local espOn = false
-local ESP_MAX_DISTANCE = 5000
-local ESP_UPDATE_INTERVAL = 0.25
-local espEntries = {}
-local espConnections = {}
-local espFolder = Instance.new("Folder")
-espFolder.Name = "HykoESP"
-espFolder.Parent = workspace
-
-local TC = {
-	accent=Color3.fromRGB(10,132,255), text=Color3.fromRGB(23,26,33),
-	sub=Color3.fromRGB(138,144,158), green=Color3.fromRGB(48,209,88),
-	amber=Color3.fromRGB(255,159,10), red=Color3.fromRGB(255,69,58),
-	cardBg=Color3.fromRGB(255,255,255), cardStroke=Color3.fromRGB(230,233,240),
-}
-
-local function getRootHum(char)
-	if not char then return end
-	local root = char:FindFirstChild("HumanoidRootPart")
-	local hum  = char:FindFirstChildOfClass("Humanoid")
-	if root and hum and hum.Health > 0 then return root, hum end
-end
-
-local makeESP, removeESP, updateESPEntry, bindPlayerESP
-
-makeESP = function(plr)
-	if not espOn or plr == LP then return end
-	local char = plr.Character
-	local root, hum = getRootHum(char)
-	if not root then return end
-	local old = espEntries[plr]
-	if old and old.character == char then return end
-	if old then safeDestroy(old.highlight); safeDestroy(old.billboard) end
-
-	local highlight = Instance.new("Highlight")
-	highlight.Adornee = char
-	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-	highlight.FillTransparency = 0.92
-	highlight.OutlineTransparency = 0.15
-	highlight.FillColor = TC.accent
-	highlight.OutlineColor = TC.accent
-	highlight.Parent = espFolder
-
-	local billboard = Instance.new("BillboardGui")
-	billboard.Adornee = root
-	billboard.AlwaysOnTop = true
-	billboard.LightInfluence = 0
-	billboard.MaxDistance = ESP_MAX_DISTANCE
-	billboard.Size = UDim2.fromOffset(160, 44)
-	billboard.StudsOffset = Vector3.new(0, 3.1, 0)
-	billboard.Parent = espFolder
-
-	local card = Instance.new("Frame")
-	card.Size = UDim2.fromScale(1, 1)
-	card.BackgroundColor3 = TC.cardBg
-	card.BackgroundTransparency = 0.06
-	card.BorderSizePixel = 0
-	card.Parent = billboard
-	mkCorner(card, 8)
-	mkStroke(card, TC.cardStroke, 0.35, 1)
-
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Position = UDim2.fromOffset(12, 6)
-	nameLabel.Size = UDim2.new(1, -20, 0, 16)
-	nameLabel.Font = Enum.Font.GothamMedium
-	nameLabel.TextSize = 11
-	nameLabel.TextColor3 = TC.text
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.Text = plr.DisplayName
-	nameLabel.Parent = card
-
-	local distLabel = Instance.new("TextLabel")
-	distLabel.BackgroundTransparency = 1
-	distLabel.Position = UDim2.fromOffset(12, 25)
-	distLabel.Size = UDim2.fromOffset(42, 12)
-	distLabel.Font = Enum.Font.Gotham
-	distLabel.TextSize = 9
-	distLabel.TextColor3 = TC.sub
-	distLabel.TextXAlignment = Enum.TextXAlignment.Left
-	distLabel.Text = "-- m"
-	distLabel.Parent = card
-
-	local barBg = Instance.new("Frame")
-	barBg.Position = UDim2.new(1, -78, 0, 28)
-	barBg.Size = UDim2.fromOffset(58, 4)
-	barBg.BackgroundColor3 = Color3.fromRGB(232, 235, 240)
-	barBg.BorderSizePixel = 0
-	barBg.Parent = card
-	mkCorner(barBg, 2)
-
-	local barFill = Instance.new("Frame")
-	barFill.Size = UDim2.fromScale(1, 1)
-	barFill.BackgroundColor3 = TC.green
-	barFill.BorderSizePixel = 0
-	barFill.Parent = barBg
-	mkCorner(barFill, 2)
-
-	local hpLabel = Instance.new("TextLabel")
-	hpLabel.BackgroundTransparency = 1
-	hpLabel.Position = UDim2.new(1, -78, 0, 12)
-	hpLabel.Size = UDim2.fromOffset(58, 12)
-	hpLabel.Font = Enum.Font.Gotham
-	hpLabel.TextSize = 8
-	hpLabel.TextColor3 = TC.sub
-	hpLabel.TextXAlignment = Enum.TextXAlignment.Right
-	hpLabel.Text = "100%"
-	hpLabel.Parent = card
-
-	espEntries[plr] = {
-		player = plr, character = char, root = root, hum = hum,
-		highlight = highlight, billboard = billboard,
-		nameLabel = nameLabel, distLabel = distLabel,
-		barFill = barFill, hpLabel = hpLabel,
-	}
-end
-
-removeESP = function(plr)
-	local e = espEntries[plr]
-	if not e then return end
-	safeDestroy(e.highlight)
-	safeDestroy(e.billboard)
-	espEntries[plr] = nil
-end
-
-updateESPEntry = function(e, myRoot)
-	if not e or not e.player then return end
-	local plr = e.player
-	local char = plr.Character
-	local root, hum = getRootHum(char)
-	if not root then removeESP(plr); return end
-	if e.character ~= char then
-		makeESP(plr)
-		e = espEntries[plr]
-		if not e then return end
-		root, hum = getRootHum(char)
-		if not root then return end
-	end
-	e.billboard.MaxDistance = ESP_MAX_DISTANCE
-	e.nameLabel.Text = plr.DisplayName
-	local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
-	local visible  = distance <= ESP_MAX_DISTANCE
-	e.highlight.Enabled = visible
-	e.billboard.Enabled = visible
-	local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-	e.distLabel.Text = string.format("%dm", math.floor(distance + 0.5))
-	e.hpLabel.Text   = string.format("%d%%", math.floor(hp * 100 + 0.5))
-	local col
-	if hp > 0.6 then col = TC.green
-	elseif hp > 0.3 then col = TC.amber
-	else col = TC.red end
-	e.barFill.BackgroundColor3 = col
-	e.barFill.Size = UDim2.fromScale(hp, 1)
-end
-
-bindPlayerESP = function(plr)
-	if plr == LP then return end
-	disconnect(espConnections[plr])
-	espConnections[plr] = plr.CharacterAdded:Connect(function()
-		task.wait(0.15)
-		if espOn then makeESP(plr) end
-	end)
-	task.defer(function() if espOn then makeESP(plr) end end)
-end
-
-local function enableESP()
-	if espOn then return end
-	espOn = true
-	for _, plr in ipairs(Players:GetPlayers()) do bindPlayerESP(plr) end
-	espConnections.added = Players.PlayerAdded:Connect(bindPlayerESP)
-	espConnections.removing = Players.PlayerRemoving:Connect(function(plr)
-		disconnect(espConnections[plr])
-		espConnections[plr] = nil
-		removeESP(plr)
-	end)
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LP then makeESP(plr) end
-	end
-end
-
-local function disableESP()
-	if not espOn then return end
-	espOn = false
-	for plr, conn in pairs(espConnections) do
-		if typeof(conn) == "RBXScriptConnection" then disconnect(conn) end
-		espConnections[plr] = nil
-	end
-	for plr in pairs(espEntries) do removeESP(plr) end
-end
-
-task.spawn(function()
-	while true do
-		task.wait(ESP_UPDATE_INTERVAL)
-		if espOn then
-			local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-			for _, plr in ipairs(Players:GetPlayers()) do
-				if plr ~= LP then
-					local e = espEntries[plr]
-					if e then updateESPEntry(e, myRoot) else makeESP(plr) end
-				end
-			end
-		end
-	end
-end)
-
---============================================================--
 -- [H] UI
 --============================================================--
-local PlayerGui = LP:WaitForChild("PlayerGui")
-
-local function pickUiParent()
-	local ok, hui = pcall(gethuiFn)
-	if ok and hui and typeof(hui) == "Instance" then return hui end
-	if PlayerGui and PlayerGui.Parent then return PlayerGui end
-	local cg = game:GetService("CoreGui")
-	if cg then return cg end
-	return PlayerGui
+local ScreenGui = LP:WaitForChild("PlayerGui"):FindFirstChild("MegaGui")
+if not ScreenGui then
+	ScreenGui = Instance.new("ScreenGui")
+	ScreenGui.Name = "MegaGui"
+	ScreenGui.ResetOnSpawn = false
+	ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 end
-local uiParent = pickUiParent()
+local oldUI = ScreenGui:FindFirstChild("MegaWindow")
+if oldUI then oldUI:Destroy() end
 
-for _, parent in ipairs({uiParent, PlayerGui}) do
-	pcall(function()
-		local found = parent:FindFirstChild("HykoGui")
-		if found then found:Destroy() end
-	end)
-end
-
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "HykoGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.IgnoreGuiInset = true
-ScreenGui.DisplayOrder = 999999
-pcall(function() if syn and syn.protect_gui then syn.protect_gui(ScreenGui) end end)
-pcall(function() if protect_gui then protect_gui(ScreenGui) end end)
-ScreenGui.Parent = uiParent
-
-local P = {
-	bgTop      = Color3.fromRGB(252, 253, 255),
-	card       = Color3.fromRGB(255, 255, 255),
-	cardSoft   = Color3.fromRGB(246, 248, 252),
-	border     = Color3.fromRGB(228, 231, 238),
-	borderSoft = Color3.fromRGB(237, 240, 245),
-	text       = Color3.fromRGB(23, 26, 33),
-	sub        = Color3.fromRGB(138, 144, 158),
-	dim        = Color3.fromRGB(180, 186, 198),
+local U = {
+	cardBg     = Color3.fromRGB(255, 255, 255),
+	cardStroke = Color3.fromRGB(225, 228, 235),
+	text       = Color3.fromRGB(28, 32, 40),
+	sub        = Color3.fromRGB(140, 146, 158),
 	accent     = Color3.fromRGB(10, 132, 255),
-	accentSoft = Color3.fromRGB(230, 241, 255),
-	green      = Color3.fromRGB(48, 209, 88),
-	greenSoft  = Color3.fromRGB(228, 249, 233),
+	green      = Color3.fromRGB(52, 199, 89),
 	amber      = Color3.fromRGB(255, 159, 10),
-	amberSoft  = Color3.fromRGB(255, 245, 224),
 	red        = Color3.fromRGB(255, 69, 58),
-	redSoft    = Color3.fromRGB(255, 235, 232),
-	purple     = Color3.fromRGB(140, 90, 255),
-	purpleSoft = Color3.fromRGB(240, 233, 255),
-	off        = Color3.fromRGB(210, 214, 220),
+	off        = Color3.fromRGB(200, 204, 210),
 }
 
-local WINDOW_W      = 340
-local WINDOW_H      = 520
-local WINDOW_H_MINI = 64
-local SHADOW_PAD    = 8
+local WINDOW_W = 300
+local WINDOW_H = 470
 
-local Shadow = Instance.new("Frame", ScreenGui)
-Shadow.Name = "HykoShadow"
-Shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-Shadow.BackgroundTransparency = 0.85
-Shadow.BorderSizePixel = 0
-Shadow.ZIndex = 1
-mkCorner(Shadow, 20)
+local function mkCorner(parent, radius)
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, radius); c.Parent = parent; return c
+end
+local function mkStroke(parent, color, transparency, thickness)
+	local s = Instance.new("UIStroke")
+	s.Color = color; s.Transparency = transparency or 0
+	s.Thickness = thickness or 1; s.Parent = parent; return s
+end
 
 local Window = Instance.new("Frame", ScreenGui)
-Window.Name = "HykoWindow"
+Window.Name = "MegaWindow"
 Window.Size = UDim2.fromOffset(WINDOW_W, WINDOW_H)
 Window.Position = UDim2.new(0, 20, 0.5, -WINDOW_H/2)
-Window.BackgroundColor3 = P.bgTop
+Window.BackgroundColor3 = Color3.fromRGB(248, 249, 252)
+Window.BackgroundTransparency = 0.04
 Window.BorderSizePixel = 0
 Window.Active = true
 Window.ClipsDescendants = true
-Window.ZIndex = 2
-mkCorner(Window, 14)
-mkStroke(Window, P.border, 0.2, 1)
+mkCorner(Window, 12)
+mkStroke(Window, U.cardStroke, 0.2, 1)
 
-local function syncShadow()
-	Shadow.Position = UDim2.new(
-		Window.Position.X.Scale, Window.Position.X.Offset - SHADOW_PAD,
-		Window.Position.Y.Scale, Window.Position.Y.Offset - SHADOW_PAD
-	)
-	Shadow.Size = UDim2.new(
-		Window.Size.X.Scale, Window.Size.X.Offset + SHADOW_PAD * 2,
-		Window.Size.Y.Scale, Window.Size.Y.Offset + SHADOW_PAD * 2
-	)
-end
-Window:GetPropertyChangedSignal("Position"):Connect(syncShadow)
-Window:GetPropertyChangedSignal("Size"):Connect(syncShadow)
-Window:GetPropertyChangedSignal("Visible"):Connect(function()
-	Shadow.Visible = Window.Visible
-end)
-syncShadow()
-
---================= HEADER =================
 local header = Instance.new("Frame", Window)
-header.Size = UDim2.new(1, 0, 0, 60)
-header.BackgroundTransparency = 1
+header.Size = UDim2.new(1, -16, 0, 48)
+header.Position = UDim2.fromOffset(8, 8)
+header.BackgroundColor3 = U.cardBg
+header.BackgroundTransparency = 0.06
+header.BorderSizePixel = 0
 header.ZIndex = 3
+mkCorner(header, 8)
+mkStroke(header, U.cardStroke, 0.35, 1)
 
-local avatarWrap = Instance.new("Frame", header)
-avatarWrap.Size = UDim2.fromOffset(36, 36)
-avatarWrap.Position = UDim2.fromOffset(16, 12)
-avatarWrap.BackgroundColor3 = P.accentSoft
-avatarWrap.BorderSizePixel = 0
-avatarWrap.ZIndex = 4
-mkCorner(avatarWrap, 18)
-mkStroke(avatarWrap, P.border, 0.4, 1)
-
-local avatar = Instance.new("ImageLabel", avatarWrap)
-avatar.Size = UDim2.fromScale(1, 1)
-avatar.BackgroundTransparency = 1
-avatar.Image = "rbxassetid://14780540796"
-avatar.ZIndex = 5
-mkCorner(avatar, 18)
-
-task.spawn(function()
-	local ok, url = pcall(function()
-		return Players:GetUserThumbnailAsync(LP.UserId,
-			Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
-	end)
-	if ok and url then avatar.Image = url end
-end)
-
-local statusDot = Instance.new("Frame", header)
-statusDot.Size = UDim2.fromOffset(10, 10)
-statusDot.Position = UDim2.fromOffset(44, 38)
-statusDot.BackgroundColor3 = P.green
-statusDot.BorderSizePixel = 0
-statusDot.ZIndex = 6
-mkCorner(statusDot, 5)
-mkStroke(statusDot, Color3.fromRGB(255,255,255), 0, 2)
+local hDot = Instance.new("Frame", header)
+hDot.Size = UDim2.fromOffset(6, 6)
+hDot.Position = UDim2.fromOffset(12, 12)
+hDot.BackgroundColor3 = U.accent
+hDot.BorderSizePixel = 0
+hDot.ZIndex = 4
+mkCorner(hDot, 3)
 
 local title = Instance.new("TextLabel", header)
-title.Size = UDim2.new(1, -150, 0, 18)
-title.Position = UDim2.fromOffset(62, 12)
+title.Size = UDim2.new(1, -120, 0, 16)
+title.Position = UDim2.fromOffset(24, 8)
 title.BackgroundTransparency = 1
-title.Text = "Hello, " .. (LP.DisplayName or LP.Name)
-title.TextColor3 = P.text
+title.Text = "MEGA v15"
+title.TextColor3 = U.text
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.TextTruncate = Enum.TextTruncate.AtEnd
 title.ZIndex = 4
 
 local subtitle = Instance.new("TextLabel", header)
-subtitle.Size = UDim2.new(1, -150, 0, 12)
-subtitle.Position = UDim2.fromOffset(62, 31)
+subtitle.Size = UDim2.new(1, -120, 0, 12)
+subtitle.Position = UDim2.fromOffset(24, 26)
 subtitle.BackgroundTransparency = 1
-subtitle.Text = "Hyko Suite"
-subtitle.TextColor3 = P.sub
+subtitle.Text = "v6.1 ⇄ v6.2 (dual, mặc định tắt)"
+subtitle.TextColor3 = U.sub
 subtitle.Font = Enum.Font.Gotham
-subtitle.TextSize = 10
+subtitle.TextSize = 9
 subtitle.TextXAlignment = Enum.TextXAlignment.Left
 subtitle.ZIndex = 4
 
-local minBtn = Instance.new("TextButton", header)
-minBtn.Size = UDim2.fromOffset(28, 28)
-minBtn.Position = UDim2.new(1, -68, 0, 16)
-minBtn.BackgroundColor3 = P.cardSoft
-minBtn.Text = ""
-minBtn.AutoButtonColor = false
-minBtn.ZIndex = 4
-mkCorner(minBtn, 8)
-mkStroke(minBtn, P.borderSoft, 0.3, 1)
-
-local minBarH = Instance.new("Frame", minBtn)
-minBarH.Size = UDim2.fromOffset(11, 1.6)
-minBarH.Position = UDim2.new(0.5, -5.5, 0.5, -0.8)
-minBarH.BackgroundColor3 = P.sub
-minBarH.BorderSizePixel = 0
-minBarH.ZIndex = 5
-mkCorner(minBarH, 1)
-
-local minBarV = Instance.new("Frame", minBtn)
-minBarV.Size = UDim2.fromOffset(1.6, 11)
-minBarV.Position = UDim2.new(0.5, -0.8, 0.5, -5.5)
-minBarV.BackgroundColor3 = P.sub
-minBarV.BorderSizePixel = 0
-minBarV.Visible = false
-minBarV.ZIndex = 5
-mkCorner(minBarV, 1)
-
 local closeBtn = Instance.new("TextButton", header)
-closeBtn.Size = UDim2.fromOffset(28, 28)
-closeBtn.Position = UDim2.new(1, -36, 0, 16)
-closeBtn.BackgroundColor3 = P.redSoft
-closeBtn.Text = ""
+closeBtn.Size = UDim2.fromOffset(24, 24)
+closeBtn.Position = UDim2.new(1, -32, 0.5, -12)
+closeBtn.BackgroundColor3 = Color3.fromRGB(255, 240, 240)
+closeBtn.Text = "×"
+closeBtn.TextColor3 = U.red
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 16
 closeBtn.AutoButtonColor = false
 closeBtn.ZIndex = 4
-mkCorner(closeBtn, 8)
-
-local closeIcon = Instance.new("ImageLabel", closeBtn)
-closeIcon.Size = UDim2.fromOffset(13, 13)
-closeIcon.Position = UDim2.new(0.5, -6.5, 0.5, -6.5)
-closeIcon.BackgroundTransparency = 1
-closeIcon.Image = Icons.Close
-closeIcon.ImageColor3 = P.red
-closeIcon.ScaleType = Enum.ScaleType.Fit
-closeIcon.ZIndex = 5
-
+mkCorner(closeBtn, 12)
 closeBtn.MouseButton1Click:Connect(function() Window.Visible = false end)
 
 local dragging, dragStart, startPos
@@ -855,274 +610,101 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
-local divider = Instance.new("Frame", Window)
-divider.Size = UDim2.new(1, -32, 0, 1)
-divider.Position = UDim2.fromOffset(16, 60)
-divider.BackgroundColor3 = P.border
-divider.BackgroundTransparency = 0.4
-divider.BorderSizePixel = 0
-divider.ZIndex = 3
-
---================= TABS =================
-local TabBar = Instance.new("Frame", Window)
-TabBar.Size = UDim2.new(1, -24, 0, 36)
-TabBar.Position = UDim2.fromOffset(12, 74)
-TabBar.BackgroundColor3 = P.cardSoft
-TabBar.BorderSizePixel = 0
-TabBar.ZIndex = 3
-mkCorner(TabBar, 10)
-mkStroke(TabBar, P.borderSoft, 0.5, 1)
-
-local tabIndicator = Instance.new("Frame", TabBar)
-tabIndicator.Size = UDim2.new(0.5, -4, 1, -4)
-tabIndicator.Position = UDim2.fromOffset(2, 2)
-tabIndicator.BackgroundColor3 = P.card
-tabIndicator.BorderSizePixel = 0
-tabIndicator.ZIndex = 4
-mkCorner(tabIndicator, 8)
-mkStroke(tabIndicator, P.borderSoft, 0.2, 1)
-
-local function makeTabButton(parent, text, iconId, xScale)
-	local btn = Instance.new("TextButton", parent)
-	btn.Size = UDim2.new(0.5, 0, 1, 0)
-	btn.Position = UDim2.new(xScale, 0, 0, 0)
-	btn.BackgroundTransparency = 1
-	btn.Text = ""
-	btn.AutoButtonColor = false
-	btn.ZIndex = 5
-
-	local inner = Instance.new("Frame", btn)
-	inner.AnchorPoint = Vector2.new(0.5, 0.5)
-	inner.Position = UDim2.fromScale(0.5, 0.5)
-	inner.Size = UDim2.fromOffset(110, 16)
-	inner.BackgroundTransparency = 1
-	inner.ZIndex = 6
-
-	local icon = Instance.new("ImageLabel", inner)
-	icon.Size = UDim2.fromOffset(13, 13)
-	icon.Position = UDim2.fromOffset(0, 1.5)
-	icon.BackgroundTransparency = 1
-	icon.Image = iconId
-	icon.ImageColor3 = P.sub
-	icon.ScaleType = Enum.ScaleType.Fit
-	icon.ZIndex = 7
-
-	local lbl = Instance.new("TextLabel", inner)
-	lbl.Position = UDim2.fromOffset(19, 0)
-	lbl.Size = UDim2.fromOffset(91, 16)
-	lbl.BackgroundTransparency = 1
-	lbl.Text = text
-	lbl.TextColor3 = P.sub
-	lbl.Font = Enum.Font.GothamBold
-	lbl.TextSize = 11
-	lbl.TextXAlignment = Enum.TextXAlignment.Left
-	lbl.ZIndex = 7
-
-	return btn, icon, lbl
-end
-
-local MainTabBtn, mainTabIcon, mainTabLabel = makeTabButton(TabBar, "Dashboard", Icons.List, 0)
-local HopTabBtn,  hopTabIcon,  hopTabLabel  = makeTabButton(TabBar, "Server Hop", Icons.Server, 0.5)
-
-mainTabIcon.ImageColor3 = P.accent
-mainTabLabel.TextColor3 = P.text
-
---================= CONTENT =================
 local content = Instance.new("Frame", Window)
-content.Size = UDim2.new(1, -24, 1, -132)
-content.Position = UDim2.fromOffset(12, 118)
+content.Size = UDim2.new(1, -16, 1, -68)
+content.Position = UDim2.fromOffset(8, 60)
 content.BackgroundTransparency = 1
 content.ZIndex = 3
 
-local MainContent = Instance.new("Frame", content)
-MainContent.Size = UDim2.fromScale(1, 1)
-MainContent.BackgroundTransparency = 1
-MainContent.ZIndex = 4
-
-local HopContent = Instance.new("Frame", content)
-HopContent.Size = UDim2.fromScale(1, 1)
-HopContent.BackgroundTransparency = 1
-HopContent.ZIndex = 4
-HopContent.Visible = false
-
-local function switchTab(tab)
-	if tab == "main" then
-		MainContent.Visible = true; HopContent.Visible = false
-		mainTabIcon.ImageColor3 = P.accent; mainTabLabel.TextColor3 = P.text
-		hopTabIcon.ImageColor3 = P.sub; hopTabLabel.TextColor3 = P.sub
-		TweenService:Create(tabIndicator, TweenInfo.new(0.22,
-			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-			Position = UDim2.fromOffset(2, 2)
-		}):Play()
-	else
-		MainContent.Visible = false; HopContent.Visible = true
-		mainTabIcon.ImageColor3 = P.sub; mainTabLabel.TextColor3 = P.sub
-		hopTabIcon.ImageColor3 = P.accent; hopTabLabel.TextColor3 = P.text
-		TweenService:Create(tabIndicator, TweenInfo.new(0.22,
-			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-			Position = UDim2.new(0.5, 2, 0, 2)
-		}):Play()
-	end
-end
-MainTabBtn.MouseButton1Click:Connect(function() switchTab("main") end)
-HopTabBtn.MouseButton1Click:Connect(function() switchTab("hop") end)
-
---================= MINIMIZE =================
-local isMinimized = false
-minBtn.MouseButton1Click:Connect(function()
-	if isMinimized then
-		isMinimized = false; minBarV.Visible = false
-		local tw = TweenService:Create(Window, TweenInfo.new(0.24,
-			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-			Size = UDim2.fromOffset(WINDOW_W, WINDOW_H)
-		})
-		tw:Play()
-		tw.Completed:Connect(function()
-			if not isMinimized then
-				TabBar.Visible = true; content.Visible = true; divider.Visible = true
-			end
-		end)
-	else
-		isMinimized = true; minBarV.Visible = true
-		TabBar.Visible = false; content.Visible = false; divider.Visible = false
-		TweenService:Create(Window, TweenInfo.new(0.24,
-			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-			Size = UDim2.fromOffset(WINDOW_W, WINDOW_H_MINI)
-		}):Play()
-	end
-end)
-
---============================================================--
--- [I] UI BUILDERS
---============================================================--
-local ROW_H = 34
-local BADGE = 22
-local LABEL_X = 48
-
-local function makeCard(parent, yPos, height)
-	local card = Instance.new("Frame", parent)
+local function makeCard(yPos, height)
+	local card = Instance.new("Frame", content)
 	card.Size = UDim2.new(1, 0, 0, height)
 	card.Position = UDim2.fromOffset(0, yPos)
-	card.BackgroundColor3 = P.card
+	card.BackgroundColor3 = U.cardBg
+	card.BackgroundTransparency = 0.06
 	card.BorderSizePixel = 0
 	card.ZIndex = 4
-	mkCorner(card, 10)
-	mkStroke(card, P.borderSoft, 0.25, 1)
+	mkCorner(card, 8)
+	mkStroke(card, U.cardStroke, 0.35, 1)
 	return card
 end
 
-local function makeIconBadge(parent, iconId, bgColor, iconColor, x, y, size)
-	size = size or BADGE
-	local badge = Instance.new("Frame", parent)
-	badge.Size = UDim2.fromOffset(size, size)
-	badge.Position = UDim2.fromOffset(x, y)
-	badge.BackgroundColor3 = bgColor
-	badge.BorderSizePixel = 0
-	badge.ZIndex = 5
-	mkCorner(badge, math.floor(size * 0.32))
-	local is = size - 8
-	local icon = Instance.new("ImageLabel", badge)
-	icon.Size = UDim2.fromOffset(is, is)
-	icon.Position = UDim2.new(0.5, -is/2, 0.5, -is/2)
-	icon.BackgroundTransparency = 1
-	icon.Image = iconId
-	icon.ImageColor3 = iconColor
-	icon.ScaleType = Enum.ScaleType.Fit
-	icon.ZIndex = 6
-	return badge, icon
-end
-
-local function makeToggle(card, name, defaultState, yOffset, iconId, badgeBg, iconColor, callback)
-	local badgeY = yOffset + (ROW_H - BADGE) / 2
-	makeIconBadge(card, iconId, badgeBg, iconColor, 14, badgeY, BADGE)
+local function addCardLabel(card, name, yOffset)
+	local dot = Instance.new("Frame", card)
+	dot.Size = UDim2.fromOffset(6, 6)
+	dot.Position = UDim2.fromOffset(12, yOffset + 5)
+	dot.BackgroundColor3 = U.accent
+	dot.BorderSizePixel = 0
+	dot.ZIndex = 5
+	mkCorner(dot, 3)
 
 	local lbl = Instance.new("TextLabel", card)
 	lbl.BackgroundTransparency = 1
-	lbl.Position = UDim2.fromOffset(LABEL_X, yOffset)
-	lbl.Size = UDim2.new(1, -LABEL_X - 66, 0, ROW_H)
+	lbl.Position = UDim2.fromOffset(24, yOffset)
+	lbl.Size = UDim2.new(1, -120, 0, 16)
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.TextSize = 11
-	lbl.TextColor3 = P.text
+	lbl.TextColor3 = U.text
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.TextTruncate = Enum.TextTruncate.AtEnd
 	lbl.Text = name
 	lbl.ZIndex = 5
+	return dot, lbl
+end
 
-	local sw = Instance.new("Frame", card)
-	sw.Size = UDim2.fromOffset(38, 21)
-	sw.Position = UDim2.new(1, -52, 0, yOffset + (ROW_H - 21) / 2)
-	sw.BackgroundColor3 = defaultState and P.green or P.off
-	sw.BorderSizePixel = 0
-	sw.ZIndex = 5
-	mkCorner(sw, 11)
+local function makeToggle(card, name, defaultState, yOffset, callback)
+	local dot, lbl = addCardLabel(card, name, yOffset)
+	local switchBg = Instance.new("Frame", card)
+	switchBg.Size = UDim2.fromOffset(40, 22)
+	switchBg.Position = UDim2.new(1, -52, 0, yOffset + 2)
+	switchBg.BackgroundColor3 = defaultState and U.green or U.off
+	switchBg.BorderSizePixel = 0
+	switchBg.ZIndex = 5
+	mkCorner(switchBg, 11)
 
-	local thumb = Instance.new("Frame", sw)
-	thumb.Size = UDim2.fromOffset(17, 17)
-	thumb.Position = defaultState and UDim2.fromOffset(19, 2) or UDim2.fromOffset(2, 2)
+	local thumb = Instance.new("Frame", switchBg)
+	thumb.Size = UDim2.fromOffset(18, 18)
+	thumb.Position = defaultState and UDim2.fromOffset(20, 2) or UDim2.fromOffset(2, 2)
 	thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	thumb.BorderSizePixel = 0
 	thumb.ZIndex = 6
 	mkCorner(thumb, 9)
 
 	local btn = Instance.new("TextButton", card)
-	btn.Size = UDim2.new(1, 0, 0, ROW_H)
-	btn.Position = UDim2.fromOffset(0, yOffset)
+	btn.Size = UDim2.new(1, 0, 0, 26)
+	btn.Position = UDim2.fromOffset(0, yOffset - 5)
 	btn.BackgroundTransparency = 1
 	btn.Text = ""
 	btn.ZIndex = 7
 
 	local state = defaultState
-	local function applyState(s, fire)
+	local function applyState(s, fireCallback)
 		state = s
-		TweenService:Create(sw, TweenInfo.new(0.2, Enum.EasingStyle.Quart),
-			{BackgroundColor3 = state and P.green or P.off}):Play()
+		TweenService:Create(switchBg, TweenInfo.new(0.2, Enum.EasingStyle.Quart),
+			{BackgroundColor3 = state and U.green or U.off}):Play()
 		TweenService:Create(thumb, TweenInfo.new(0.2, Enum.EasingStyle.Quart),
-			{Position = state and UDim2.fromOffset(19, 2) or UDim2.fromOffset(2, 2)}):Play()
-		if fire and callback then callback(state) end
+			{Position = state and UDim2.fromOffset(20, 2) or UDim2.fromOffset(2, 2)}):Play()
+		if fireCallback and callback then callback(state) end
 	end
-	btn.MouseButton1Click:Connect(function() applyState(not state, true) end)
+
+	btn.MouseButton1Click:Connect(function()
+		applyState(not state, true)
+	end)
+
 	return {
 		setState = function(s) applyState(s, false) end,
 		getState = function() return state end,
 	}
 end
 
-local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset,
-	iconId, badgeBg, iconColor, callback)
-	makeIconBadge(card, iconId, badgeBg, iconColor, 14, yOffset, BADGE)
-
-	local lbl = Instance.new("TextLabel", card)
-	lbl.BackgroundTransparency = 1
-	lbl.Position = UDim2.fromOffset(LABEL_X, yOffset)
-	lbl.Size = UDim2.new(1, -LABEL_X - 60, 0, BADGE)
-	lbl.Font = Enum.Font.GothamMedium
-	lbl.TextSize = 11
-	lbl.TextColor3 = P.text
-	lbl.TextXAlignment = Enum.TextXAlignment.Left
-	lbl.Text = name
-	lbl.ZIndex = 5
-
-	local valChip = Instance.new("Frame", card)
-	valChip.Size = UDim2.fromOffset(46, 20)
-	valChip.Position = UDim2.new(1, -60, 0, yOffset + 1)
-	valChip.BackgroundColor3 = badgeBg
-	valChip.BorderSizePixel = 0
-	valChip.ZIndex = 5
-	mkCorner(valChip, 6)
-
-	local valLbl = Instance.new("TextLabel", valChip)
-	valLbl.Size = UDim2.fromScale(1, 1)
-	valLbl.BackgroundTransparency = 1
-	valLbl.Font = Enum.Font.GothamBold
-	valLbl.Text = tostring(defaultVal)
-	valLbl.TextColor3 = iconColor
-	valLbl.TextSize = 11
-	valLbl.ZIndex = 6
+local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset, callback)
+	local dot, lbl = addCardLabel(card, name, yOffset)
+	lbl.Text = name .. ": " .. defaultVal
 
 	local track = Instance.new("TextButton", card)
-	track.Size = UDim2.new(1, -28, 0, 4)
-	track.Position = UDim2.fromOffset(14, yOffset + 34)
-	track.BackgroundColor3 = P.borderSoft
+	track.Size = UDim2.new(1, -24, 0, 4)
+	track.Position = UDim2.fromOffset(12, yOffset + 26)
+	track.BackgroundColor3 = Color3.fromRGB(232, 235, 240)
 	track.Text = ""
 	track.AutoButtonColor = false
 	track.ZIndex = 5
@@ -1130,7 +712,7 @@ local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset,
 
 	local fill = Instance.new("Frame", track)
 	fill.Size = UDim2.new((defaultVal - minVal) / (maxVal - minVal), 0, 1, 0)
-	fill.BackgroundColor3 = iconColor
+	fill.BackgroundColor3 = U.accent
 	fill.BorderSizePixel = 0
 	fill.ZIndex = 6
 	mkCorner(fill, 2)
@@ -1142,7 +724,7 @@ local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset,
 	thumb.BorderSizePixel = 0
 	thumb.ZIndex = 7
 	mkCorner(thumb, 6)
-	mkStroke(thumb, P.border, 0.2, 1)
+	mkStroke(thumb, U.cardStroke, 0, 1)
 
 	local draggingSlider = false
 	local function updateSlider(input)
@@ -1152,7 +734,7 @@ local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset,
 		local val = math.floor(minVal + pct * (maxVal - minVal))
 		fill.Size = UDim2.new(pct, 0, 1, 0)
 		thumb.Position = UDim2.new(pct, -6, 0.5, -6)
-		valLbl.Text = tostring(val)
+		lbl.Text = name .. ": " .. val
 		if callback then callback(val) end
 	end
 	track.InputBegan:Connect(function(input)
@@ -1177,22 +759,25 @@ local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset,
 	end)
 end
 
---============================================================--
--- [J] DASHBOARD CARDS
---============================================================--
+local y = 0
+local gap = 8
+
+-- SPEED card
 local curSpeed = 60
 local speedOn  = false
 local savedHum, savedCollide, mainConn = nil, {}, nil
-local yLockOn  = true
+local yLockOn = true
 _G.curSpeed = curSpeed
 
-local speedCard = makeCard(MainContent, 0, 68)
-makeSlider(speedCard, "Movement Speed", 10, 800, 60, 10,
-	Icons.Auto, P.accentSoft, P.accent, function(val)
-		curSpeed = val; _G.curSpeed = val
-	end)
+local speedCard = makeCard(y, 62)
+makeSlider(speedCard, "Speed", 10, 800, 60, 8, function(val)
+	curSpeed = val
+	_G.curSpeed = val
+end)
+y = y + 62 + gap
 
-local boostCard = makeCard(MainContent, 76, 80)
+-- SPEED TOGGLE + INVISIBLE
+local boostCard = makeCard(y, 62)
 
 local function enableSpeed()
 	local c = LP.Character
@@ -1205,14 +790,15 @@ local function enableSpeed()
 	savedCollide = {}
 	for _, p in ipairs(c:GetDescendants()) do
 		if p:IsA("BasePart") and p ~= hrp then
-			savedCollide[p] = p.CanCollide; p.CanCollide = false
+			savedCollide[p] = p.CanCollide
+			p.CanCollide = false
 		end
 	end
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	rayParams.FilterDescendantsInstances = {c}
 	rayParams.IgnoreWater = true
-	mainConn = RunService.Heartbeat:Connect(function()
+	mainConn = RunService.Heartbeat:Connect(function(dt)
 		local ch = LP.Character
 		if not ch then return end
 		local root = ch:FindFirstChild("HumanoidRootPart")
@@ -1257,7 +843,7 @@ end
 local function disableSpeed()
 	if mainConn then mainConn:Disconnect() mainConn = nil end
 	local c = LP.Character
-	if not c then savedHum = nil; savedCollide = {}; return end
+	if not c then savedHum = nil savedCollide = {} return end
 	local hrp = c:FindFirstChild("HumanoidRootPart")
 	if hrp then
 		hrp.AssemblyLinearVelocity  = Vector3.zero
@@ -1279,526 +865,272 @@ local function disableSpeed()
 	pcall(function() LP:LoadCharacter() end)
 end
 
-makeToggle(boostCard, "Speed Boost", false, 6,
-	Icons.Hop, P.accentSoft, P.accent, function(state)
-		if state then
-			if enableSpeed() then speedOn = true end
-		else
-			speedOn = false; disableSpeed()
-		end
-	end)
-
-makeToggle(boostCard, "Invisible", false, 6 + ROW_H,
-	Icons.Settings, P.purpleSoft, P.purple, function(state)
-		invisOn = state; setInvis(invisOn)
-	end)
-
--- protCard: Anti-NPC + Block Rouse
-local protCard = makeCard(MainContent, 164, 78)
-
-local function switchAnti(state)
-	if state == antiOn then return end
-	if not state then
-		antiOn = false
-		unlockAll()
+makeToggle(boostCard, "Speed Boost", false, 8, function(state)
+	if state then
+		if enableSpeed() then speedOn = true end
 	else
-		antiOn = true
-		task.spawn(scanAndLockAll)
+		speedOn = false
+		disableSpeed()
 	end
+end)
+makeToggle(boostCard, "Invisible", false, 34, function(state)
+	invisOn = state
+	setInvis(invisOn)
+end)
+y = y + 62 + gap
+
+-- ANTI-NPC card
+local protCard = makeCard(y, 88)
+
+local anti61Handle, anti62Handle
+
+local function switchAntiMode(newMode)
+	if antiMode == newMode then newMode = "off" end
+	if antiMode == newMode then return end
+	unlockAll()
+	antiMode = newMode
+	anti61Handle.setState(newMode == "v61")
+	anti62Handle.setState(newMode == "v62")
+	if newMode == "v62" then applyPlayerNoTouch() end
 end
 
-makeToggle(protCard, "Anti-NPC", false, 6,
-	Icons.Check, P.greenSoft, P.green, function(state)
-		switchAnti(state)
-	end)
+anti61Handle = makeToggle(protCard, "Anti-NPC v6.1 (mềm)", false, 8, function(state)
+	if state then switchAntiMode("v61") else switchAntiMode("off") end
+end)
 
-makeToggle(protCard, "Block Rouse", true, 6 + ROW_H,
-	Icons.Close, P.redSoft, P.red, function(state)
-		blockRouse = state
-	end)
+anti62Handle = makeToggle(protCard, "Anti-NPC v6.2 (cứng)", false, 34, function(state)
+	if state then switchAntiMode("v62") else switchAntiMode("off") end
+end)
 
-local espCard = makeCard(MainContent, 250, 80)
-makeToggle(espCard, "Player ESP", false, 6,
-	Icons.Players, P.accentSoft, P.accent, function(state)
-		if state then enableESP() else disableESP() end
-	end)
-makeToggle(espCard, "Fast Loot", true, 6 + ROW_H,
-	Icons.Search, P.amberSoft, P.amber, function(state)
-		fastLootOn = state
-	end)
+makeToggle(protCard, "Block Rouse", blockRouse, 60, function(state)
+	blockRouse = state
+end)
+
+y = y + 88 + gap
+
+-- ESP + Fast Loot card
+local espCard = makeCard(y, 62)
+makeToggle(espCard, "Player ESP", false, 8, function(state)
+	if state then enableESP() else disableESP() end
+end)
+makeToggle(espCard, "Fast Loot", true, 34, function(state)
+	fastLootOn = state
+end)
 
 --============================================================--
--- [K] SERVER HOP TAB
+-- [I] ESP
 --============================================================--
-local InfoCard = Instance.new("Frame", HopContent)
-InfoCard.Size = UDim2.new(1, 0, 0, 48)
-InfoCard.BackgroundColor3 = P.card
-InfoCard.BorderSizePixel = 0
-InfoCard.ZIndex = 5
-mkCorner(InfoCard, 10)
-mkStroke(InfoCard, P.borderSoft, 0.25, 1)
+local espOn = false
+local ESP_MAX_DISTANCE = 5000
+local ESP_UPDATE_INTERVAL = 0.20
+local espEntries = {}
+local espConnections = {}
+local espFolder = Instance.new("Folder")
+espFolder.Name = "MegaESP"
+espFolder.Parent = workspace
 
-makeIconBadge(InfoCard, Icons.Players, P.accentSoft, P.accent, 14, 13, BADGE)
+local T = {
+	accent = Color3.fromRGB(10, 132, 255),
+	text   = Color3.fromRGB(28, 32, 40),
+	sub    = Color3.fromRGB(140, 146, 158),
+	green  = Color3.fromRGB(52, 199, 89),
+	amber  = Color3.fromRGB(255, 159, 10),
+	red    = Color3.fromRGB(255, 69, 58),
+	cardBg = Color3.fromRGB(255, 255, 255),
+	cardStroke = Color3.fromRGB(225, 228, 235),
+}
 
-local InfoLabel = Instance.new("TextLabel", InfoCard)
-InfoLabel.Position = UDim2.fromOffset(LABEL_X, 0)
-InfoLabel.Size = UDim2.new(1, -LABEL_X - 70, 1, 0)
-InfoLabel.BackgroundTransparency = 1
-InfoLabel.Font = Enum.Font.GothamMedium
-InfoLabel.Text = "Players in this server"
-InfoLabel.TextColor3 = P.text
-InfoLabel.TextSize = 11
-InfoLabel.TextXAlignment = Enum.TextXAlignment.Left
-InfoLabel.ZIndex = 6
-
-local NowCount = Instance.new("TextLabel", InfoCard)
-NowCount.Size = UDim2.fromOffset(60, 48)
-NowCount.Position = UDim2.new(1, -70, 0, 0)
-NowCount.BackgroundTransparency = 1
-NowCount.Font = Enum.Font.GothamBold
-NowCount.Text = "0"
-NowCount.TextColor3 = P.green
-NowCount.TextSize = 15
-NowCount.TextXAlignment = Enum.TextXAlignment.Right
-NowCount.ZIndex = 6
-
-local StatusLabel = Instance.new("TextLabel", HopContent)
-StatusLabel.Position = UDim2.fromOffset(4, 54)
-StatusLabel.Size = UDim2.new(1, -8, 0, 16)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.Text = "Ready"
-StatusLabel.TextColor3 = P.sub
-StatusLabel.TextSize = 10
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.ZIndex = 5
-
-local InputCard = Instance.new("Frame", HopContent)
-InputCard.Position = UDim2.fromOffset(0, 76)
-InputCard.Size = UDim2.new(1, 0, 0, 48)
-InputCard.BackgroundColor3 = P.card
-InputCard.BorderSizePixel = 0
-InputCard.ZIndex = 5
-mkCorner(InputCard, 10)
-mkStroke(InputCard, P.borderSoft, 0.25, 1)
-
-makeIconBadge(InputCard, Icons.Settings, P.amberSoft, P.amber, 14, 13, BADGE)
-
-local MaxLabel = Instance.new("TextLabel", InputCard)
-MaxLabel.Position = UDim2.fromOffset(LABEL_X, 0)
-MaxLabel.Size = UDim2.new(1, -LABEL_X - 70, 1, 0)
-MaxLabel.BackgroundTransparency = 1
-MaxLabel.Font = Enum.Font.GothamMedium
-MaxLabel.Text = "Hop when players exceed"
-MaxLabel.TextColor3 = P.text
-MaxLabel.TextSize = 11
-MaxLabel.TextXAlignment = Enum.TextXAlignment.Left
-MaxLabel.ZIndex = 6
-
-local MaxBox = Instance.new("TextBox", InputCard)
-MaxBox.Position = UDim2.new(1, -50, 0.5, -12)
-MaxBox.Size = UDim2.fromOffset(36, 24)
-MaxBox.BackgroundColor3 = P.amberSoft
-MaxBox.Font = Enum.Font.GothamBold
-MaxBox.Text = "1"
-MaxBox.TextColor3 = P.amber
-MaxBox.TextSize = 12
-MaxBox.ClearTextOnFocus = false
-MaxBox.TextXAlignment = Enum.TextXAlignment.Center
-MaxBox.ZIndex = 6
-mkCorner(MaxBox, 6)
-
-local HopBtn = Instance.new("TextButton", HopContent)
-HopBtn.Position = UDim2.fromOffset(0, 132)
-HopBtn.Size = UDim2.new(0.48, 0, 0, 40)
-HopBtn.BackgroundColor3 = P.accent
-HopBtn.Text = ""
-HopBtn.AutoButtonColor = false
-HopBtn.ZIndex = 5
-mkCorner(HopBtn, 10)
-
-local hopInner = Instance.new("Frame", HopBtn)
-hopInner.AnchorPoint = Vector2.new(0.5, 0.5)
-hopInner.Position = UDim2.fromScale(0.5, 0.5)
-hopInner.Size = UDim2.fromOffset(90, 16)
-hopInner.BackgroundTransparency = 1
-hopInner.ZIndex = 6
-
-local hopIcon = Instance.new("ImageLabel", hopInner)
-hopIcon.Size = UDim2.fromOffset(13, 13)
-hopIcon.Position = UDim2.fromOffset(0, 1.5)
-hopIcon.BackgroundTransparency = 1
-hopIcon.Image = Icons.Hop
-hopIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
-hopIcon.ScaleType = Enum.ScaleType.Fit
-hopIcon.ZIndex = 7
-
-local hopText = Instance.new("TextLabel", hopInner)
-hopText.Position = UDim2.fromOffset(19, 0)
-hopText.Size = UDim2.fromOffset(71, 16)
-hopText.BackgroundTransparency = 1
-hopText.Font = Enum.Font.GothamBold
-hopText.Text = "Hop Now"
-hopText.TextColor3 = Color3.fromRGB(255, 255, 255)
-hopText.TextSize = 11
-hopText.TextXAlignment = Enum.TextXAlignment.Left
-hopText.ZIndex = 7
-
-local AutoBtn = Instance.new("TextButton", HopContent)
-AutoBtn.Position = UDim2.new(0.52, 0, 0, 132)
-AutoBtn.Size = UDim2.new(0.48, 0, 0, 40)
-AutoBtn.BackgroundColor3 = P.card
-AutoBtn.Text = ""
-AutoBtn.AutoButtonColor = false
-AutoBtn.ZIndex = 5
-mkCorner(AutoBtn, 10)
-mkStroke(AutoBtn, P.borderSoft, 0.25, 1)
-
-local autoInner = Instance.new("Frame", AutoBtn)
-autoInner.AnchorPoint = Vector2.new(0.5, 0.5)
-autoInner.Position = UDim2.fromScale(0.5, 0.5)
-autoInner.Size = UDim2.fromOffset(90, 16)
-autoInner.BackgroundTransparency = 1
-autoInner.ZIndex = 6
-
-local autoIcon = Instance.new("ImageLabel", autoInner)
-autoIcon.Size = UDim2.fromOffset(13, 13)
-autoIcon.Position = UDim2.fromOffset(0, 1.5)
-autoIcon.BackgroundTransparency = 1
-autoIcon.Image = Icons.Auto
-autoIcon.ImageColor3 = P.sub
-autoIcon.ScaleType = Enum.ScaleType.Fit
-autoIcon.ZIndex = 7
-
-local autoText = Instance.new("TextLabel", autoInner)
-autoText.Position = UDim2.fromOffset(19, 0)
-autoText.Size = UDim2.fromOffset(71, 16)
-autoText.BackgroundTransparency = 1
-autoText.Font = Enum.Font.GothamBold
-autoText.Text = "Auto: OFF"
-autoText.TextColor3 = P.sub
-autoText.TextSize = 11
-autoText.TextXAlignment = Enum.TextXAlignment.Left
-autoText.ZIndex = 7
-
-local SearchBar = Instance.new("Frame", HopContent)
-SearchBar.Position = UDim2.fromOffset(0, 180)
-SearchBar.Size = UDim2.new(1, 0, 0, 36)
-SearchBar.BackgroundColor3 = P.card
-SearchBar.BorderSizePixel = 0
-SearchBar.ZIndex = 5
-mkCorner(SearchBar, 10)
-mkStroke(SearchBar, P.borderSoft, 0.25, 1)
-
-local searchIcon = Instance.new("ImageLabel", SearchBar)
-searchIcon.Size = UDim2.fromOffset(13, 13)
-searchIcon.Position = UDim2.fromOffset(12, 11)
-searchIcon.BackgroundTransparency = 1
-searchIcon.Image = Icons.Search
-searchIcon.ImageColor3 = P.sub
-searchIcon.ScaleType = Enum.ScaleType.Fit
-searchIcon.ZIndex = 6
-
-local SearchBox = Instance.new("TextBox", SearchBar)
-SearchBox.Size = UDim2.new(1, -60, 1, 0)
-SearchBox.Position = UDim2.fromOffset(34, 0)
-SearchBox.BackgroundTransparency = 1
-SearchBox.Font = Enum.Font.Gotham
-SearchBox.Text = ""
-SearchBox.PlaceholderText = "Search by Job ID..."
-SearchBox.PlaceholderColor3 = P.dim
-SearchBox.TextColor3 = P.text
-SearchBox.TextSize = 11
-SearchBox.ClearTextOnFocus = false
-SearchBox.TextXAlignment = Enum.TextXAlignment.Left
-SearchBox.ZIndex = 6
-
-local RefreshBtn = Instance.new("TextButton", SearchBar)
-RefreshBtn.Position = UDim2.new(1, -32, 0.5, -11)
-RefreshBtn.Size = UDim2.fromOffset(22, 22)
-RefreshBtn.BackgroundColor3 = P.accentSoft
-RefreshBtn.Text = ""
-RefreshBtn.AutoButtonColor = false
-RefreshBtn.ZIndex = 6
-mkCorner(RefreshBtn, 6)
-
-local refreshIcon = Instance.new("ImageLabel", RefreshBtn)
-refreshIcon.Size = UDim2.fromOffset(12, 12)
-refreshIcon.Position = UDim2.new(0.5, -6, 0.5, -6)
-refreshIcon.BackgroundTransparency = 1
-refreshIcon.Image = Icons.Refresh
-refreshIcon.ImageColor3 = P.accent
-refreshIcon.ScaleType = Enum.ScaleType.Fit
-refreshIcon.ZIndex = 7
-
-local ServerListFrame = Instance.new("Frame", HopContent)
-ServerListFrame.Position = UDim2.fromOffset(0, 224)
-ServerListFrame.Size = UDim2.new(1, 0, 1, -224)
-ServerListFrame.BackgroundTransparency = 1
-ServerListFrame.ClipsDescendants = true
-ServerListFrame.ZIndex = 5
-
-local ServerScrolling = Instance.new("ScrollingFrame", ServerListFrame)
-ServerScrolling.Size = UDim2.new(1, 0, 1, 0)
-ServerScrolling.BackgroundTransparency = 1
-ServerScrolling.BorderSizePixel = 0
-ServerScrolling.ScrollBarThickness = 3
-ServerScrolling.ScrollBarImageColor3 = P.dim
-ServerScrolling.ScrollBarImageTransparency = 0.4
-ServerScrolling.CanvasSize = UDim2.new(0, 0, 0, 0)
-ServerScrolling.ZIndex = 5
-
-local ServerListLayout = Instance.new("UIListLayout", ServerScrolling)
-ServerListLayout.Padding = UDim.new(0, 6)
-ServerListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-
-local serverCards = {}
-
-local function clearServerCards()
-	for _, card in ipairs(serverCards) do card:Destroy() end
-	serverCards = {}
+local function safeDestroy(x) if x then pcall(function() x:Destroy() end) end end
+local function disconnect(x)
+	if x and typeof(x) == "RBXScriptConnection" then pcall(function() x:Disconnect() end) end
 end
 
-local function teleportToServer(serverId)
-	if not serverId then return false, "no server id" end
-	local ok, err = pcall(function()
-		TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
-	end)
-	return ok, err
+local function getRootHum(char)
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	local hum  = char:FindFirstChildOfClass("Humanoid")
+	if root and hum and hum.Health > 0 then return root, hum end
 end
 
-local function formatJobId(id)
-	if not id then return "N/A" end
-	local str = tostring(id)
-	if #str > 10 then return str:sub(1, 8) .. "..." end
-	return str
-end
+local function makeESP(plr)
+	if not espOn or plr == LP then return end
+	local char = plr.Character
+	local root, hum = getRootHum(char)
+	if not root then return end
+	local old = espEntries[plr]
+	if old and old.character == char then return end
+	if old then safeDestroy(old.highlight); safeDestroy(old.billboard) end
 
-local function createServerCard(serverData, index)
+	local highlight = Instance.new("Highlight")
+	highlight.Adornee = char
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.FillTransparency = 0.92
+	highlight.OutlineTransparency = 0.15
+	highlight.FillColor = T.accent
+	highlight.OutlineColor = T.accent
+	highlight.Parent = espFolder
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Adornee = root
+	billboard.AlwaysOnTop = true
+	billboard.LightInfluence = 0
+	billboard.MaxDistance = ESP_MAX_DISTANCE
+	billboard.Size = UDim2.fromOffset(160, 44)
+	billboard.StudsOffset = Vector3.new(0, 3.1, 0)
+	billboard.Parent = espFolder
+
 	local card = Instance.new("Frame")
-	card.Size = UDim2.new(1, 0, 0, 52)
-	card.BackgroundColor3 = P.card
+	card.Size = UDim2.fromScale(1, 1)
+	card.BackgroundColor3 = T.cardBg
+	card.BackgroundTransparency = 0.06
 	card.BorderSizePixel = 0
-	card.LayoutOrder = index
-	card.ZIndex = 5
-	mkCorner(card, 10)
-	mkStroke(card, P.borderSoft, 0.25, 1)
+	card.Parent = billboard
+	mkCorner(card, 8)
+	mkStroke(card, T.cardStroke, 0.35, 1)
 
-	makeIconBadge(card, Icons.Server, P.accentSoft, P.accent, 14, 15, BADGE)
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Position = UDim2.fromOffset(12, 6)
+	nameLabel.Size = UDim2.new(1, -20, 0, 16)
+	nameLabel.Font = Enum.Font.GothamMedium
+	nameLabel.TextSize = 11
+	nameLabel.TextColor3 = T.text
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Text = plr.DisplayName
+	nameLabel.Parent = card
 
-	local jobIdLabel = Instance.new("TextLabel", card)
-	jobIdLabel.Size = UDim2.new(1, -LABEL_X - 90, 0, 16)
-	jobIdLabel.Position = UDim2.fromOffset(LABEL_X, 7)
-	jobIdLabel.BackgroundTransparency = 1
-	jobIdLabel.Font = Enum.Font.GothamBold
-	jobIdLabel.Text = formatJobId(serverData.id)
-	jobIdLabel.TextColor3 = P.text
-	jobIdLabel.TextSize = 11
-	jobIdLabel.TextXAlignment = Enum.TextXAlignment.Left
-	jobIdLabel.TextTruncate = Enum.TextTruncate.AtEnd
-	jobIdLabel.ZIndex = 6
+	local distLabel = Instance.new("TextLabel")
+	distLabel.BackgroundTransparency = 1
+	distLabel.Position = UDim2.fromOffset(12, 25)
+	distLabel.Size = UDim2.fromOffset(42, 12)
+	distLabel.Font = Enum.Font.Gotham
+	distLabel.TextSize = 9
+	distLabel.TextColor3 = T.sub
+	distLabel.TextXAlignment = Enum.TextXAlignment.Left
+	distLabel.Text = "-- m"
+	distLabel.Parent = card
 
-	local playerCount = Instance.new("TextLabel", card)
-	playerCount.Size = UDim2.new(1, -LABEL_X - 90, 0, 12)
-	playerCount.Position = UDim2.fromOffset(LABEL_X, 28)
-	playerCount.BackgroundTransparency = 1
-	playerCount.Font = Enum.Font.Gotham
-	playerCount.Text = (serverData.playing or 0) .. " / " ..
-		(serverData.maxPlayers or "?") .. " players"
-	playerCount.TextColor3 = P.sub
-	playerCount.TextSize = 10
-	playerCount.TextXAlignment = Enum.TextXAlignment.Left
-	playerCount.ZIndex = 6
+	local barBg = Instance.new("Frame")
+	barBg.Position = UDim2.new(1, -78, 0, 28)
+	barBg.Size = UDim2.fromOffset(58, 4)
+	barBg.BackgroundColor3 = Color3.fromRGB(232, 235, 240)
+	barBg.BorderSizePixel = 0
+	barBg.Parent = card
+	mkCorner(barBg, 2)
 
-	local tpBtn = Instance.new("TextButton", card)
-	tpBtn.Size = UDim2.fromOffset(70, 30)
-	tpBtn.Position = UDim2.new(1, -82, 0.5, -15)
-	tpBtn.BackgroundColor3 = P.accent
-	tpBtn.Text = ""
-	tpBtn.AutoButtonColor = false
-	tpBtn.ZIndex = 6
-	mkCorner(tpBtn, 8)
+	local barFill = Instance.new("Frame")
+	barFill.Size = UDim2.fromScale(1, 1)
+	barFill.BackgroundColor3 = T.green
+	barFill.BorderSizePixel = 0
+	barFill.Parent = barBg
+	mkCorner(barFill, 2)
 
-	local tpIcon = Instance.new("ImageLabel", tpBtn)
-	tpIcon.Size = UDim2.fromOffset(12, 12)
-	tpIcon.Position = UDim2.fromOffset(10, 9)
-	tpIcon.BackgroundTransparency = 1
-	tpIcon.Image = Icons.Teleport
-	tpIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
-	tpIcon.ScaleType = Enum.ScaleType.Fit
-	tpIcon.ZIndex = 7
+	local hpLabel = Instance.new("TextLabel")
+	hpLabel.BackgroundTransparency = 1
+	hpLabel.Position = UDim2.new(1, -78, 0, 12)
+	hpLabel.Size = UDim2.fromOffset(58, 12)
+	hpLabel.Font = Enum.Font.Gotham
+	hpLabel.TextSize = 8
+	hpLabel.TextColor3 = T.sub
+	hpLabel.TextXAlignment = Enum.TextXAlignment.Right
+	hpLabel.Text = "100%"
+	hpLabel.Parent = card
 
-	local tpText = Instance.new("TextLabel", tpBtn)
-	tpText.Position = UDim2.fromOffset(26, 0)
-	tpText.Size = UDim2.new(1, -28, 1, 0)
-	tpText.BackgroundTransparency = 1
-	tpText.Font = Enum.Font.GothamBold
-	tpText.Text = "Join"
-	tpText.TextColor3 = Color3.fromRGB(255, 255, 255)
-	tpText.TextSize = 11
-	tpText.TextXAlignment = Enum.TextXAlignment.Left
-	tpText.ZIndex = 7
+	espEntries[plr] = {
+		player = plr, character = char, root = root, hum = hum,
+		highlight = highlight, billboard = billboard,
+		nameLabel = nameLabel, distLabel = distLabel,
+		barFill = barFill, hpLabel = hpLabel,
+	}
+end
 
-	tpBtn.MouseButton1Click:Connect(function()
-		tpText.Text = "..."
-		local ok = teleportToServer(serverData.id)
-		if not ok then
-			tpText.Text = "Fail"; task.wait(1); tpText.Text = "Join"
-		end
+local function removeESP(plr)
+	local e = espEntries[plr]
+	if not e then return end
+	safeDestroy(e.highlight)
+	safeDestroy(e.billboard)
+	espEntries[plr] = nil
+end
+
+local function updateESPEntry(e, myRoot)
+	if not e or not e.player then return end
+	local plr = e.player
+	local char = plr.Character
+	local root, hum = getRootHum(char)
+	if not root then removeESP(plr); return end
+	if e.character ~= char then
+		makeESP(plr)
+		e = espEntries[plr]
+		if not e then return end
+		root, hum = getRootHum(char)
+		if not root then return end
+	end
+	e.billboard.MaxDistance = ESP_MAX_DISTANCE
+	e.nameLabel.Text = plr.DisplayName
+	local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
+	local visible  = distance <= ESP_MAX_DISTANCE
+	e.highlight.Enabled = visible
+	e.billboard.Enabled = visible
+	local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+	e.distLabel.Text = string.format("%dm", math.floor(distance + 0.5))
+	e.hpLabel.Text   = string.format("%d%%", math.floor(hp * 100 + 0.5))
+	local col
+	if hp > 0.6 then col = T.green
+	elseif hp > 0.3 then col = T.amber
+	else col = T.red end
+	e.barFill.BackgroundColor3 = col
+	e.barFill.Size = UDim2.fromScale(hp, 1)
+end
+
+local function bindPlayerESP(plr)
+	if plr == LP then return end
+	disconnect(espConnections[plr])
+	espConnections[plr] = plr.CharacterAdded:Connect(function()
+		task.wait(0.15)
+		if espOn then makeESP(plr) end
 	end)
-
-	card.Parent = ServerScrolling
-	table.insert(serverCards, card)
+	task.defer(function() if espOn then makeESP(plr) end end)
 end
 
-local function fetchServers()
-	local url = "https://games.roblox.com/v1/games/" .. PlaceId
-		.. "/servers/Public?sortOrder=Asc&limit=100"
-	local raw = httpGet(url)
-	if not raw or raw == "" then return nil end
-	local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
-	if not ok2 or not data or not data.data then return nil end
-	return data.data
-end
-
-local function updateServerList()
-	clearServerCards()
-	task.spawn(function()
-		local servers = fetchServers()
-		if not servers or #servers == 0 then
-			StatusLabel.Text = "No servers found (executor HTTP?)"
-			StatusLabel.TextColor3 = P.red
-			return
-		end
-		local currentId = tostring(game.JobId)
-		local filtered = {}
-		for _, s in ipairs(servers) do
-			if tostring(s.id) ~= currentId then table.insert(filtered, s) end
-		end
-		table.sort(filtered, function(a, b)
-			return (a.playing or 0) < (b.playing or 0)
-		end)
-		local query = SearchBox.Text
-		if query and query ~= "" then
-			query = query:lower()
-			local q = {}
-			for _, s in ipairs(filtered) do
-				if tostring(s.id):lower():find(query, 1, true) then table.insert(q, s) end
-			end
-			filtered = q
-		end
-		for i, server in ipairs(filtered) do
-			createServerCard(server, i)
-			if i % 8 == 0 then task.wait() end
-		end
-		task.wait(0.05)
-		ServerScrolling.CanvasSize = UDim2.new(0, 0, 0,
-			ServerListLayout.AbsoluteContentSize.Y + 10)
-		StatusLabel.Text = #filtered .. " servers available"
-		StatusLabel.TextColor3 = P.sub
+local function enableESP()
+	if espOn then return end
+	espOn = true
+	for _, plr in ipairs(Players:GetPlayers()) do bindPlayerESP(plr) end
+	espConnections.added = Players.PlayerAdded:Connect(bindPlayerESP)
+	espConnections.removing = Players.PlayerRemoving:Connect(function(plr)
+		disconnect(espConnections[plr])
+		espConnections[plr] = nil
+		removeESP(plr)
 	end)
 end
 
-local function getRandomServer()
-	local servers = fetchServers()
-	if not servers or #servers == 0 then return nil end
-	local currentId = tostring(game.JobId)
-	local candidates = {}
-	for _, s in ipairs(servers) do
-		if s.id and tostring(s.id) ~= currentId then
-			table.insert(candidates, tostring(s.id))
-		end
+local function disableESP()
+	if not espOn then return end
+	espOn = false
+	for plr, conn in pairs(espConnections) do
+		if typeof(conn) == "RBXScriptConnection" then disconnect(conn) end
+		espConnections[plr] = nil
 	end
-	if #candidates == 0 then return nil end
-	return candidates[math.random(1, #candidates)]
+	for plr in pairs(espEntries) do removeESP(plr) end
 end
-
-local function hopOnce()
-	local threshold = math.max(1, math.floor(tonumber(MaxBox.Text) or 1))
-	local currentCount = #Players:GetPlayers()
-	if currentCount <= threshold then
-		StatusLabel.Text = "Server meets condition (" .. currentCount .. ")"
-		StatusLabel.TextColor3 = P.green
-		return false
-	end
-	StatusLabel.Text = "Searching..."
-	StatusLabel.TextColor3 = P.amber
-	task.wait(0.4)
-	local serverId = getRandomServer()
-	if not serverId then
-		StatusLabel.Text = "Failed to fetch servers"
-		StatusLabel.TextColor3 = P.red
-		return false
-	end
-	StatusLabel.Text = "Teleporting..."
-	StatusLabel.TextColor3 = P.accent
-	task.wait(0.4)
-	local ok, err = pcall(function()
-		TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
-	end)
-	if not ok then
-		StatusLabel.Text = "Error: " .. tostring(err):sub(1, 42)
-		StatusLabel.TextColor3 = P.red
-		return false
-	end
-	return true
-end
-
-HopBtn.MouseButton1Click:Connect(function()
-	HopBtn.Active = false
-	hopOnce()
-	task.wait(2)
-	HopBtn.Active = true
-end)
-
-local autoEnabled = false
-local autoThread = nil
-AutoBtn.MouseButton1Click:Connect(function()
-	autoEnabled = not autoEnabled
-	if autoEnabled then
-		autoText.Text = "Auto: ON"
-		autoText.TextColor3 = Color3.fromRGB(255, 255, 255)
-		autoIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
-		AutoBtn.BackgroundColor3 = P.green
-		autoThread = task.spawn(function()
-			while autoEnabled do
-				local threshold = math.max(1, math.floor(tonumber(MaxBox.Text) or 1))
-				local count = #Players:GetPlayers()
-				if count <= threshold then
-					StatusLabel.Text = count .. " players · monitoring"
-					StatusLabel.TextColor3 = P.green
-					task.wait(3)
-				else
-					hopOnce()
-					task.wait(5)
-				end
-			end
-		end)
-	else
-		autoText.Text = "Auto: OFF"
-		autoText.TextColor3 = P.sub
-		autoIcon.ImageColor3 = P.sub
-		AutoBtn.BackgroundColor3 = P.card
-		if autoThread then task.cancel(autoThread); autoThread = nil end
-		StatusLabel.Text = "Auto Hop disabled"
-		StatusLabel.TextColor3 = P.sub
-	end
-end)
-
-SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-	updateServerList()
-end)
-RefreshBtn.MouseButton1Click:Connect(function() updateServerList() end)
 
 task.spawn(function()
-	while ScreenGui.Parent do
-		NowCount.Text = tostring(#Players:GetPlayers())
-		task.wait(1)
+	while true do
+		task.wait(ESP_UPDATE_INTERVAL)
+		if espOn then
+			local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr ~= LP then
+					local e = espEntries[plr]
+					if e then updateESPEntry(e, myRoot) else makeESP(plr) end
+				end
+			end
+		end
 	end
 end)
 
 --============================================================--
--- [L] LOOPS
+-- [J] INVIS LOOP
 --============================================================--
 task.spawn(function()
 	while task.wait(0.5) do
@@ -1806,17 +1138,34 @@ task.spawn(function()
 	end
 end)
 
+--============================================================--
+-- [K] MAIN LOOP — quét & khoá NPC
+--============================================================--
 task.spawn(function()
-	while task.wait(3) do
-		if antiOn then scanAndLockAll() end
+	while task.wait(0.4) do
+		if antiMode ~= "off" then
+			local list = scanAllNPCs()
+			for _, npc in ipairs(list) do
+				if antiMode == "v61" then
+					pcall(lockNPC_v61, npc)
+				else
+					pcall(lockNPC_v62, npc)
+				end
+			end
+			if antiMode == "v62" then applyPlayerNoTouch() end
+		end
+		if invisOn then setInvis(true) end
 	end
 end)
 
+--============================================================--
+-- [L] RESPAWN
+--============================================================--
 LP.CharacterAdded:Connect(function()
 	task.wait(0.5)
-	updateMyRoot()
 	refreshPlayerChrs()
 	if invisOn then setInvis(true) end
+	if antiMode == "v62" then applyPlayerNoTouch() end
 	if speedOn then
 		pcall(function()
 			if mainConn then mainConn:Disconnect() mainConn = nil end
@@ -1825,7 +1174,6 @@ LP.CharacterAdded:Connect(function()
 	end
 end)
 
-print("[Hyko Suite] Loaded · Namecall:",
-	hookInstalled and "ON" or "OFF",
-	"· HTTP:", httpGet and "OK" or "NONE",
-	"· fireprox:", fireProxPrompt and "OK" or "MISSING")
+print("[MEGA v15] Loaded • v6.1 ⇄ v6.2 dual anti-NPC (cả 2 OFF) + Speed + ESP + Loot")
+print("[MEGA v15] Hook namecall: " .. (hookInstalled and "OK" or "FAILED (Block Rouse disabled)"))
+print("[MEGA v15] fireproximityprompt: " .. (EXEC.fireprompt and "OK" or "fallback"))
