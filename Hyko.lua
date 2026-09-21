@@ -1,5 +1,6 @@
---// Hyko Suite — Dual Anti-NPC (v6.1 ⇄ v6.2) + Server Hop + NPC Blocker
---// Executor-agnostic • LAG-FIXED build (logic unchanged, only performance)
+--// Hyko Suite — Ultra Anti-NPC (v6.1 ⇄ v6.2) + Server Hop + NPC Blocker
+--// MAX-OPTIMIZED build · event-driven · distance-gated · watchdog re-freeze
+--// Logic unchanged for user-facing features — internal freeze is stronger
 
 --============================================================--
 -- [0] EXECUTOR COMPATIBILITY LAYER
@@ -19,15 +20,11 @@ local HttpService      = safeService("HttpService")
 local TeleportService  = safeService("TeleportService")
 local PhysicsService   = safeService("PhysicsService")
 
-local LP        = Players.LocalPlayer
-local PlaceId   = game.PlaceId
+local LP      = Players.LocalPlayer
+local PlaceId = game.PlaceId
 
-local rawgetmt      = rawgetmetatable
-	or (debug and debug.getmetatable)
-	or getrawmetatable
-local setreadonlyFn = setreadonly
-	or make_writeable
-	or (debug and debug.setreadonly)
+local rawgetmt      = rawgetmetatable or (debug and debug.getmetatable) or getrawmetatable
+local setreadonlyFn = setreadonly or make_writeable or (debug and debug.setreadonly)
 local newcclosureFn = newcclosure or (function(f) return f end)
 local getnamecallFn = getnamecallmethod or (function() return "" end)
 
@@ -62,15 +59,10 @@ end
 local fireProxPrompt = fireproximityprompt
 local function doFireProximityPrompt(prompt)
 	if not prompt then return end
-	if fireProxPrompt then
-		pcall(fireProxPrompt, prompt)
-		return
-	end
+	if fireProxPrompt then pcall(fireProxPrompt, prompt); return end
 	if prompt.InputHoldBegin and prompt.InputHoldEnd then
 		pcall(function()
-			prompt:InputHoldBegin()
-			task.wait()
-			prompt:InputHoldEnd()
+			prompt:InputHoldBegin(); task.wait(); prompt:InputHoldEnd()
 		end)
 	end
 end
@@ -157,16 +149,12 @@ end)
 --============================================================--
 local blockRouse = true
 local hookInstalled = false
-
 local hookOk, hookErr = pcall(function()
-	if not rawgetmt or not setreadonlyFn then
-		error("executor missing metatable APIs")
-	end
+	if not rawgetmt or not setreadonlyFn then error("executor missing metatable APIs") end
 	local mt = rawgetmt(game)
 	if not mt then error("no metatable") end
 	local oldNC = mt.__namecall
 	if not oldNC then error("no __namecall") end
-
 	setreadonlyFn(mt, false)
 	mt.__namecall = newcclosureFn(function(self, ...)
 		local m = getnamecallFn()
@@ -183,10 +171,7 @@ local hookOk, hookErr = pcall(function()
 	setreadonlyFn(mt, true)
 	hookInstalled = true
 end)
-
-if not hookOk then
-	warn("[Hyko Suite] Namecall hook skipped: " .. tostring(hookErr))
-end
+if not hookOk then warn("[Hyko] Namecall hook skipped: " .. tostring(hookErr)) end
 
 --============================================================--
 -- [D] HELPERS
@@ -206,12 +191,15 @@ local function disconnect(x)
 end
 
 --============================================================--
--- [E] ANTI-NPC
+-- [E] ANTI-NPC  — ULTRA FREEZE
 --============================================================--
 local antiMode      = "off"
-local frozenNPCs    = {}
-local lockedCFrames = {}
+local frozenNPCs    = {}        -- npc → data (đang frozen)
 local playerChrs    = {}
+
+local LOCK_RADIUS       = 600   -- chỉ CFrame-lock NPC trong bán kính này
+local LOCK_RADIUS_SQ    = LOCK_RADIUS * LOCK_RADIUS
+local CFrameLockRate    = 4      -- chạy mỗi N PreSimulation (4 ≈ 15Hz)
 
 local function refreshPlayerChrs()
 	playerChrs = {}
@@ -230,6 +218,24 @@ local function isNPC(model)
 	return model:FindFirstChildOfClass("Humanoid") ~= nil
 end
 
+-- Danh sách state cần tắt (dùng chung 2 mode)
+local DISABLED_STATES = {
+	Enum.HumanoidStateType.Walking,
+	Enum.HumanoidStateType.Running,
+	Enum.HumanoidStateType.Jumping,
+	Enum.HumanoidStateType.Climbing,
+	Enum.HumanoidStateType.GettingUp,
+	Enum.HumanoidStateType.FallingDown,
+	Enum.HumanoidStateType.Ragdoll,
+	Enum.HumanoidStateType.Landed,
+	Enum.HumanoidStateType.Freefall,
+	Enum.HumanoidStateType.Swimming,
+	Enum.HumanoidStateType.Flying,
+	Enum.HumanoidStateType.PlatformStanding,
+	Enum.HumanoidStateType.Dead,
+}
+
+--=========== v6.1 (SOFT) ===========--
 local function lockNPC_v61(npc)
 	if frozenNPCs[npc] or not npc.Parent then return end
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
@@ -250,9 +256,10 @@ local function lockNPC_v61(npc)
 		end)
 	end
 
+	-- Chỉ lưu các part THỰC SỰ cần restore (CanCollide=true)
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("BasePart") and d.CanCollide then
-			data.collides[d] = d.CanCollide
+			data.collides[d] = true
 			pcall(function() d.CanCollide = false end)
 		end
 		if d:IsA("BillboardGui") then
@@ -279,6 +286,7 @@ local function lockNPC_v61(npc)
 	frozenNPCs[npc] = data
 end
 
+--=========== v6.2 (HARD / ULTRA) ===========--
 local function lockNPC_v62(npc)
 	if frozenNPCs[npc] or not npc.Parent then return end
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
@@ -286,38 +294,60 @@ local function lockNPC_v62(npc)
 	local hum = npc:FindFirstChildOfClass("Humanoid")
 	local data = { mode = "v62", parts = {}, alerts = {}, vfx = {} }
 
+	-- HRP: anchor + network owner + zero velocity
 	if hrp and hrp:IsA("BasePart") then
 		data.hrp = hrp; data.origAnchored = hrp.Anchored
-		pcall(function() hrp.Anchored = false; hrp:SetNetworkOwner(LP) end)
-		task.wait(0.03)
 		pcall(function()
+			hrp:SetNetworkOwner(LP)
 			hrp.Anchored = true
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
 		end)
-		lockedCFrames[npc] = hrp.CFrame
-	end
-	if hum then
-		data.hum = hum; data.origWalk = hum.WalkSpeed; data.origJump = hum.JumpPower
-		pcall(function()
-			hum.WalkSpeed = 0; hum.JumpPower = 0
-			hum.AutoRotate = false; hum.PlatformStand = true
-			hum:ChangeState(Enum.HumanoidStateType.Physics)
-			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping,   false)
-			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
-			hum:SetStateEnabled(Enum.HumanoidStateType.Running,   false)
-			hum:SetStateEnabled(Enum.HumanoidStateType.Climbing,  false)
-		end)
+		data.lockedCF = hrp.CFrame
 	end
 
+	-- Humanoid: hard freeze
+	if hum then
+		data.hum = hum
+		data.origWalk = hum.WalkSpeed
+		data.origJump = hum.JumpPower
+		data.origStateMachine = hum.EvaluateStateMachine
+		pcall(function()
+			hum.WalkSpeed = 0
+			hum.JumpPower = 0
+			hum.AutoRotate = false
+			hum.PlatformStand = true
+			hum.EvaluateStateMachine = false   -- ★ BIG: stops state-machine from driving motion
+			hum:ChangeState(Enum.HumanoidStateType.Physics)
+			hum:UnequipTools()
+			for _, st in ipairs(DISABLED_STATES) do
+				hum:SetStateEnabled(st, false)
+			end
+		end)
+		pcall(function() hum.MoveDirection = Vector3.zero end)
+	end
+
+	-- Animator kill — animations won't try to move parts
+	local animator = hum and hum:FindFirstChildOfClass("Animator")
+	if animator then
+		data.animator = animator
+		pcall(function() animator:Destroy() end)
+	end
+
+	-- Parts: disable collision/query/touch, remove TT, set Massless (giảm lực đẩy)
 	for _, d in ipairs(npc:GetDescendants()) do
 		if d:IsA("BasePart") then
-			table.insert(data.parts, {
-				part = d, cc = d.CanCollide, ct = d.CanTouch,
-				cq = d.CanQuery, tr = d.Transparency,
-			})
+			local rec = { part = d }
+			local needStore = false
+			if d.CanCollide then rec.cc = true; needStore = true end
+			if d.CanTouch then   rec.ct = true; needStore = true end
+			if d.CanQuery then   rec.cq = true; needStore = true end
+			if needStore then table.insert(data.parts, rec) end
 			pcall(function()
-				d.CanCollide = false; d.CanTouch = false; d.CanQuery = false
+				d.CanCollide = false
+				d.CanTouch = false
+				d.CanQuery = false
+				d.Massless = true
 			end)
 		end
 		if d:IsA("TouchTransmitter") then pcall(function() d:Destroy() end) end
@@ -334,16 +364,21 @@ local function lockNPC_v62(npc)
 		end
 	end
 
-	for _, nm in ipairs({"Collider", "EggPoint", "CENTER", "HeadProxy"}) do
+	-- Special parts
+	for _, nm in ipairs({"Collider", "EggPoint", "CENTER", "HeadProxy", "Hitbox"}) do
 		local pt = npc:FindFirstChild(nm)
 		if pt and pt:IsA("BasePart") then
-			table.insert(data.parts, {
-				part = pt, cc = pt.CanCollide, ct = pt.CanTouch,
-				cq = pt.CanQuery, tr = pt.Transparency,
-			})
+			if pt.CanCollide or pt.CanTouch or pt.CanQuery then
+				table.insert(data.parts, {
+					part = pt,
+					cc = pt.CanCollide, ct = pt.CanTouch, cq = pt.CanQuery,
+					tr = pt.Transparency,
+				})
+			end
 			pcall(function()
 				pt.CanCollide = false; pt.CanTouch = false
 				pt.CanQuery = false; pt.Transparency = 1
+				pt.Massless = true
 			end)
 		end
 	end
@@ -359,14 +394,17 @@ local function unlockNPC(npc)
 	end
 	if data.hum and data.hum.Parent then
 		pcall(function()
-			data.hum.WalkSpeed     = data.origWalk or 16
-			data.hum.JumpPower     = data.origJump or 50
+			data.hum.WalkSpeed = data.origWalk or 16
+			data.hum.JumpPower = data.origJump or 50
 			data.hum.PlatformStand = false
-			data.hum.AutoRotate    = true
+			data.hum.AutoRotate = true
+			if data.origStateMachine ~= nil then
+				data.hum.EvaluateStateMachine = data.origStateMachine
+			end
 		end)
 	end
-	for p, can in pairs(data.collides or {}) do
-		if p and p.Parent then pcall(function() p.CanCollide = can end) end
+	for p in pairs(data.collides or {}) do
+		if p and p.Parent then pcall(function() p.CanCollide = true end) end
 	end
 	if data.collider and data.collider.Parent then
 		pcall(function() data.collider.CanCollide = data.origCollide ~= false end)
@@ -375,7 +413,9 @@ local function unlockNPC(npc)
 		local p = rec.part
 		if p and p.Parent then
 			pcall(function()
-				p.CanCollide = rec.cc; p.CanTouch = rec.ct; p.CanQuery = rec.cq
+				if rec.cc then p.CanCollide = true end
+				if rec.ct then p.CanTouch = true end
+				if rec.cq then p.CanQuery = true end
 				if rec.tr ~= nil then p.Transparency = rec.tr end
 			end)
 		end
@@ -386,7 +426,6 @@ local function unlockNPC(npc)
 	for d, en in pairs(data.vfx or {}) do
 		if d and d.Parent then d.Enabled = en end
 	end
-	lockedCFrames[npc] = nil
 	frozenNPCs[npc] = nil
 end
 
@@ -394,38 +433,62 @@ local function unlockAll()
 	for npc in pairs(frozenNPCs) do unlockNPC(npc) end
 end
 
--- [LAGFIX] Async lock queue — không block main loop, xử lý song song
+--=========== ASYNC LOCK QUEUE ===========--
 local pendingLocks = setmetatable({}, {__mode = "k"})
 local function tryLockNPC(npc, mode)
 	if frozenNPCs[npc] or pendingLocks[npc] then return end
 	if not npc.Parent then return end
 	pendingLocks[npc] = true
-	task.spawn(function()
+	task.defer(function()
 		pcall(function()
-			if mode == "v61" then
-				lockNPC_v61(npc)
-			else
-				lockNPC_v62(npc)
-			end
+			if mode == "v61" then lockNPC_v61(npc) else lockNPC_v62(npc) end
 		end)
 		pendingLocks[npc] = nil
 	end)
 end
 
--- [LAGFIX] CFrame lock: throttle xuống ~20Hz (mỗi 3 frame) — NPC anchored nên không cần 60Hz
-local hbFrameCounter = 0
-RunService.Heartbeat:Connect(function()
-	if not next(lockedCFrames) then return end
-	hbFrameCounter = (hbFrameCounter + 1) % 3
-	if hbFrameCounter ~= 0 then return end
-	for npc, cf in pairs(lockedCFrames) do
-		if not npc.Parent then
-			lockedCFrames[npc] = nil
+--=========== CFrame LOCK (PreSimulation, distance-gated) ===========--
+local psCounter = 0
+local cachedMyRoot = nil
+
+local function updateMyRoot()
+	local c = LP.Character
+	cachedMyRoot = c and c:FindFirstChild("HumanoidRootPart")
+end
+updateMyRoot()
+
+RunService.PreSimulation:Connect(function()
+	if next(frozenNPCs) == nil then return end
+	psCounter = (psCounter + 1) % CFrameLockRate
+	if psCounter ~= 0 then return end
+
+	local myRoot = cachedMyRoot
+	if not myRoot or not myRoot.Parent then
+		updateMyRoot()
+		myRoot = cachedMyRoot
+	end
+	local mx, my, mz = 0, 0, 0
+	if myRoot then
+		local mp = myRoot.Position
+		mx, my, mz = mp.X, mp.Y, mp.Z
+	end
+
+	for npc, data in pairs(frozenNPCs) do
+		local hrp = data.hrp
+		if not npc.Parent or not hrp or not hrp.Parent then
+			frozenNPCs[npc] = nil
 		else
-			local hrp = npc:FindFirstChild("HumanoidRootPart")
-				or npc:FindFirstChild("Torso") or npc:FindFirstChild("UpperTorso")
-			if hrp and hrp:IsA("BasePart") then
-				hrp.CFrame = cf
+			-- distance gate: chỉ lock NPC gần player
+			local lockIt = true
+			if myRoot then
+				local p = hrp.Position
+				local dx, dy, dz = p.X - mx, p.Y - my, p.Z - mz
+				if dx*dx + dy*dy + dz*dz > LOCK_RADIUS_SQ then
+					lockIt = false
+				end
+			end
+			if lockIt then
+				hrp.CFrame = data.lockedCF
 				hrp.AssemblyLinearVelocity  = Vector3.zero
 				hrp.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -433,34 +496,62 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
-local function scanAllNPCs()
+--=========== NPC DETECTION (event-driven) ===========--
+workspace.DescendantAdded:Connect(function(inst)
+	if antiMode == "off" then return end
+	if not inst:IsA("Model") then return end
+	task.defer(function()
+		if antiMode == "off" then return end
+		if isNPC(inst) then tryLockNPC(inst, antiMode) end
+	end)
+end)
+
+-- Backstop scan: 3s/lần (thay vì 0.1s) — bắt NPC spawn trước khi bật mode
+local function scanAndLockAll()
 	refreshPlayerChrs()
-	local found = {}
+	local mode = antiMode
+	if mode == "off" then return end
 	for _, obj in ipairs(workspace:GetDescendants()) do
-		if obj:IsA("Model") and isNPC(obj) then
-			table.insert(found, obj)
+		if obj:IsA("Model") and not frozenNPCs[obj] and isNPC(obj) then
+			tryLockNPC(obj, mode)
 		end
 	end
-	return found
 end
 
-local function applyPlayerNoTouch()
-	if antiMode ~= "v62" then return end
-	local c = LP.Character
-	if not c then return end
-	for _, p in ipairs(c:GetDescendants()) do
-		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-			pcall(function() p.CanTouch = false end)
+--=========== WATCHDOG — re-freeze nếu bị script khác phá ===========--
+task.spawn(function()
+	while task.wait(1.2) do
+		if antiMode == "off" then continue end
+		for npc, data in pairs(frozenNPCs) do
+			if not npc.Parent then
+				frozenNPCs[npc] = nil
+			else
+				local hum = data.hum
+				if hum and hum.Parent then
+					if hum.WalkSpeed > 0 then hum.WalkSpeed = 0 end
+					if hum.JumpPower > 0 then hum.JumpPower = 0 end
+					if hum.EvaluateStateMachine then
+						pcall(function() hum.EvaluateStateMachine = false end)
+					end
+				end
+				local hrp = data.hrp
+				if hrp and hrp.Parent and not hrp.Anchored then
+					pcall(function()
+						hrp.Anchored = true
+						hrp.AssemblyLinearVelocity = Vector3.zero
+						hrp.AssemblyAngularVelocity = Vector3.zero
+					end)
+				end
+			end
 		end
 	end
-end
+end)
 
 --============================================================--
 -- [E2] NPC BLOCKER
 --============================================================--
 local BLOCKER_GROUP = "HykoNPCBlocker"
 local PLAYER_GROUP  = "HykoPlayerParts"
-
 pcall(function() PhysicsService:RegisterCollisionGroup(BLOCKER_GROUP) end)
 pcall(function() PhysicsService:RegisterCollisionGroup(PLAYER_GROUP) end)
 pcall(function()
@@ -519,6 +610,17 @@ local function updateBlocker()
 	p.CFrame = CFrame.new(hrp.Position)
 end
 
+local function applyPlayerNoTouch()
+	if antiMode ~= "v62" then return end
+	local c = LP.Character
+	if not c then return end
+	for _, p in ipairs(c:GetDescendants()) do
+		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+			pcall(function() p.CanTouch = false end)
+		end
+	end
+end
+
 --============================================================--
 -- [F] INVISIBLE
 --============================================================--
@@ -540,7 +642,7 @@ end
 --============================================================--
 local espOn = false
 local ESP_MAX_DISTANCE = 5000
-local ESP_UPDATE_INTERVAL = 0.20
+local ESP_UPDATE_INTERVAL = 0.25
 local espEntries = {}
 local espConnections = {}
 local espFolder = Instance.new("Folder")
@@ -766,7 +868,6 @@ if oldShadow then oldShadow:Destroy() end
 
 local P = {
 	bgTop      = Color3.fromRGB(252, 253, 255),
-	bgBot      = Color3.fromRGB(244, 246, 250),
 	card       = Color3.fromRGB(255, 255, 255),
 	cardSoft   = Color3.fromRGB(246, 248, 252),
 	border     = Color3.fromRGB(228, 231, 238),
@@ -832,7 +933,6 @@ syncShadow()
 --================= HEADER =================
 local header = Instance.new("Frame", Window)
 header.Size = UDim2.new(1, 0, 0, 60)
-header.Position = UDim2.fromOffset(0, 0)
 header.BackgroundTransparency = 1
 header.ZIndex = 3
 
@@ -1047,7 +1147,6 @@ local MainContent = Instance.new("Frame", content)
 MainContent.Size = UDim2.fromScale(1, 1)
 MainContent.BackgroundTransparency = 1
 MainContent.ZIndex = 4
-MainContent.Visible = true
 
 local HopContent = Instance.new("Frame", content)
 HopContent.Size = UDim2.fromScale(1, 1)
@@ -1057,23 +1156,17 @@ HopContent.Visible = false
 
 local function switchTab(tab)
 	if tab == "main" then
-		MainContent.Visible = true
-		HopContent.Visible = false
-		mainTabIcon.ImageColor3 = P.accent
-		mainTabLabel.TextColor3 = P.text
-		hopTabIcon.ImageColor3 = P.sub
-		hopTabLabel.TextColor3 = P.sub
+		MainContent.Visible = true; HopContent.Visible = false
+		mainTabIcon.ImageColor3 = P.accent; mainTabLabel.TextColor3 = P.text
+		hopTabIcon.ImageColor3 = P.sub; hopTabLabel.TextColor3 = P.sub
 		TweenService:Create(tabIndicator, TweenInfo.new(0.22,
 			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Position = UDim2.fromOffset(2, 2)
 		}):Play()
 	else
-		MainContent.Visible = false
-		HopContent.Visible = true
-		mainTabIcon.ImageColor3 = P.sub
-		mainTabLabel.TextColor3 = P.sub
-		hopTabIcon.ImageColor3 = P.accent
-		hopTabLabel.TextColor3 = P.text
+		MainContent.Visible = false; HopContent.Visible = true
+		mainTabIcon.ImageColor3 = P.sub; mainTabLabel.TextColor3 = P.sub
+		hopTabIcon.ImageColor3 = P.accent; hopTabLabel.TextColor3 = P.text
 		TweenService:Create(tabIndicator, TweenInfo.new(0.22,
 			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Position = UDim2.new(0.5, 2, 0, 2)
@@ -1087,8 +1180,7 @@ HopTabBtn.MouseButton1Click:Connect(function() switchTab("hop") end)
 local isMinimized = false
 minBtn.MouseButton1Click:Connect(function()
 	if isMinimized then
-		isMinimized = false
-		minBarV.Visible = false
+		isMinimized = false; minBarV.Visible = false
 		local tw = TweenService:Create(Window, TweenInfo.new(0.24,
 			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Size = UDim2.fromOffset(WINDOW_W, WINDOW_H)
@@ -1096,17 +1188,12 @@ minBtn.MouseButton1Click:Connect(function()
 		tw:Play()
 		tw.Completed:Connect(function()
 			if not isMinimized then
-				TabBar.Visible = true
-				content.Visible = true
-				divider.Visible = true
+				TabBar.Visible = true; content.Visible = true; divider.Visible = true
 			end
 		end)
 	else
-		isMinimized = true
-		minBarV.Visible = true
-		TabBar.Visible = false
-		content.Visible = false
-		divider.Visible = false
+		isMinimized = true; minBarV.Visible = true
+		TabBar.Visible = false; content.Visible = false; divider.Visible = false
 		TweenService:Create(Window, TweenInfo.new(0.24,
 			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Size = UDim2.fromOffset(WINDOW_W, WINDOW_H_MINI)
@@ -1142,7 +1229,6 @@ local function makeIconBadge(parent, iconId, bgColor, iconColor, x, y, size)
 	badge.BorderSizePixel = 0
 	badge.ZIndex = 5
 	mkCorner(badge, math.floor(size * 0.32))
-
 	local is = size - 8
 	local icon = Instance.new("ImageLabel", badge)
 	icon.Size = UDim2.fromOffset(is, is)
@@ -1152,7 +1238,6 @@ local function makeIconBadge(parent, iconId, bgColor, iconColor, x, y, size)
 	icon.ImageColor3 = iconColor
 	icon.ScaleType = Enum.ScaleType.Fit
 	icon.ZIndex = 6
-
 	return badge, icon
 end
 
@@ -1313,8 +1398,7 @@ _G.curSpeed = curSpeed
 local speedCard = makeCard(MainContent, 0, 68)
 makeSlider(speedCard, "Movement Speed", 10, 800, 60, 10,
 	Icons.Auto, P.accentSoft, P.accent, function(val)
-		curSpeed = val
-		_G.curSpeed = val
+		curSpeed = val; _G.curSpeed = val
 	end)
 
 local boostCard = makeCard(MainContent, 76, 80)
@@ -1330,8 +1414,7 @@ local function enableSpeed()
 	savedCollide = {}
 	for _, p in ipairs(c:GetDescendants()) do
 		if p:IsA("BasePart") and p ~= hrp then
-			savedCollide[p] = p.CanCollide
-			p.CanCollide = false
+			savedCollide[p] = p.CanCollide; p.CanCollide = false
 		end
 	end
 	local rayParams = RaycastParams.new()
@@ -1410,15 +1493,13 @@ makeToggle(boostCard, "Speed Boost", false, 6,
 		if state then
 			if enableSpeed() then speedOn = true end
 		else
-			speedOn = false
-			disableSpeed()
+			speedOn = false; disableSpeed()
 		end
 	end)
 
 makeToggle(boostCard, "Invisible", false, 6 + ROW_H,
 	Icons.Settings, P.purpleSoft, P.purple, function(state)
-		invisOn = state
-		setInvis(invisOn)
+		invisOn = state; setInvis(invisOn)
 	end)
 
 local protCard = makeCard(MainContent, 164, 160)
@@ -1431,9 +1512,12 @@ local function switchAntiMode(newMode)
 	antiMode = newMode
 	anti61Handle.setState(newMode == "v61")
 	anti62Handle.setState(newMode == "v62")
-	if newMode == "v62" then
-		applyPlayerNoTouch()
-		tagAllPlayerParts()
+	if newMode ~= "off" then
+		task.spawn(scanAndLockAll)
+		if newMode == "v62" then
+			applyPlayerNoTouch()
+			tagAllPlayerParts()
+		end
 	else
 		removeBlocker()
 	end
@@ -1788,9 +1872,7 @@ local function createServerCard(serverData, index)
 		tpText.Text = "..."
 		local ok = teleportToServer(serverData.id)
 		if not ok then
-			tpText.Text = "Fail"
-			task.wait(1)
-			tpText.Text = "Join"
+			tpText.Text = "Fail"; task.wait(1); tpText.Text = "Join"
 		end
 	end)
 
@@ -1945,32 +2027,30 @@ task.spawn(function()
 end)
 
 --============================================================--
--- [L] LOOPS  — [LAGFIX] tất cả interval được tối ưu
+-- [L] LOOPS
 --============================================================--
-
--- Invis loop: chỉ 1 nơi duy nhất (0.5s)
+-- Invis loop (0.5s)
 task.spawn(function()
 	while task.wait(0.5) do
 		if invisOn then setInvis(true) end
 	end
 end)
 
--- Anti-NPC main loop: 0.5s (thay vì 0.1s), lock không block
+-- Backstop scan 3s — chỉ chạy khi anti bật, bù cho event-driven
 task.spawn(function()
-	while task.wait(0.5) do
-		if antiMode ~= "off" then
-			local list = scanAllNPCs()
-			for _, npc in ipairs(list) do
-				if not frozenNPCs[npc] then
-					tryLockNPC(npc, antiMode)
-				end
-			end
-		end
+	while task.wait(3) do
+		if antiMode ~= "off" then scanAndLockAll() end
+	end
+end)
+
+-- Blocker update 0.1s (rẻ, chỉ 1 part)
+task.spawn(function()
+	while task.wait(0.1) do
 		updateBlocker()
 	end
 end)
 
--- [LAGFIX] tag/applyNoTouch chỉ chạy backstop 3s (thay vì mỗi 0.1s)
+-- tag/applyNoTouch backstop 3s
 task.spawn(function()
 	while task.wait(3) do
 		if antiMode == "v62" then
@@ -1980,17 +2060,9 @@ task.spawn(function()
 	end
 end)
 
--- [LAGFIX] Event-driven: khi có char mới → re-apply ngay
-local function onAnyCharSpawn()
-	task.wait(0.4)
-	if antiMode == "v62" then
-		applyPlayerNoTouch()
-		tagAllPlayerParts()
-	end
-end
-
 LP.CharacterAdded:Connect(function()
 	task.wait(0.5)
+	updateMyRoot()
 	refreshPlayerChrs()
 	if invisOn then setInvis(true) end
 	if antiMode == "v62" then applyPlayerNoTouch() end
@@ -2003,20 +2075,23 @@ LP.CharacterAdded:Connect(function()
 	end
 end)
 
-for _, plr in ipairs(Players:GetPlayers()) do
-	if plr ~= LP then
-		plr.CharacterAdded:Connect(onAnyCharSpawn)
+local function onAnyCharSpawn()
+	task.wait(0.4)
+	if antiMode == "v62" then
+		applyPlayerNoTouch()
+		tagAllPlayerParts()
 	end
 end
+for _, plr in ipairs(Players:GetPlayers()) do
+	if plr ~= LP then plr.CharacterAdded:Connect(onAnyCharSpawn) end
+end
 Players.PlayerAdded:Connect(function(plr)
-	if plr ~= LP then
-		plr.CharacterAdded:Connect(onAnyCharSpawn)
-	end
+	if plr ~= LP then plr.CharacterAdded:Connect(onAnyCharSpawn) end
 end)
 
 tagAllPlayerParts()
 
-print("[Hyko Suite] Loaded · LAG-FIXED · Executor-agnostic · Namecall:",
+print("[Hyko Suite] ULTRA loaded · Namecall:",
 	hookInstalled and "ON" or "OFF",
 	"· HTTP:", httpGet and "OK" or "NONE",
 	"· fireprox:", fireProxPrompt and "OK" or "MISSING")
