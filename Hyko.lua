@@ -1,2589 +1,1819 @@
---[[
-    HYKO • Full Suite v15.5
-    ESP + Fast Loot + Auto Loot + Anti-Ragdoll + FPS Boost
-    + Window Background + Server Hop Tab + God Mode + Auto Farm
-    FIXED: Auto Farm strict filter (no more flying to decor)
-    FIXED: Icon fallback
-    FIXED: God Mode (PreSimulation + HealthChanged + Died guard)
---]]
+--// Hyko Suite — Dual Anti-NPC (v6.1 ⇄ v6.2) + Server Hop
+--// Lucide icons • Soft badges • Clean English UI
 
---// Services
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
-local Lighting         = game:GetService("Lighting")
-local TeleportService  = game:GetService("TeleportService")
 local HttpService      = game:GetService("HttpService")
+local TeleportService  = game:GetService("TeleportService")
 local LP               = Players.LocalPlayer
 local PlaceId          = game.PlaceId
 
 --============================================================--
--- LIBRARY
+-- ICON ASSETS (Lucide)
 --============================================================--
-local function collectGuis()
-    local set, containers = {}, {}
-    local pg = LP:FindFirstChildOfClass("PlayerGui")
-    if pg then table.insert(containers, pg) end
-    if gethui then
-        local ok, h = pcall(gethui)
-        if ok and h then table.insert(containers, h) end
-    end
-    pcall(function()
-        local cg = game:GetService("CoreGui")
-        if cg then table.insert(containers, cg) end
-    end)
-    for _, c in ipairs(containers) do
-        pcall(function()
-            for _, g in ipairs(c:GetChildren()) do
-                if g:IsA("ScreenGui") then set[g] = true end
-            end
-        end)
-    end
-    return set
-end
-
-local guisBefore = collectGuis()
-
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/lxte/lates-lib/main/Main.lua"))()
-local Window = Library:CreateWindow({
-    Title            = "Hyko",
-    Theme            = "Light",
-    Size             = UDim2.fromOffset(570, 370),
-    Transparency     = 0.2,
-    Blurring         = true,
-    MinimizeKeybind  = Enum.KeyCode.LeftAlt,
-})
-
-local libGui = nil
-do
-    for _ = 1, 40 do
-        local now = collectGuis()
-        for g in pairs(now) do
-            if not guisBefore[g] then libGui = g break end
-        end
-        if libGui then break end
-        task.wait(0.05)
-    end
-    if not libGui then
-        local function watch(c)
-            if not c then return end
-            pcall(function()
-                c.ChildAdded:Connect(function(child)
-                    if libGui then return end
-                    if child:IsA("ScreenGui") and not guisBefore[child] then
-                        libGui = child
-                    end
-                end)
-            end)
-        end
-        watch(LP:FindFirstChildOfClass("PlayerGui"))
-        if gethui then
-            local ok, h = pcall(gethui)
-            if ok then watch(h) end
-        end
-    end
-end
-
---============================================================--
--- THEMES
---============================================================--
-local Themes = {
-    Light = {
-        Primary = Color3.fromRGB(232,232,232), Secondary = Color3.fromRGB(255,255,255),
-        Component = Color3.fromRGB(245,245,245), Interactables = Color3.fromRGB(235,235,235),
-        Tab = Color3.fromRGB(50,50,50), Title = Color3.fromRGB(0,0,0), Description = Color3.fromRGB(100,100,100),
-        Shadow = Color3.fromRGB(255,255,255), Outline = Color3.fromRGB(210,210,210), Icon = Color3.fromRGB(100,100,100),
-    },
-    Dark = {
-        Primary = Color3.fromRGB(30,30,30), Secondary = Color3.fromRGB(35,35,35),
-        Component = Color3.fromRGB(40,40,40), Interactables = Color3.fromRGB(45,45,45),
-        Tab = Color3.fromRGB(200,200,200), Title = Color3.fromRGB(240,240,240), Description = Color3.fromRGB(200,200,200),
-        Shadow = Color3.fromRGB(0,0,0), Outline = Color3.fromRGB(40,40,40), Icon = Color3.fromRGB(220,220,220),
-    },
-    Void = {
-        Primary = Color3.fromRGB(15,15,15), Secondary = Color3.fromRGB(20,20,20),
-        Component = Color3.fromRGB(25,25,25), Interactables = Color3.fromRGB(30,30,30),
-        Tab = Color3.fromRGB(200,200,200), Title = Color3.fromRGB(240,240,240), Description = Color3.fromRGB(200,200,200),
-        Shadow = Color3.fromRGB(0,0,0), Outline = Color3.fromRGB(40,40,40), Icon = Color3.fromRGB(220,220,220),
-    },
+local Icons = {
+	Close        = "rbxassetid://10747384394",
+	Refresh      = "rbxassetid://10734933222",
+	Server       = "rbxassetid://10734949856",
+	Players      = "rbxassetid://10747373426",
+	Teleport     = "rbxassetid://10723434830",
+	List         = "rbxassetid://10723433811",
+	Hop          = "rbxassetid://10734923549",
+	Auto         = "rbxassetid://10734933966",
+	Search       = "rbxassetid://10734943674",
+	ChevronRight = "rbxassetid://10709791437",
+	ChevronLeft  = "rbxassetid://10709791281",
+	Check        = "rbxassetid://10709790644",
+	Settings     = "rbxassetid://10734950309",
 }
 
-Window:SetTheme(Themes.Light)
-
-Window:AddTabSection({ Name = "Main",     Order = 1 })
-Window:AddTabSection({ Name = "Network",  Order = 2 })
-Window:AddTabSection({ Name = "Settings", Order = 3 })
-
-local Visuals = Window:AddTab({
-    Title = "Visuals", Section = "Main",
-    Icon = "rbxassetid://10734896981",
-})
-local Utility = Window:AddTab({
-    Title = "Utility", Section = "Main",
-    Icon = "rbxassetid://10734896170",
-})
-local Farm = Window:AddTab({
-    Title = "Auto Farm", Section = "Main",
-    Icon = "rbxassetid://10734895487",
-})
-local ServerHop = Window:AddTab({
-    Title = "Server Hop", Section = "Network",
-    Icon = "rbxassetid://10734895523",
-})
-local Settings = Window:AddTab({
-    Title = "Settings", Section = "Settings",
-    Icon = "rbxassetid://10734895501",
-})
+--============================================================--
+-- [A] INPUT
+--============================================================--
+local Controls
+pcall(function()
+	local PM = require(LP.PlayerScripts:WaitForChild("PlayerModule", 5))
+	Controls = PM:GetControls()
+end)
+local function readMove()
+	if Controls then
+		local ok, v = pcall(function() return Controls:GetMoveVector() end)
+		if ok and v and v.Magnitude > 0.05 then
+			return Vector3.new(v.X, 0, v.Z)
+		end
+	end
+	local d = Vector3.zero
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0, 0, -1) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then d += Vector3.new(0, 0, 1)  end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then d += Vector3.new(-1, 0, 0) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1, 0, 0)  end
+	return d
+end
 
 --============================================================--
--- HELPERS
+-- [B] FAST LOOT
 --============================================================--
+local fastLootOn = true
+local function fixPrompt(p)
+	if p:IsA("ProximityPrompt") then pcall(function() p.HoldDuration = 0 end) end
+end
+for _, d in ipairs(workspace:GetDescendants()) do
+	if d:IsA("ProximityPrompt") then fixPrompt(d) end
+end
+workspace.DescendantAdded:Connect(function(d)
+	if fastLootOn and d:IsA("ProximityPrompt") then fixPrompt(d) end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe or not fastLootOn then return end
+	if input.KeyCode ~= Enum.KeyCode.E then return end
+	local c = LP.Character
+	local hrp = c and c:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	local best, bestDist = nil, math.huge
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("ProximityPrompt") and d.Enabled then
+			local par = d.Parent
+			local pos
+			if par and par:IsA("BasePart") then pos = par.Position
+			elseif par and par:IsA("Attachment") and par.Parent and par.Parent:IsA("BasePart") then
+				pos = par.Parent.Position
+			end
+			if pos then
+				local dist = (pos - hrp.Position).Magnitude
+				if dist <= d.MaxActivationDistance + 4 and dist < bestDist then
+					best, bestDist = d, dist
+				end
+			end
+		end
+	end
+	if best then pcall(function() fireproximityprompt(best) end) end
+end)
+
+--============================================================--
+-- [C] NAMECALL HOOK
+--============================================================--
+local blockRouse = true
+local mt = getrawmetatable(game)
+local oldNC = mt.__namecall
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(self, ...)
+	local m = getnamecallmethod()
+	if blockRouse and m == "FireServer" and typeof(self) == "Instance" then
+		local n = self.Name
+		if n == "Rouse" or n == "ForestStrike" or n == "ForestHandoff"
+		or n == "Alert" or n == "Wake" or n == "Chase" or n == "Detect"
+		or n == "SpeedTollOffer" or n == "SpeedTollWarning" then
+			return
+		end
+	end
+	return oldNC(self, ...)
+end)
+setreadonly(mt, true)
+
+--============================================================--
+-- [D] HELPERS
+--============================================================--
+local function mkCorner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+	return c
+end
+local function mkStroke(parent, color, transparency, thickness)
+	local s = Instance.new("UIStroke")
+	s.Color = color
+	s.Transparency = transparency or 0
+	s.Thickness = thickness or 1
+	s.Parent = parent
+	return s
+end
 local function safeDestroy(x) if x then pcall(function() x:Destroy() end) end end
 local function disconnect(x)
-    if x and typeof(x) == "RBXScriptConnection" then
-        pcall(function() x:Disconnect() end)
-    end
-end
-local function makeCorner(parent, radius)
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, radius); c.Parent = parent; return c
-end
-local function makeStroke(parent, color, transparency, thickness)
-    local s = Instance.new("UIStroke")
-    s.Color = color; s.Transparency = transparency or 0
-    s.Thickness = thickness or 1; s.Parent = parent; return s
-end
-local function notify(title, desc, duration)
-    pcall(function()
-        Window:Notify({ Title = title, Description = desc, Duration = duration or 3 })
-    end)
+	if x and typeof(x) == "RBXScriptConnection" then pcall(function() x:Disconnect() end) end
 end
 
 --============================================================--
--- ICON FALLBACK
+-- [E] ANTI-NPC
 --============================================================--
-local ICON_FALLBACKS = {
-    ["10734896981"] = "6031075939",
-    ["10734896170"] = "6031091005",
-    ["10734895487"] = "6034686929",
-    ["10734895523"] = "6031075939",
-    ["10734895501"] = "6031280882",
-    ["10734896881"] = "6031075939",
-    ["71999030813587"] = "133366726003572",
-}
+local antiMode      = "off"
+local frozenNPCs    = {}
+local lockedCFrames = {}
+local playerChrs    = {}
 
-local function attachImage(img, rawId, fallbackWidget)
-    if fallbackWidget then fallbackWidget.Visible = false end
-    local fb = ICON_FALLBACKS[tostring(rawId)]
-    local urls = {
-        "rbxassetid://" .. tostring(rawId),
-        fb and ("rbxassetid://" .. fb) or nil,
-        "rbxthumb://type=Asset&id=" .. tostring(rawId) .. "&w=420&h=420",
-    }
-    local clean = {}
-    for _, u in ipairs(urls) do if u then table.insert(clean, u) end end
+local function refreshPlayerChrs()
+	playerChrs = {}
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl.Character then playerChrs[pl.Character] = true end
+	end
+end
+refreshPlayerChrs()
+Players.PlayerAdded:Connect(function(pl)
+	pl.CharacterAdded:Connect(refreshPlayerChrs)
+end)
+Players.PlayerRemoving:Connect(refreshPlayerChrs)
 
-    local function tryUrl(index)
-        if index > #clean then
-            if fallbackWidget then fallbackWidget.Visible = true end
-            return
-        end
-        img.Image = clean[index]
-        task.spawn(function()
-            local t0 = os.clock()
-            while os.clock() - t0 < 2 do
-                if img.IsLoaded then
-                    if fallbackWidget then fallbackWidget.Visible = false end
-                    return
-                end
-                task.wait(0.1)
-            end
-            tryUrl(index + 1)
-        end)
-    end
-    tryUrl(1)
+local function isNPC(model)
+	if not model or not model:IsA("Model") then return false end
+	if playerChrs[model] then return false end
+	if LP.Character == model then return false end
+	return model:FindFirstChildOfClass("Humanoid") ~= nil
 end
 
-local function fixBrokenImages(root)
-    if not root then return end
-    for _, d in ipairs(root:GetDescendants()) do
-        if d:IsA("ImageLabel") or d:IsA("ImageButton") then
-            if not d.IsLoaded and d.Image ~= "" then
-                local id = d.Image:match("%d+")
-                local fb = id and ICON_FALLBACKS[id]
-                if fb then
-                    d.Image = "rbxassetid://" .. fb
-                end
-                task.spawn(function()
-                    local t0 = os.clock()
-                    while os.clock() - t0 < 1.5 do
-                        if d.IsLoaded then return end
-                        task.wait(0.1)
-                    end
-                    if not d.IsLoaded and id then
-                        d.Image = "rbxthumb://type=Asset&id=" .. id .. "&w=150&h=150"
-                    end
-                end)
-            end
-        end
-    end
+local function lockNPC_v61(npc)
+	if frozenNPCs[npc] or not npc.Parent then return end
+	local hrp = npc:FindFirstChild("HumanoidRootPart")
+		or npc:FindFirstChild("Torso")
+		or npc:FindFirstChild("UpperTorso")
+	local hum      = npc:FindFirstChildOfClass("Humanoid")
+	local collider = npc:FindFirstChild("Collider")
+	local data = { mode = "v61", collides = {}, alerts = {}, vfx = {} }
+	if hrp and hrp:IsA("BasePart") then
+		data.hrp = hrp; data.origAnchored = hrp.Anchored
+		pcall(function() hrp:SetNetworkOwner(LP); hrp.Anchored = true end)
+	end
+	if hum then
+		data.hum = hum; data.origWalk = hum.WalkSpeed; data.origJump = hum.JumpPower
+		pcall(function()
+			hum.WalkSpeed = 0; hum.JumpPower = 0
+			hum:ChangeState(Enum.HumanoidStateType.Physics)
+		end)
+	end
+	for _, p in ipairs(npc:GetDescendants()) do
+		if p:IsA("BasePart") and p.CanCollide then
+			data.collides[p] = p.CanCollide
+			pcall(function() p.CanCollide = false end)
+		end
+	end
+	if collider then
+		data.collider = collider; data.origCollide = collider.CanCollide
+		pcall(function() collider.CanCollide = false end)
+	end
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("BillboardGui") and (d.Name:lower():find("alert")
+			or d.Name:lower():find("warn") or d.Name:lower():find("detect")) then
+			data.alerts[d] = d.Enabled; d.Enabled = false
+		end
+		if d:IsA("Sound") and d.Playing then pcall(function() d:Stop() end) end
+	end
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("ParticleEmitter") and d.Enabled then
+			local nm = d.Name:lower()
+			if nm:find("alert") or nm:find("detect") or nm:find("wake")
+				or nm:find("sleep") or nm:find("anger") then
+				data.vfx[d] = d.Enabled; d.Enabled = false
+			end
+		end
+	end
+	frozenNPCs[npc] = data
 end
 
-local Theme = {
-    accent = Color3.fromRGB(10, 132, 255),
-    panel  = Color3.fromRGB(255, 255, 255),
-    card   = Color3.fromRGB(250, 251, 253),
-    stroke = Color3.fromRGB(230, 233, 238),
-    text   = Color3.fromRGB(28, 32, 40),
-    sub    = Color3.fromRGB(140, 146, 158),
-    green  = Color3.fromRGB(52, 199, 89),
-    amber  = Color3.fromRGB(255, 159, 10),
-    red    = Color3.fromRGB(255, 69, 58),
-}
-
---============================================================--
--- WINDOW BACKGROUND
---============================================================--
-local BG_IMAGE_ID     = "16149300225"
-local bgEnabled       = true
-local bgTransparency  = 0.35
-
-local function findMainWindowFrame()
-    if not libGui or not libGui.Parent then return nil end
-    for _, child in ipairs(libGui:GetChildren()) do
-        if (child:IsA("Frame") or child:IsA("CanvasGroup"))
-           and child:FindFirstChild("Sidebar") then
-            return child
-        end
-    end
-    local best, bestArea = nil, 0
-    for _, d in ipairs(libGui:GetDescendants()) do
-        if (d:IsA("Frame") or d:IsA("CanvasGroup")) and d.Visible then
-            local sz = d.AbsoluteSize
-            local area = sz.X * sz.Y
-            if sz.X >= 200 and sz.Y >= 200 and area > bestArea then
-                best, bestArea = d, area
-            end
-        end
-    end
-    return best
+local function lockNPC_v62(npc)
+	if frozenNPCs[npc] or not npc.Parent then return end
+	local hrp = npc:FindFirstChild("HumanoidRootPart")
+		or npc:FindFirstChild("Torso")
+		or npc:FindFirstChild("UpperTorso")
+	local hum = npc:FindFirstChildOfClass("Humanoid")
+	local data = { mode = "v62", parts = {}, alerts = {}, vfx = {} }
+	if hrp and hrp:IsA("BasePart") then
+		data.hrp = hrp; data.origAnchored = hrp.Anchored
+		pcall(function() hrp.Anchored = false; hrp:SetNetworkOwner(LP) end)
+		task.wait(0.03)
+		pcall(function()
+			hrp.Anchored = true
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+		end)
+		lockedCFrames[npc] = hrp.CFrame
+	end
+	if hum then
+		data.hum = hum; data.origWalk = hum.WalkSpeed; data.origJump = hum.JumpPower
+		pcall(function()
+			hum.WalkSpeed = 0; hum.JumpPower = 0
+			hum.AutoRotate = false; hum.PlatformStand = true
+			hum:ChangeState(Enum.HumanoidStateType.Physics)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping,   false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Running,   false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Climbing,  false)
+		end)
+	end
+	for _, p in ipairs(npc:GetDescendants()) do
+		if p:IsA("BasePart") then
+			table.insert(data.parts, {
+				part = p, cc = p.CanCollide, ct = p.CanTouch,
+				cq = p.CanQuery, tr = p.Transparency,
+			})
+			pcall(function()
+				p.CanCollide = false; p.CanTouch = false; p.CanQuery = false
+			end)
+		end
+	end
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("TouchTransmitter") then pcall(function() d:Destroy() end) end
+	end
+	for _, nm in ipairs({"Collider", "EggPoint", "CENTER", "HeadProxy"}) do
+		local pt = npc:FindFirstChild(nm)
+		if pt and pt:IsA("BasePart") then
+			table.insert(data.parts, {
+				part = pt, cc = pt.CanCollide, ct = pt.CanTouch,
+				cq = pt.CanQuery, tr = pt.Transparency,
+			})
+			pcall(function()
+				pt.CanCollide = false; pt.CanTouch = false
+				pt.CanQuery = false; pt.Transparency = 1
+			end)
+		end
+	end
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("BillboardGui") then
+			data.alerts[d] = d.Enabled; d.Enabled = false
+		end
+		if d:IsA("Sound") and d.Playing then pcall(function() d:Stop() end) end
+	end
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("ParticleEmitter") and d.Enabled then
+			local nm = d.Name:lower()
+			if nm:find("alert") or nm:find("detect") or nm:find("wake")
+				or nm:find("sleep") or nm:find("anger") then
+				data.vfx[d] = d.Enabled; d.Enabled = false
+			end
+		end
+	end
+	frozenNPCs[npc] = data
 end
 
-local function attachBackground()
-    local mainFrame = findMainWindowFrame()
-    if not mainFrame then return end
-
-    local old = mainFrame:FindFirstChild("HykoBackground")
-    if old then safeDestroy(old) end
-    local oldOv = mainFrame:FindFirstChild("HykoBackgroundOverlay")
-    if oldOv then safeDestroy(oldOv) end
-
-    local bg = Instance.new("ImageLabel")
-    bg.Name = "HykoBackground"
-    bg.Size = UDim2.fromScale(1, 1)
-    bg.Position = UDim2.fromOffset(0, 0)
-    bg.BackgroundTransparency = 1
-    bg.BorderSizePixel = 0
-    bg.ZIndex = 0
-    bg.ScaleType = Enum.ScaleType.Crop
-    bg.ImageTransparency = bgTransparency
-    bg.Visible = bgEnabled
-    bg.Parent = mainFrame
-    makeCorner(bg, 12)
-
-    local overlay = Instance.new("Frame")
-    overlay.Name = "HykoBackgroundOverlay"
-    overlay.Size = UDim2.fromScale(1, 1)
-    overlay.Position = UDim2.fromOffset(0, 0)
-    overlay.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    overlay.BackgroundTransparency = 0.55
-    overlay.BorderSizePixel = 0
-    overlay.ZIndex = 0
-    overlay.Visible = bgEnabled
-    overlay.Parent = mainFrame
-    makeCorner(overlay, 12)
-
-    for _, c in ipairs(mainFrame:GetDescendants()) do
-        if c ~= bg and c ~= overlay and c:IsA("GuiObject") then
-            pcall(function()
-                if c.ZIndex <= 0 then c.ZIndex = 1 end
-            end)
-        end
-    end
-
-    local urls = {
-        "rbxassetid://" .. BG_IMAGE_ID,
-        "rbxthumb://type=Asset&id=" .. BG_IMAGE_ID .. "&w=768&h=768",
-    }
-    local function tryUrl(i)
-        if i > #urls then return end
-        bg.Image = urls[i]
-        task.spawn(function()
-            local t0 = os.clock()
-            while os.clock() - t0 < 2.5 do
-                if bg.IsLoaded then return end
-                task.wait(0.1)
-            end
-            tryUrl(i + 1)
-        end)
-    end
-    tryUrl(1)
+local function unlockNPC(npc)
+	local data = frozenNPCs[npc]
+	if not data then return end
+	if data.hrp and data.hrp.Parent then
+		pcall(function() data.hrp.Anchored = data.origAnchored or false end)
+	end
+	if data.hum and data.hum.Parent then
+		pcall(function()
+			data.hum.WalkSpeed     = data.origWalk or 16
+			data.hum.JumpPower     = data.origJump or 50
+			data.hum.PlatformStand = false
+			data.hum.AutoRotate    = true
+		end)
+	end
+	for p, can in pairs(data.collides or {}) do
+		if p and p.Parent then pcall(function() p.CanCollide = can end) end
+	end
+	if data.collider and data.collider.Parent then
+		pcall(function() data.collider.CanCollide = data.origCollide ~= false end)
+	end
+	for _, rec in ipairs(data.parts or {}) do
+		local p = rec.part
+		if p and p.Parent then
+			pcall(function()
+				p.CanCollide = rec.cc; p.CanTouch = rec.ct
+				p.CanQuery = rec.cq
+				if rec.tr ~= nil then p.Transparency = rec.tr end
+			end)
+		end
+	end
+	for d, en in pairs(data.alerts or {}) do
+		if d and d.Parent then d.Enabled = en end
+	end
+	for d, en in pairs(data.vfx or {}) do
+		if d and d.Parent then d.Enabled = en end
+	end
+	lockedCFrames[npc] = nil
+	frozenNPCs[npc] = nil
 end
 
-local function setBackgroundVisibility(v)
-    bgEnabled = v
-    local mainFrame = findMainWindowFrame()
-    if mainFrame then
-        local bg = mainFrame:FindFirstChild("HykoBackground")
-        local ov = mainFrame:FindFirstChild("HykoBackgroundOverlay")
-        if bg then bg.Visible = v end
-        if ov then ov.Visible = v end
-        if v and not bg then attachBackground() end
-    elseif v then
-        attachBackground()
-    end
+local function unlockAll()
+	for npc in pairs(frozenNPCs) do unlockNPC(npc) end
 end
 
-local function setBackgroundTransparency(v)
-    bgTransparency = v
-    local mainFrame = findMainWindowFrame()
-    if mainFrame then
-        local bg = mainFrame:FindFirstChild("HykoBackground")
-        if bg then bg.ImageTransparency = v end
-    end
-end
-
-task.spawn(function()
-    task.wait(1.5)
-    attachBackground()
+RunService.Heartbeat:Connect(function()
+	if not next(lockedCFrames) then return end
+	for npc, cf in pairs(lockedCFrames) do
+		if not npc.Parent then
+			lockedCFrames[npc] = nil
+		else
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+				or npc:FindFirstChild("Torso")
+				or npc:FindFirstChild("UpperTorso")
+			if hrp and hrp:IsA("BasePart") then
+				hrp.CFrame = cf
+				hrp.AssemblyLinearVelocity  = Vector3.zero
+				hrp.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end
 end)
 
-task.spawn(function()
-    while true do
-        task.wait(2)
-        if bgEnabled and libGui and libGui.Parent then
-            local main = findMainWindowFrame()
-            if main and not main:FindFirstChild("HykoBackground") then
-                attachBackground()
-            end
-        end
-    end
-end)
+local function scanAllNPCs()
+	refreshPlayerChrs()
+	local found = {}
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if obj:IsA("Model") and isNPC(obj) then
+			table.insert(found, obj)
+		end
+	end
+	return found
+end
 
-task.spawn(function()
-    task.wait(2.5)
-    if libGui then
-        fixBrokenImages(libGui)
-        while libGui and libGui.Parent do
-            task.wait(5)
-            fixBrokenImages(libGui)
-        end
-    end
-end)
+local function applyPlayerNoTouch()
+	if antiMode ~= "v62" then return end
+	local c = LP.Character
+	if not c then return end
+	for _, p in ipairs(c:GetDescendants()) do
+		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+			pcall(function() p.CanTouch = false end)
+		end
+	end
+end
 
 --============================================================--
--- ESP
+-- [F] INVISIBLE
 --============================================================--
-local espOn            = false
-local ESP_MAX_DISTANCE = 1200
+local invisOn = false
+local function setInvis(on)
+	local c = LP.Character
+	if not c then return end
+	for _, p in ipairs(c:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.LocalTransparencyModifier = on and 1 or 0
+		elseif p:IsA("Decal") then
+			p.Transparency = on and 1 or 0
+		end
+	end
+end
+
+--============================================================--
+-- [G] ESP  (declared before UI)
+--============================================================--
+local espOn = false
+local ESP_MAX_DISTANCE = 5000
 local ESP_UPDATE_INTERVAL = 0.20
-
-local espEntries     = {}
+local espEntries = {}
 local espConnections = {}
 local espFolder = Instance.new("Folder")
 espFolder.Name = "HykoESP"
 espFolder.Parent = workspace
 
+local TC = {
+	accent = Color3.fromRGB(10, 132, 255),
+	text   = Color3.fromRGB(23, 26, 33),
+	sub    = Color3.fromRGB(138, 144, 158),
+	green  = Color3.fromRGB(48, 209, 88),
+	amber  = Color3.fromRGB(255, 159, 10),
+	red    = Color3.fromRGB(255, 69, 58),
+	cardBg = Color3.fromRGB(255, 255, 255),
+	cardStroke = Color3.fromRGB(230, 233, 240),
+}
+
 local function getRootHum(char)
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local hum  = char:FindFirstChildOfClass("Humanoid")
-    if root and hum and hum.Health > 0 then return root, hum end
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	local hum  = char:FindFirstChildOfClass("Humanoid")
+	if root and hum and hum.Health > 0 then return root, hum end
 end
 
-local function makeESP(plr)
-    if not espOn or plr == LP then return end
-    local char = plr.Character
-    local root, hum = getRootHum(char)
-    if not root then return end
+local makeESP, removeESP, updateESPEntry, bindPlayerESP
 
-    local old = espEntries[plr]
-    if old and old.character == char then return end
-    if old then
-        safeDestroy(old.highlight)
-        safeDestroy(old.billboard)
-    end
+makeESP = function(plr)
+	if not espOn or plr == LP then return end
+	local char = plr.Character
+	local root, hum = getRootHum(char)
+	if not root then return end
+	local old = espEntries[plr]
+	if old and old.character == char then return end
+	if old then safeDestroy(old.highlight); safeDestroy(old.billboard) end
 
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "HykoESPHighlight"
-    highlight.Adornee = char
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.FillTransparency = 0.92
-    highlight.OutlineTransparency = 0.15
-    highlight.FillColor = Theme.accent
-    highlight.OutlineColor = Theme.accent
-    highlight.Parent = espFolder
+	local highlight = Instance.new("Highlight")
+	highlight.Adornee = char
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.FillTransparency = 0.92
+	highlight.OutlineTransparency = 0.15
+	highlight.FillColor = TC.accent
+	highlight.OutlineColor = TC.accent
+	highlight.Parent = espFolder
 
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "HykoESPNameTag"
-    billboard.Adornee = root
-    billboard.AlwaysOnTop = true
-    billboard.LightInfluence = 0
-    billboard.MaxDistance = ESP_MAX_DISTANCE
-    billboard.Size = UDim2.fromOffset(160, 44)
-    billboard.StudsOffset = Vector3.new(0, 3.1, 0)
-    billboard.Parent = espFolder
+	local billboard = Instance.new("BillboardGui")
+	billboard.Adornee = root
+	billboard.AlwaysOnTop = true
+	billboard.LightInfluence = 0
+	billboard.MaxDistance = ESP_MAX_DISTANCE
+	billboard.Size = UDim2.fromOffset(160, 44)
+	billboard.StudsOffset = Vector3.new(0, 3.1, 0)
+	billboard.Parent = espFolder
 
-    local card = Instance.new("Frame")
-    card.Size = UDim2.fromScale(1, 1)
-    card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    card.BackgroundTransparency = 0.06
-    card.BorderSizePixel = 0
-    card.Parent = billboard
-    makeCorner(card, 8)
-    local stroke = makeStroke(card, Color3.fromRGB(225, 228, 235), 0.35, 1)
+	local card = Instance.new("Frame")
+	card.Size = UDim2.fromScale(1, 1)
+	card.BackgroundColor3 = TC.cardBg
+	card.BackgroundTransparency = 0.06
+	card.BorderSizePixel = 0
+	card.Parent = billboard
+	mkCorner(card, 8)
+	mkStroke(card, TC.cardStroke, 0.35, 1)
 
-    local dot = Instance.new("Frame")
-    dot.Size = UDim2.fromOffset(6, 6)
-    dot.Position = UDim2.fromOffset(12, 11)
-    dot.BackgroundColor3 = Theme.accent
-    dot.BorderSizePixel = 0
-    dot.Parent = card
-    makeCorner(dot, 3)
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Position = UDim2.fromOffset(12, 6)
+	nameLabel.Size = UDim2.new(1, -20, 0, 16)
+	nameLabel.Font = Enum.Font.GothamMedium
+	nameLabel.TextSize = 11
+	nameLabel.TextColor3 = TC.text
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Text = plr.DisplayName
+	nameLabel.Parent = card
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Position = UDim2.fromOffset(24, 6)
-    nameLabel.Size = UDim2.new(1, -32, 0, 16)
-    nameLabel.Font = Enum.Font.GothamMedium
-    nameLabel.TextSize = 11
-    nameLabel.TextColor3 = Theme.text
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-    nameLabel.Text = plr.DisplayName
-    nameLabel.Parent = card
+	local distLabel = Instance.new("TextLabel")
+	distLabel.BackgroundTransparency = 1
+	distLabel.Position = UDim2.fromOffset(12, 25)
+	distLabel.Size = UDim2.fromOffset(42, 12)
+	distLabel.Font = Enum.Font.Gotham
+	distLabel.TextSize = 9
+	distLabel.TextColor3 = TC.sub
+	distLabel.TextXAlignment = Enum.TextXAlignment.Left
+	distLabel.Text = "-- m"
+	distLabel.Parent = card
 
-    local distLabel = Instance.new("TextLabel")
-    distLabel.BackgroundTransparency = 1
-    distLabel.Position = UDim2.fromOffset(24, 25)
-    distLabel.Size = UDim2.fromOffset(42, 12)
-    distLabel.Font = Enum.Font.Gotham
-    distLabel.TextSize = 9
-    distLabel.TextColor3 = Theme.sub
-    distLabel.TextXAlignment = Enum.TextXAlignment.Left
-    distLabel.Text = "-- m"
-    distLabel.Parent = card
+	local barBg = Instance.new("Frame")
+	barBg.Position = UDim2.new(1, -78, 0, 28)
+	barBg.Size = UDim2.fromOffset(58, 4)
+	barBg.BackgroundColor3 = Color3.fromRGB(232, 235, 240)
+	barBg.BorderSizePixel = 0
+	barBg.Parent = card
+	mkCorner(barBg, 2)
 
-    local barBg = Instance.new("Frame")
-    barBg.Position = UDim2.new(1, -78, 0, 28)
-    barBg.Size = UDim2.fromOffset(58, 4)
-    barBg.BackgroundColor3 = Color3.fromRGB(232, 235, 240)
-    barBg.BorderSizePixel = 0
-    barBg.Parent = card
-    makeCorner(barBg, 2)
+	local barFill = Instance.new("Frame")
+	barFill.Size = UDim2.fromScale(1, 1)
+	barFill.BackgroundColor3 = TC.green
+	barFill.BorderSizePixel = 0
+	barFill.Parent = barBg
+	mkCorner(barFill, 2)
 
-    local barFill = Instance.new("Frame")
-    barFill.Position = UDim2.fromOffset(0, 0)
-    barFill.Size = UDim2.fromScale(1, 1)
-    barFill.BackgroundColor3 = Theme.green
-    barFill.BorderSizePixel = 0
-    barFill.Parent = barBg
-    makeCorner(barFill, 2)
+	local hpLabel = Instance.new("TextLabel")
+	hpLabel.BackgroundTransparency = 1
+	hpLabel.Position = UDim2.new(1, -78, 0, 12)
+	hpLabel.Size = UDim2.fromOffset(58, 12)
+	hpLabel.Font = Enum.Font.Gotham
+	hpLabel.TextSize = 8
+	hpLabel.TextColor3 = TC.sub
+	hpLabel.TextXAlignment = Enum.TextXAlignment.Right
+	hpLabel.Text = "100%"
+	hpLabel.Parent = card
 
-    local hpLabel = Instance.new("TextLabel")
-    hpLabel.BackgroundTransparency = 1
-    hpLabel.Position = UDim2.new(1, -78, 0, 12)
-    hpLabel.Size = UDim2.fromOffset(58, 12)
-    hpLabel.Font = Enum.Font.Gotham
-    hpLabel.TextSize = 8
-    hpLabel.TextColor3 = Theme.sub
-    hpLabel.TextXAlignment = Enum.TextXAlignment.Right
-    hpLabel.Text = "100%"
-    hpLabel.Parent = card
-
-    espEntries[plr] = {
-        player = plr, character = char, root = root, hum = hum,
-        highlight = highlight, billboard = billboard, card = card,
-        stroke = stroke, dot = dot,
-        nameLabel = nameLabel, distLabel = distLabel,
-        barBg = barBg, barFill = barFill, hpLabel = hpLabel,
-    }
+	espEntries[plr] = {
+		player = plr, character = char, root = root, hum = hum,
+		highlight = highlight, billboard = billboard,
+		nameLabel = nameLabel, distLabel = distLabel,
+		barFill = barFill, hpLabel = hpLabel,
+	}
 end
 
-local function removeESP(plr)
-    local e = espEntries[plr]
-    if not e then return end
-    safeDestroy(e.highlight)
-    safeDestroy(e.billboard)
-    espEntries[plr] = nil
+removeESP = function(plr)
+	local e = espEntries[plr]
+	if not e then return end
+	safeDestroy(e.highlight)
+	safeDestroy(e.billboard)
+	espEntries[plr] = nil
 end
 
-local function updateESPEntry(e, myRoot)
-    if not e or not e.player then return end
-    local plr = e.player
-    local char = plr.Character
-    local root, hum = getRootHum(char)
-    if not root then removeESP(plr); return end
-    if e.character ~= char then
-        makeESP(plr)
-        e = espEntries[plr]
-        if not e then return end
-        root, hum = getRootHum(char)
-        if not root then return end
-    end
-
-    e.billboard.MaxDistance = ESP_MAX_DISTANCE
-    e.nameLabel.Text = plr.DisplayName
-
-    local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
-    local visible  = distance <= ESP_MAX_DISTANCE
-    e.highlight.Enabled = visible
-    e.billboard.Enabled = visible
-
-    local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-    e.distLabel.Text = string.format("%dm", math.floor(distance + 0.5))
-    e.hpLabel.Text   = string.format("%d%%", math.floor(hp * 100 + 0.5))
-
-    local col
-    if hp > 0.6 then col = Theme.green
-    elseif hp > 0.3 then col = Theme.amber
-    else col = Theme.red end
-    e.barFill.BackgroundColor3 = col
-    e.barFill.Size = UDim2.fromScale(hp, 1)
+updateESPEntry = function(e, myRoot)
+	if not e or not e.player then return end
+	local plr = e.player
+	local char = plr.Character
+	local root, hum = getRootHum(char)
+	if not root then removeESP(plr); return end
+	if e.character ~= char then
+		makeESP(plr)
+		e = espEntries[plr]
+		if not e then return end
+		root, hum = getRootHum(char)
+		if not root then return end
+	end
+	e.billboard.MaxDistance = ESP_MAX_DISTANCE
+	e.nameLabel.Text = plr.DisplayName
+	local distance = myRoot and (myRoot.Position - root.Position).Magnitude or 0
+	local visible  = distance <= ESP_MAX_DISTANCE
+	e.highlight.Enabled = visible
+	e.billboard.Enabled = visible
+	local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+	e.distLabel.Text = string.format("%dm", math.floor(distance + 0.5))
+	e.hpLabel.Text   = string.format("%d%%", math.floor(hp * 100 + 0.5))
+	local col
+	if hp > 0.6 then col = TC.green
+	elseif hp > 0.3 then col = TC.amber
+	else col = TC.red end
+	e.barFill.BackgroundColor3 = col
+	e.barFill.Size = UDim2.fromScale(hp, 1)
 end
 
-local function bindPlayerESP(plr)
-    if plr == LP then return end
-    disconnect(espConnections[plr])
-    espConnections[plr] = plr.CharacterAdded:Connect(function()
-        task.wait(0.15)
-        if espOn then makeESP(plr) end
-    end)
-    task.defer(function() if espOn then makeESP(plr) end end)
+bindPlayerESP = function(plr)
+	if plr == LP then return end
+	disconnect(espConnections[plr])
+	espConnections[plr] = plr.CharacterAdded:Connect(function()
+		task.wait(0.15)
+		if espOn then makeESP(plr) end
+	end)
+	task.defer(function() if espOn then makeESP(plr) end end)
 end
 
 local function enableESP()
-    if espOn then return end
-    espOn = true
-    for _, plr in ipairs(Players:GetPlayers()) do bindPlayerESP(plr) end
-    espConnections.added = Players.PlayerAdded:Connect(bindPlayerESP)
-    espConnections.removing = Players.PlayerRemoving:Connect(function(plr)
-        disconnect(espConnections[plr])
-        espConnections[plr] = nil
-        removeESP(plr)
-    end)
+	if espOn then return end
+	espOn = true
+	for _, plr in ipairs(Players:GetPlayers()) do bindPlayerESP(plr) end
+	espConnections.added = Players.PlayerAdded:Connect(bindPlayerESP)
+	espConnections.removing = Players.PlayerRemoving:Connect(function(plr)
+		disconnect(espConnections[plr])
+		espConnections[plr] = nil
+		removeESP(plr)
+	end)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LP then makeESP(plr) end
+	end
 end
 
 local function disableESP()
-    if not espOn then return end
-    espOn = false
-    for plr, conn in pairs(espConnections) do
-        if typeof(conn) == "RBXScriptConnection" then disconnect(conn) end
-        espConnections[plr] = nil
-    end
-    for plr in pairs(espEntries) do removeESP(plr) end
+	if not espOn then return end
+	espOn = false
+	for plr, conn in pairs(espConnections) do
+		if typeof(conn) == "RBXScriptConnection" then disconnect(conn) end
+		espConnections[plr] = nil
+	end
+	for plr in pairs(espEntries) do removeESP(plr) end
 end
 
 task.spawn(function()
-    while true do
-        task.wait(ESP_UPDATE_INTERVAL)
-        if espOn then
-            local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LP then
-                    local e = espEntries[plr]
-                    if e then updateESPEntry(e, myRoot) else makeESP(plr) end
-                end
-            end
-        end
-    end
+	while true do
+		task.wait(ESP_UPDATE_INTERVAL)
+		if espOn then
+			local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr ~= LP then
+					local e = espEntries[plr]
+					if e then updateESPEntry(e, myRoot) else makeESP(plr) end
+				end
+			end
+		end
+	end
 end)
 
 --============================================================--
--- FAST LOOT
+-- [H] UI
 --============================================================--
-local lootOn = false
-local promptAddedConnection
-local savedPromptHold = {}
-
-local function optimizePrompt(prompt)
-    if not prompt:IsA("ProximityPrompt") then return end
-    if savedPromptHold[prompt] == nil then
-        savedPromptHold[prompt] = prompt.HoldDuration
-    end
-    pcall(function() prompt.HoldDuration = 0 end)
+local ScreenGui = LP:WaitForChild("PlayerGui"):FindFirstChild("HykoGui")
+if not ScreenGui then
+	ScreenGui = Instance.new("ScreenGui")
+	ScreenGui.Name = "HykoGui"
+	ScreenGui.ResetOnSpawn = false
+	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 end
+local oldUI = ScreenGui:FindFirstChild("HykoWindow")
+if oldUI then oldUI:Destroy() end
 
-local function restorePrompts()
-    for prompt, old in pairs(savedPromptHold) do
-        if prompt and prompt.Parent then
-            pcall(function() prompt.HoldDuration = old end)
-        end
-    end
-    table.clear(savedPromptHold)
-end
-
-local function enableLoot()
-    if lootOn then return end
-    lootOn = true
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then optimizePrompt(obj) end
-    end
-    disconnect(promptAddedConnection)
-    promptAddedConnection = workspace.DescendantAdded:Connect(function(obj)
-        if lootOn and obj:IsA("ProximityPrompt") then optimizePrompt(obj) end
-    end)
-end
-
-local function disableLoot()
-    lootOn = false
-    disconnect(promptAddedConnection); promptAddedConnection = nil
-    restorePrompts()
-end
-
---============================================================--
--- AUTO LOOT
---============================================================--
-local autoLootOn      = false
-local autoLootRadius  = 32
-local autoLootRunning = false
-local autoSavedHold   = {}
-
-local promptCache   = {}
-local promptWatchA  = nil
-local promptWatchB  = nil
-
-local function addPrompt(p) if p:IsA("ProximityPrompt") then promptCache[p] = true end end
-local function removePrompt(p) if p:IsA("ProximityPrompt") then promptCache[p] = nil end end
-
-local function buildPromptCache()
-    table.clear(promptCache)
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then promptCache[obj] = true end
-    end
-end
-
-local function startPromptWatcher()
-    disconnect(promptWatchA); disconnect(promptWatchB)
-    promptWatchA = workspace.DescendantAdded:Connect(addPrompt)
-    promptWatchB = workspace.DescendantRemoving:Connect(removePrompt)
-end
-local function stopPromptWatcher()
-    disconnect(promptWatchA); promptWatchA = nil
-    disconnect(promptWatchB); promptWatchB = nil
-end
-
-local function getPromptPosition(prompt)
-    local p = prompt.Parent
-    if not p then return nil end
-    if p:IsA("BasePart") then return p.Position end
-    if p:IsA("Attachment") then return p.WorldPosition end
-    return nil
-end
-
-local function findNearestPrompt()
-    local c = LP.Character
-    local hrp = c and c:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil end
-
-    local myPos = hrp.Position
-    local best, bestDist = nil, autoLootRadius
-
-    for prompt in pairs(promptCache) do
-        if prompt.Parent and prompt.Enabled then
-            local pos = getPromptPosition(prompt)
-            if pos then
-                local dist = (pos - myPos).Magnitude
-                local maxReach = (prompt.MaxActivationDistance or 10) + 4
-                if dist <= bestDist and dist <= maxReach then
-                    local hasLOS = true
-                    if prompt.RequiresLineOfSight then
-                        local params = RaycastParams.new()
-                        params.FilterType = Enum.RaycastFilterType.Exclude
-                        params.FilterDescendantsInstances = {c}
-                        params.IgnoreWater = true
-                        local origin = workspace.CurrentCamera
-                            and workspace.CurrentCamera.CFrame.Position or myPos
-                        local r = workspace:Raycast(origin, pos - origin, params)
-                        hasLOS = (r == nil)
-                    end
-                    if hasLOS then best, bestDist = prompt, dist end
-                end
-            end
-        end
-    end
-    return best
-end
-
-local function firePrompt(prompt)
-    if not prompt or not prompt.Parent or not prompt.Enabled then return end
-    if savedPromptHold[prompt] == nil and autoSavedHold[prompt] == nil then
-        autoSavedHold[prompt] = prompt.HoldDuration
-    end
-    pcall(function() prompt.HoldDuration = 0 end)
-    pcall(function() fireproximityprompt(prompt) end)
-    pcall(function()
-        prompt:InputHoldBegin()
-        task.wait(0)
-        prompt:InputHoldEnd()
-    end)
-end
-
-local function autoLootLoop()
-    if autoLootRunning then return end
-    autoLootRunning = true
-    task.spawn(function()
-        while autoLootOn do
-            local prompt = findNearestPrompt()
-            if prompt then firePrompt(prompt) end
-            task.wait(0.08)
-        end
-        autoLootRunning = false
-    end)
-end
-
-local function enableAutoLoot()
-    if autoLootOn then return end
-    autoLootOn = true
-    buildPromptCache()
-    startPromptWatcher()
-    autoLootLoop()
-end
-
-local function disableAutoLoot()
-    if not autoLootOn then return end
-    autoLootOn = false
-    stopPromptWatcher()
-    task.wait(0.15)
-    for prompt, old in pairs(autoSavedHold) do
-        if prompt and prompt.Parent and savedPromptHold[prompt] == nil then
-            pcall(function() prompt.HoldDuration = old end)
-        end
-    end
-    table.clear(autoSavedHold)
-end
-
---============================================================--
--- GOD MODE (FIXED v3)
---============================================================--
-local godModeOn       = false
-local godModeConn     = nil
-local godModeHealthC  = nil
-local godModeDiedC    = nil
-local godModeCharConn = nil
-local GOD_HEALTH      = 9e15
-
-local function applyGodHealth(char)
-    if not char then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-    pcall(function()
-        hum.MaxHealth           = GOD_HEALTH
-        hum.Health              = GOD_HEALTH
-        hum.BreakJointsOnDeath  = false
-        hum.RequiresNeck        = false
-    end)
-end
-
-local function hookGodHumanoid(hum)
-    if not hum then return end
-    if godModeHealthC then godModeHealthC:Disconnect() end
-    if godModeDiedC   then godModeDiedC:Disconnect()   end
-
-    godModeHealthC = hum.HealthChanged:Connect(function(h)
-        if not godModeOn then return end
-        if h < GOD_HEALTH then
-            pcall(function() hum.Health = GOD_HEALTH end)
-        end
-    end)
-
-    godModeDiedC = hum.Died:Connect(function()
-        if not godModeOn then return end
-        task.defer(function()
-            if not godModeOn then return end
-            local c = LP.Character
-            if c then
-                local h = c:FindFirstChildOfClass("Humanoid")
-                if h then
-                    pcall(function()
-                        h.MaxHealth = GOD_HEALTH
-                        h.Health    = GOD_HEALTH
-                    end)
-                end
-            end
-        end)
-    end)
-end
-
-local function startGodMode()
-    if godModeOn then return end
-    godModeOn = true
-
-    local char = LP.Character
-    applyGodHealth(char)
-    hookGodHumanoid(char and char:FindFirstChildOfClass("Humanoid"))
-
-    godModeConn = RunService.PreSimulation:Connect(function()
-        if not godModeOn then return end
-        local c = LP.Character
-        if not c then return end
-        local hum = c:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        if hum.MaxHealth ~= GOD_HEALTH then
-            pcall(function() hum.MaxHealth = GOD_HEALTH end)
-        end
-        if hum.Health < GOD_HEALTH then
-            pcall(function() hum.Health = GOD_HEALTH end)
-        end
-    end)
-
-    godModeCharConn = LP.CharacterAdded:Connect(function(c)
-        if not godModeOn then return end
-        task.wait(0.15)
-        applyGodHealth(c)
-        hookGodHumanoid(c:FindFirstChildOfClass("Humanoid"))
-    end)
-end
-
-local function stopGodMode()
-    if not godModeOn then return end
-    godModeOn = false
-
-    disconnect(godModeConn);     godModeConn     = nil
-    disconnect(godModeHealthC);  godModeHealthC  = nil
-    disconnect(godModeDiedC);    godModeDiedC    = nil
-    disconnect(godModeCharConn); godModeCharConn = nil
-
-    local char = LP.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            pcall(function()
-                hum.MaxHealth          = 100
-                hum.BreakJointsOnDeath = true
-                hum.RequiresNeck       = true
-                if hum.Health > 100 then hum.Health = 100 end
-            end)
-        end
-    end
-end
-
---============================================================--
--- AUTO FARM (v15.5 - strict filter)
---============================================================--
-local farmOn        = false
-local farmSpeed     = 500
-local farmRadius    = 3000
-local farmAttack    = true
-local farmAutoEquip = true
-local farmConn      = nil
-
-local farmFlightAtt, farmFlightVel = nil, nil
-local farmSavedHum = nil
-local farmSavedCamSubject = nil
-
-local currentFarmTarget   = nil
-local farmRetargetCd      = 0
-local FARM_RETARGET_DELAY = 1.2
-local FARM_ATTACK_RANGE   = 12
-
-local FARM_PRIORITY_WEAPONS = {
-    "Prehistoric Bat", "Abyss Ocean Bat", "Volcano Bat",
-    "Cosmic Bat", "Snow Bat", "Jungle Bat", "Desert Bat",
-    "Lake Bat", "Forest Bat", "Katana", "Titan Axe",
-    "Bat", "Sword", "Axe",
+-- Palette
+local P = {
+	bgTop    = Color3.fromRGB(252, 253, 255),
+	bgBot    = Color3.fromRGB(244, 246, 250),
+	card     = Color3.fromRGB(255, 255, 255),
+	cardSoft = Color3.fromRGB(246, 248, 252),
+	border   = Color3.fromRGB(228, 231, 238),
+	borderSoft = Color3.fromRGB(237, 240, 245),
+	text     = Color3.fromRGB(23, 26, 33),
+	sub      = Color3.fromRGB(138, 144, 158),
+	dim      = Color3.fromRGB(180, 186, 198),
+	accent   = Color3.fromRGB(10, 132, 255),
+	accentSoft = Color3.fromRGB(230, 241, 255),
+	green    = Color3.fromRGB(48, 209, 88),
+	greenSoft= Color3.fromRGB(228, 249, 233),
+	amber    = Color3.fromRGB(255, 159, 10),
+	amberSoft= Color3.fromRGB(255, 245, 224),
+	red      = Color3.fromRGB(255, 69, 58),
+	redSoft  = Color3.fromRGB(255, 235, 232),
+	purple   = Color3.fromRGB(140, 90, 255),
+	purpleSoft = Color3.fromRGB(240, 233, 255),
+	off      = Color3.fromRGB(210, 214, 220),
 }
 
-local FARM_WHITELIST = {
-    ["EscapedExperiment"] = true,
-}
+local WINDOW_W      = 340
+local WINDOW_H      = 540
+local WINDOW_H_MINI = 64
 
-local FARM_BLACKLIST = {
-    ["Brock"]              = true,
-    ["ExperimentVault"]    = true,
-    ["LostPart1"]          = true,
-    ["LostPart2"]          = true,
-    ["Chest"]              = true,
-    ["Map"]                = true,
-    ["HykoESP"]            = true,
-}
+-- Shadow
+local shadow = Instance.new("ImageLabel", ScreenGui)
+shadow.Name = "HykoShadow"
+shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+shadow.Position = UDim2.new(0, 20 + WINDOW_W/2, 0.5, 0)
+shadow.Size = UDim2.fromOffset(WINDOW_W + 40, WINDOW_H + 40)
+shadow.BackgroundTransparency = 1
+shadow.Image = "rbxassetid://1316045217"
+shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+shadow.ImageTransparency = 0.88
+shadow.ScaleType = Enum.ScaleType.Slice
+shadow.SliceCenter = Rect.new(10, 10, 118, 118)
+shadow.ZIndex = 1
 
-local FARM_BLACKLIST_FOLDERS = {
-    ["ClientRenderedAssets"]     = true,
-    ["PlacedEggRenders"]         = true,
-    ["AreaEggSlotsClient"]       = true,
-    ["ScrambleLocalVisuals"]     = true,
-    ["ObjectCache"]              = true,
-    ["LightDarkSubBiomeVfx"]     = true,
-    ["__ClientTreadmillRenders"] = true,
-    ["Eggs"]                     = true,
-    ["Plots"]                    = true,
-    ["Stands"]                   = true,
-    ["__OBJECTS"]                = true,
-    ["__DEBRIS"]                 = true,
-    ["New Sounds"]               = true,
-    ["Camera"]                   = true,
-    ["GuardAreas"]               = true,
-}
+local Window = Instance.new("Frame", ScreenGui)
+Window.Name = "HykoWindow"
+Window.Size = UDim2.fromOffset(WINDOW_W, WINDOW_H)
+Window.Position = UDim2.new(0, 20, 0.5, -WINDOW_H/2)
+Window.BackgroundColor3 = P.bgTop
+Window.BorderSizePixel = 0
+Window.Active = true
+Window.ClipsDescendants = true
+Window.ZIndex = 2
+mkCorner(Window, 14)
+mkStroke(Window, P.border, 0.2, 1)
 
-local function isInsideGuardArea(m)
-    local p = m
-    while p and p ~= workspace do
-        if p.Name == "GuardAreas" then return true end
-        p = p.Parent
-    end
-    return false
+local function syncShadow()
+	shadow.Position = UDim2.new(
+		Window.Position.X.Scale,
+		Window.Position.X.Offset + Window.Size.X.Offset / 2,
+		Window.Position.Y.Scale,
+		Window.Position.Y.Offset + Window.Size.Y.Offset / 2
+	)
 end
 
-local function isInsideBlacklistedFolder(m)
-    local p = m.Parent
-    while p and p ~= workspace do
-        if FARM_BLACKLIST_FOLDERS[p.Name] then return true end
-        p = p.Parent
-    end
-    return false
-end
-
-local function hasHumanoidRoot(m)
-    return m:FindFirstChild("HumanoidRootPart")
-        or m:FindFirstChild("RootPart")
-        or m:FindFirstChild("Root")
-        or m:FindFirstChild("Head")
-        or m.PrimaryPart
-end
-
-local function isHostileModel(m)
-    if not m or not m.Parent then return false end
-    if not m:IsA("Model") then return false end
-
-    if m == LP.Character then return false end
-    if Players:GetPlayerFromCharacter(m) then return false end
-    if FARM_BLACKLIST[m.Name] then return false end
-    if isInsideBlacklistedFolder(m) then return false end
-    if isInsideGuardArea(m) then return false end
-    if LP.Character and m:IsDescendantOf(LP.Character) then return false end
-
-    if FARM_WHITELIST[m.Name] then
-        return hasHumanoidRoot(m) ~= nil
-    end
-
-    if m.Parent ~= workspace then return false end
-
-    local hum = m:FindFirstChildOfClass("Humanoid")
-    if not hum or hum.Health <= 0 then return false end
-
-    if not hasHumanoidRoot(m) then return false end
-
-    return true
-end
-
-local function getFarmRoot(m)
-    if not m then return nil end
-    return m:FindFirstChild("HumanoidRootPart")
-        or m:FindFirstChild("RootPart")
-        or m:FindFirstChild("Root")
-        or m:FindFirstChild("Head")
-        or m.PrimaryPart
-end
-
-local function collectFarmCandidates()
-    local out = {}
-
-    local drEvent = workspace:FindFirstChild("DrScrambleEvent")
-    if drEvent then
-        local exp = drEvent:FindFirstChild("EscapedExperiment")
-        if exp and isHostileModel(exp) then
-            table.insert(out, exp)
-        end
-    end
-
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj ~= drEvent and isHostileModel(obj) then
-            table.insert(out, obj)
-        end
-    end
-
-    return out
-end
-
-local function findNearestFarmTarget()
-    local char = LP.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return nil end
-    local myPos = root.Position
-
-    local best, bestDist = nil, farmRadius
-    for _, m in ipairs(collectFarmCandidates()) do
-        local mRoot = getFarmRoot(m)
-        if mRoot then
-            local d = (mRoot.Position - myPos).Magnitude
-            if d < bestDist then
-                best, bestDist = m, d
-            end
-        end
-    end
-    return best, bestDist
-end
-
-local function equipFarmWeapon()
-    local char = LP.Character
-    if not char then return nil end
-
-    local equipped = char:FindFirstChildOfClass("Tool")
-    if equipped then return equipped end
-
-    local backpack = LP:FindFirstChild("Backpack")
-    if not backpack then return nil end
-
-    for _, key in ipairs(FARM_PRIORITY_WEAPONS) do
-        for _, tool in ipairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") and tool.Name:lower():find(key:lower(), 1, true) then
-                tool.Parent = char
-                return tool
-            end
-        end
-    end
-
-    for _, tool in ipairs(backpack:GetChildren()) do
-        if tool:IsA("Tool") then
-            tool.Parent = char
-            return tool
-        end
-    end
-    return nil
-end
-
-local function detachHumanoid(char)
-    if antiOn and realHum then return end
-    if farmSavedHum then return end
-
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        farmSavedHum = hum
-        pcall(function()
-            farmSavedCamSubject = workspace.CurrentCamera
-                and workspace.CurrentCamera.CameraSubject
-        end)
-        pcall(function() hum.Parent = nil end)
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp and workspace.CurrentCamera then
-            pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
-        end
-    end
-end
-
-local function restoreHumanoid(char)
-    if not farmSavedHum then return end
-    if char and char.Parent then
-        local existing = char:FindFirstChildOfClass("Humanoid")
-        if existing and existing ~= farmSavedHum then
-            pcall(function() farmSavedHum:Destroy() end)
-        else
-            pcall(function() farmSavedHum.Parent = char end)
-        end
-        if farmSavedCamSubject and workspace.CurrentCamera
-            and workspace.CurrentCamera.CameraSubject == char:FindFirstChild("HumanoidRootPart") then
-            pcall(function() workspace.CurrentCamera.CameraSubject = farmSavedCamSubject end)
-        end
-    else
-        pcall(function() farmSavedHum:Destroy() end)
-    end
-    farmSavedHum = nil
-    farmSavedCamSubject = nil
-end
-
-local function startFarmFlight(char, root)
-    if antiOn and moveVel then return end
-    detachHumanoid(char)
-
-    if not farmFlightVel or not farmFlightVel.Parent then
-        if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) end
-        local att = Instance.new("Attachment")
-        att.Name = "HykoFarmAtt"
-        att.Parent = root
-        farmFlightAtt = att
-
-        local lv = Instance.new("LinearVelocity")
-        lv.Name = "HykoFarmVel"
-        lv.Attachment0 = att
-        lv.RelativeTo = Enum.ActuatorRelativeTo.World
-        lv.VectorVelocity = Vector3.zero
-        lv.MaxForce = 1e6
-        lv.Parent = root
-        farmFlightVel = lv
-    end
-end
-
-local function setFarmVelocity(vec)
-    if antiOn and moveVel then
-        moveVel.VectorVelocity = vec
-    elseif farmFlightVel then
-        farmFlightVel.VectorVelocity = vec
-    end
-end
-
-local function stopFarmFlight(char)
-    if farmFlightAtt then pcall(function() farmFlightAtt:Destroy() end) farmFlightAtt = nil end
-    if farmFlightVel then pcall(function() farmFlightVel:Destroy() end) farmFlightVel = nil end
-    restoreHumanoid(char)
-end
-
-local function farmStep(dt)
-    if not farmOn then return end
-    local char = LP.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-
-    if not antiOn and not farmSavedHum then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            farmSavedHum = hum
-            pcall(function() hum.Parent = nil end)
-        end
-    end
-
-    local target = currentFarmTarget
-    local targetValid = false
-    local tRoot = nil
-
-    if target and target.Parent and isHostileModel(target) then
-        tRoot = getFarmRoot(target)
-        if tRoot and tRoot.Parent then
-            local d = (tRoot.Position - root.Position).Magnitude
-            if d <= farmRadius * 1.5 then
-                targetValid = true
-            end
-        end
-    end
-
-    farmRetargetCd = farmRetargetCd - dt
-    if not targetValid then
-        currentFarmTarget = nil
-        setFarmVelocity(Vector3.zero)
-        if farmRetargetCd <= 0 then
-            local newT = findNearestFarmTarget()
-            if newT then
-                currentFarmTarget = newT
-                farmRetargetCd    = FARM_RETARGET_DELAY
-                target   = newT
-                tRoot    = getFarmRoot(newT)
-                targetValid = true
-            else
-                stopFarmFlight(char)
-                return
-            end
-        else
-            stopFarmFlight(char)
-            return
-        end
-    end
-
-    if not target or not tRoot then
-        currentFarmTarget = nil
-        return
-    end
-
-    local tool = nil
-    if farmAutoEquip then tool = equipFarmWeapon() end
-
-    local myPos = root.Position
-    local tPos  = tRoot.Position
-    local delta = tPos - myPos
-    local mag   = delta.Magnitude
-
-    if mag > FARM_ATTACK_RANGE then
-        startFarmFlight(char, root)
-        local flat = Vector3.new(delta.X, 0, delta.Z)
-        local dir  = flat.Magnitude > 0.01 and flat.Unit or Vector3.zero
-        setFarmVelocity(dir * farmSpeed)
-        pcall(function()
-            root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
-        end)
-        root.AssemblyAngularVelocity = Vector3.zero
-    else
-        stopFarmFlight(char)
-        root.AssemblyLinearVelocity  = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-        pcall(function()
-            root.CFrame = CFrame.lookAt(myPos, Vector3.new(tPos.X, myPos.Y, tPos.Z))
-        end)
-        if farmAttack and tool then
-            pcall(function() tool:Activate() end)
-        end
-    end
-end
-
-local function enableFarm()
-    if farmOn then return end
-    farmOn = true
-    currentFarmTarget = nil
-    farmRetargetCd    = 0
-    disconnect(farmConn)
-    farmConn = RunService.Heartbeat:Connect(farmStep)
-end
-
-local function disableFarm()
-    if not farmOn then return end
-    farmOn = false
-    disconnect(farmConn); farmConn = nil
-
-    currentFarmTarget = nil
-    farmRetargetCd    = 0
-
-    local char = LP.Character
-    if antiOn and moveVel then
-        pcall(function() moveVel.VectorVelocity = Vector3.zero end)
-    else
-        stopFarmFlight(char)
-    end
-end
-
---============================================================--
--- FPS BOOST
---============================================================--
-local boostOn, boostBusy = false, false
-local boostConnections = {}
-local boostSaved = {
-    quality = nil, cap = nil, lighting = nil, terrain = nil,
-    effects = {}, lights = {}, atmospheres = {}, shadows = {},
-    reflect = {}, decals = {}, fidelity = {},
-    sky = nil, skyChildren = {}, clouds = {},
-}
-
-local function isBoostSafe(d)
-    if not d or not d.Parent then return false end
-    if d.Name and d.Name:sub(1, 4) == "Hyko" then return false end
-    local c = LP.Character
-    if c and d:IsDescendantOf(c) then return false end
-    for _, pl in ipairs(Players:GetPlayers()) do
-        local pc = pl.Character
-        if pc and d:IsDescendantOf(pc) then return false end
-    end
-    return true
-end
-local function saveOnce(tbl, obj, v) if tbl[obj] == nil then tbl[obj] = v end end
-
-local function optimizeVisual(obj)
-    if not boostOn or not isBoostSafe(obj) then return end
-    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam")
-        or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
-        saveOnce(boostSaved.effects, obj, obj.Enabled)
-        pcall(function() obj.Enabled = false; if obj:IsA("ParticleEmitter") then obj:Clear() end end)
-        return
-    end
-    if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
-        saveOnce(boostSaved.lights, obj, {Enabled = obj.Enabled, Shadows = obj.Shadows})
-        pcall(function() obj.Enabled = false; obj.Shadows = false end); return
-    end
-    if obj:IsA("PostEffect") then
-        saveOnce(boostSaved.effects, obj, obj.Enabled)
-        pcall(function() obj.Enabled = false end); return
-    end
-    if obj:IsA("Atmosphere") then
-        saveOnce(boostSaved.atmospheres, obj, {Density = obj.Density, Haze = obj.Haze, Glare = obj.Glare})
-        pcall(function() obj.Density = 0; obj.Haze = 0; obj.Glare = 0 end); return
-    end
-    if obj:IsA("Clouds") then
-        saveOnce(boostSaved.clouds, obj, {Cover = obj.Cover, Density = obj.Density})
-        pcall(function() obj.Cover = 0; obj.Density = 0 end); return
-    end
-    if obj:IsA("Decal") or obj:IsA("Texture") then
-        saveOnce(boostSaved.decals, obj, obj.Transparency)
-        pcall(function() obj.Transparency = 1 end); return
-    end
-    if obj:IsA("BasePart") then
-        saveOnce(boostSaved.shadows, obj, obj.CastShadow)
-        pcall(function() obj.CastShadow = false end)
-        if obj.Reflectance > 0 then
-            saveOnce(boostSaved.reflect, obj, obj.Reflectance)
-            pcall(function() obj.Reflectance = 0 end)
-        end
-        if obj:IsA("MeshPart") then
-            saveOnce(boostSaved.fidelity, obj, obj.RenderFidelity)
-            pcall(function() obj.RenderFidelity = Enum.RenderFidelity.Performance end)
-        end
-    end
-end
-
-local function optimizeLighting()
-    if not boostSaved.lighting then
-        boostSaved.lighting = {
-            GlobalShadows = Lighting.GlobalShadows, Brightness = Lighting.Brightness,
-            EnvD = Lighting.EnvironmentDiffuseScale, EnvS = Lighting.EnvironmentSpecularScale,
-            Exposure = Lighting.ExposureCompensation,
-        }
-    end
-    pcall(function()
-        Lighting.GlobalShadows = false
-        Lighting.Brightness = 0.5
-        Lighting.EnvironmentDiffuseScale = 0
-        Lighting.EnvironmentSpecularScale = 0
-        Lighting.ExposureCompensation = -0.5
-    end)
-    for _, o in ipairs(Lighting:GetDescendants()) do
-        if o:IsA("Atmosphere") then
-            saveOnce(boostSaved.atmospheres, o, {Density = o.Density, Haze = o.Haze, Glare = o.Glare})
-            pcall(function() o.Density = 0; o.Haze = 0; o.Glare = 0 end)
-        elseif o:IsA("PostEffect") then
-            saveOnce(boostSaved.effects, o, o.Enabled)
-            pcall(function() o.Enabled = false end)
-        elseif o:IsA("Clouds") then
-            saveOnce(boostSaved.clouds, o, {Cover = o.Cover, Density = o.Density})
-            pcall(function() o.Cover = 0; o.Density = 0 end)
-        elseif o:IsA("Sky") and not boostSaved.sky then
-            boostSaved.sky = o
-            for _, ch in ipairs(o:GetChildren()) do
-                boostSaved.skyChildren[ch] = true
-                pcall(function() ch.Parent = nil end)
-            end
-        end
-    end
-end
-
-local function restoreLighting()
-    local s = boostSaved.lighting
-    if s then
-        pcall(function()
-            Lighting.GlobalShadows = s.GlobalShadows
-            Lighting.Brightness = s.Brightness
-            Lighting.EnvironmentDiffuseScale = s.EnvD
-            Lighting.EnvironmentSpecularScale = s.EnvS
-            Lighting.ExposureCompensation = s.Exposure
-        end)
-    end
-    boostSaved.lighting = nil
-    if boostSaved.sky and boostSaved.sky.Parent then
-        for ch in pairs(boostSaved.skyChildren) do
-            if ch and ch.Parent == nil then
-                pcall(function() ch.Parent = boostSaved.sky end)
-            end
-        end
-    end
-    boostSaved.sky = nil; boostSaved.skyChildren = {}
-end
-
-local function optimizeTerrain()
-    local t = workspace:FindFirstChildOfClass("Terrain")
-    if not t or boostSaved.terrain then return end
-    boostSaved.terrain = {
-        WaterWaveSize = t.WaterWaveSize, WaterWaveSpeed = t.WaterWaveSpeed,
-        WaterReflectance = t.WaterReflectance, WaterTransparency = t.WaterTransparency,
-        Decoration = t.Decoration,
-    }
-    pcall(function()
-        t.WaterWaveSize = 0; t.WaterWaveSpeed = 0
-        t.WaterReflectance = 0; t.WaterTransparency = 1
-        t.Decoration = false
-    end)
-end
-
-local function restoreTerrain()
-    local t = workspace:FindFirstChildOfClass("Terrain")
-    local s = boostSaved.terrain
-    if t and s then
-        pcall(function()
-            t.WaterWaveSize = s.WaterWaveSize; t.WaterWaveSpeed = s.WaterWaveSpeed
-            t.WaterReflectance = s.WaterReflectance; t.WaterTransparency = s.WaterTransparency
-            t.Decoration = s.Decoration
-        end)
-    end
-    boostSaved.terrain = nil
-end
-
-local function setQuality(low)
-    local ok, s = pcall(function() return UserSettings():GetService("UserGameSettings") end)
-    if not ok or not s then return end
-    if low then
-        if boostSaved.quality == nil then
-            local got, cur = pcall(function() return s.SavedQualityLevel end)
-            if got then boostSaved.quality = cur end
-        end
-        pcall(function() s.SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1 end)
-    elseif boostSaved.quality ~= nil then
-        local old = boostSaved.quality
-        pcall(function() s.SavedQualityLevel = old end)
-        boostSaved.quality = nil
-    end
-    pcall(function()
-        local r = settings().Rendering
-        if low then
-            if boostSaved.cap == nil then boostSaved.cap = r.FramerateCap end
-            r.FramerateCap = 240
-        elseif boostSaved.cap then
-            r.FramerateCap = boostSaved.cap; boostSaved.cap = nil
-        end
-    end)
-end
-
-local function scanExisting()
-    boostBusy = true
-    local list = workspace:GetDescendants()
-    local batch = 350
-    for i = 1, #list, batch do
-        if not boostOn then break end
-        for j = i, math.min(i + batch - 1, #list) do optimizeVisual(list[j]) end
-        RunService.Heartbeat:Wait()
-    end
-    boostBusy = false
-end
-
-local function enableBoost()
-    if boostOn then return end
-    boostOn = true
-    setQuality(true); optimizeLighting(); optimizeTerrain()
-    disconnect(boostConnections.added)
-    boostConnections.added = workspace.DescendantAdded:Connect(function(o)
-        if boostOn then task.defer(function() if boostOn then optimizeVisual(o) end end) end
-    end)
-    task.spawn(scanExisting)
-end
-
-local function restoreBoost()
-    for o, v in pairs(boostSaved.effects) do if o and o.Parent then pcall(function() o.Enabled = v end) end end
-    for o, v in pairs(boostSaved.lights) do if o and o.Parent then pcall(function() o.Enabled = v.Enabled; o.Shadows = v.Shadows end) end end
-    for o, v in pairs(boostSaved.atmospheres) do if o and o.Parent then pcall(function() o.Density = v.Density; o.Haze = v.Haze; o.Glare = v.Glare end) end end
-    for o, v in pairs(boostSaved.clouds) do if o and o.Parent then pcall(function() o.Cover = v.Cover; o.Density = v.Density end) end end
-    for o, v in pairs(boostSaved.shadows) do if o and o.Parent then pcall(function() o.CastShadow = v end) end end
-    for o, v in pairs(boostSaved.reflect) do if o and o.Parent then pcall(function() o.Reflectance = v end) end end
-    for o, v in pairs(boostSaved.decals) do if o and o.Parent then pcall(function() o.Transparency = v end) end end
-    for o, v in pairs(boostSaved.fidelity) do if o and o.Parent then pcall(function() o.RenderFidelity = v end) end end
-    table.clear(boostSaved.effects); table.clear(boostSaved.lights)
-    table.clear(boostSaved.atmospheres); table.clear(boostSaved.clouds)
-    table.clear(boostSaved.shadows); table.clear(boostSaved.reflect)
-    table.clear(boostSaved.decals); table.clear(boostSaved.fidelity)
-    restoreLighting(); restoreTerrain()
-end
-
-local function disableBoost()
-    if not boostOn then return end
-    boostOn = false
-    disconnect(boostConnections.added); boostConnections.added = nil
-    boostBusy = false
-    restoreBoost(); setQuality(false)
-end
-
---============================================================--
--- ANTI-RAGDOLL
---============================================================--
-local antiOn    = false
-local antiSpeed = 60
-local antiConn, antiPost, antiAdded, antiJumpConn, antiStateConn
-local realHum, fakeHum
-local moveAtt, moveVel, faceAtt, faceAlign
-local lastSafeY, housekeeping = nil, 0
-local bodySnap = {}
-
-local setAntiToggleVisual = nil
-
-local rayP = RaycastParams.new()
-rayP.FilterType = Enum.RaycastFilterType.Exclude
-rayP.IgnoreWater = true
-
-local KILL_UP, ABOVE_GROUND, UPRIGHT_THRESHOLD = 40, 12, 0.85
-
-local BAD_STATES = {
-    [Enum.HumanoidStateType.Ragdoll]          = true,
-    [Enum.HumanoidStateType.FallingDown]      = true,
-    [Enum.HumanoidStateType.Physics]          = true,
-    [Enum.HumanoidStateType.PlatformStanding] = true,
-    [Enum.HumanoidStateType.GettingUp]        = true,
-}
-
-local function isMover(d)
-    return d:IsA("BodyVelocity") or d:IsA("BodyAngularVelocity")
-        or d:IsA("BodyForce") or d:IsA("BodyThrust")
-        or d:IsA("BodyPosition") or d:IsA("BodyGyro")
-        or d:IsA("LinearVelocity") or d:IsA("AngularVelocity")
-        or d:IsA("VectorForce") or d:IsA("Torque")
-        or d:IsA("AlignPosition") or d:IsA("AlignOrientation")
-        or d:IsA("RocketPropulsion")
-end
-
-local function buildFakeHum()
-    local h = Instance.new("Humanoid")
-    h.WalkSpeed = 600; h.JumpPower = 50; h.UseJumpPower = true
-    h.Health = 100; h.MaxHealth = 100
-    h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-    h.BreakJointsOnDeath = false; h.RequiresNeck = false
-    h.EvaluateStateMachine = false
-    pcall(function()
-        for name, enabled in pairs({
-            Ragdoll = false, FallingDown = false, Physics = false,
-            PlatformStanding = false, GettingUp = false,
-            Climbing = false, Swimming = false,
-        }) do
-            h:SetStateEnabled(Enum.HumanoidStateType[name], enabled)
-        end
-    end)
-    return h
-end
-
-local function snapPart(p) if not bodySnap[p] then bodySnap[p] = {cc = p.CanCollide, m = p.Massless} end end
-local function neutralizeBodyPart(p)
-    snapPart(p)
-    pcall(function()
-        if p.CanCollide then p.CanCollide = false end
-        if not p.Massless then p.Massless = true end
-        p.AssemblyLinearVelocity = Vector3.zero
-        p.AssemblyAngularVelocity = Vector3.zero
-    end)
-end
-local function buildBodyCache(char, root)
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") and p ~= root then neutralizeBodyPart(p) end
-    end
-end
-local function restoreAnti(char)
-    if not char then return end
-    for p, s in pairs(bodySnap) do
-        if p and p.Parent then pcall(function() p.CanCollide = s.cc; p.Massless = s.m end) end
-    end
-    bodySnap = {}
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            pcall(function()
-                p.AssemblyLinearVelocity = Vector3.zero
-                p.AssemblyAngularVelocity = Vector3.zero
-            end)
-        end
-    end
-end
-
-local function makeConstraints(root)
-    if moveAtt then pcall(function() moveAtt:Destroy() end) end
-    if moveVel then pcall(function() moveVel:Destroy() end) end
-    if faceAtt then pcall(function() faceAtt:Destroy() end) end
-    if faceAlign then pcall(function() faceAlign:Destroy() end) end
-    local mAtt = Instance.new("Attachment"); mAtt.Name = "HykoMoveAtt"; mAtt.Parent = root; moveAtt = mAtt
-    local lv = Instance.new("LinearVelocity")
-    lv.Name = "HykoMoveVel"; lv.Attachment0 = mAtt
-    lv.RelativeTo = Enum.ActuatorRelativeTo.World
-    lv.VectorVelocity = Vector3.zero
-    lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-    lv.MaxAxesForce = Vector3.new(1e6, 0, 1e6)
-    pcall(function() lv.ForceLimitsEnabled = true end)
-    lv.Parent = root; moveVel = lv
-    local fAtt = Instance.new("Attachment"); fAtt.Name = "HykoFaceAtt"; fAtt.Parent = root; faceAtt = fAtt
-    local ao = Instance.new("AlignOrientation")
-    ao.Name = "HykoFaceAlign"; ao.Attachment0 = fAtt
-    ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
-    ao.PrimaryAxisOnly = true; ao.RigidityEnabled = true
-    ao.MaxTorque = 1e7; ao.Responsiveness = 100
-    ao.Parent = root; faceAlign = ao
-end
-local function killConstraints()
-    if moveAtt then pcall(function() moveAtt:Destroy() end) end
-    if moveVel then pcall(function() moveVel:Destroy() end) end
-    if faceAtt then pcall(function() faceAtt:Destroy() end) end
-    if faceAlign then pcall(function() faceAlign:Destroy() end) end
-    moveAtt, moveVel, faceAtt, faceAlign = nil, nil, nil, nil
-end
-local function resetState()
-    if not fakeHum or not fakeHum.Parent then return end
-    pcall(function()
-        if fakeHum.PlatformStand then fakeHum.PlatformStand = false end
-        if fakeHum.Sit then fakeHum.Sit = false end
-        fakeHum.AutoRotate = false
-        if BAD_STATES[fakeHum:GetState()] then
-            fakeHum:ChangeState(Enum.HumanoidStateType.Running)
-        end
-    end)
-end
-local function forceUpright(root, cam)
-    if root.CFrame.UpVector.Y < UPRIGHT_THRESHOLD then
-        local look = cam.CFrame.LookVector
-        local flat = Vector3.new(look.X, 0, look.Z)
-        if flat.Magnitude > 0.01 then
-            root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
-        end
-        root.AssemblyAngularVelocity = Vector3.zero
-    end
-end
-
-local Controls
-pcall(function()
-    local PM = require(LP.PlayerScripts:WaitForChild("PlayerModule", 5))
-    Controls = PM:GetControls()
-end)
-local function readMove()
-    if Controls then
-        local ok, v = pcall(function() return Controls:GetMoveVector() end)
-        if ok and v and v.Magnitude > 0.05 then return Vector3.new(v.X, 0, v.Z) end
-    end
-    local d = Vector3.zero
-    if UserInputService:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0,0,-1) end
-    if UserInputService:IsKeyDown(Enum.KeyCode.S) then d += Vector3.new(0,0,1) end
-    if UserInputService:IsKeyDown(Enum.KeyCode.A) then d += Vector3.new(-1,0,0) end
-    if UserInputService:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1,0,0) end
-    return d
-end
-
-local function heartbeat(dt)
-    local ch = LP.Character; if not ch then return end
-    local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
-    local cam = workspace.CurrentCamera; if not cam then return end
-    if not fakeHum or fakeHum.Parent ~= ch then
-        fakeHum = buildFakeHum(); fakeHum.Parent = ch
-    end
-    if realHum and realHum.Parent == ch then pcall(function() realHum.Parent = nil end) end
-    if not moveVel or not moveVel.Parent or not faceAlign or not faceAlign.Parent then
-        makeConstraints(root)
-    end
-    forceUpright(root, cam)
-    local look = cam.CFrame.LookVector
-    local flat = Vector3.new(look.X, 0, look.Z)
-    if flat.Magnitude > 0.01 then
-        faceAlign.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
-    end
-    if farmOn then
-        -- farm controls moveVel
-    else
-        local mv = readMove()
-        local target = Vector3.zero
-        if mv.Magnitude > 0.05 then
-            local wd = cam.CFrame.LookVector * (-mv.Z) + cam.CFrame.RightVector * mv.X
-            wd = Vector3.new(wd.X, 0, wd.Z)
-            if wd.Magnitude > 0.01 then target = wd.Unit * antiSpeed end
-        end
-        moveVel.VectorVelocity = target
-    end
-    local vel = root.AssemblyLinearVelocity
-    if vel.Y > KILL_UP then
-        root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
-    end
-    housekeeping = housekeeping + dt
-    if housekeeping >= 0.1 then
-        housekeeping = 0
-        resetState()
-        for _, d in ipairs(ch:GetDescendants()) do
-            if isMover(d) and d ~= moveVel and d ~= faceAlign then
-                pcall(function() d:Destroy() end)
-            end
-        end
-    end
-end
-
-local function postSim()
-    if not antiOn then return end
-    local ch = LP.Character; if not ch then return end
-    local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
-    rayP.FilterDescendantsInstances = {ch}
-    local origin = root.Position + Vector3.new(0, 4, 0)
-    local res = workspace:Raycast(origin, Vector3.new(0, -120, 0), rayP)
-    if res then
-        local gy = res.Position.Y + 3.5
-        lastSafeY = gy
-        if root.Position.Y > gy + ABOVE_GROUND then
-            local vel = root.AssemblyLinearVelocity
-            root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
-            if root.Position.Y > gy + ABOVE_GROUND + 20 then
-                root.CFrame = CFrame.new(root.Position.X, gy, root.Position.Z) * (root.CFrame - root.Position)
-            end
-        end
-    elseif lastSafeY and root.Position.Y > lastSafeY + 30 then
-        local vel = root.AssemblyLinearVelocity
-        root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
-    end
-end
-
-local function doJump()
-    if not antiOn then return end
-    local ch = LP.Character; if not ch then return end
-    local root = ch:FindFirstChild("HumanoidRootPart"); if not root then return end
-    rayP.FilterDescendantsInstances = {ch}
-    if workspace:Raycast(root.Position, Vector3.new(0, -4, 0), rayP) then
-        local vel = root.AssemblyLinearVelocity
-        root.AssemblyLinearVelocity = Vector3.new(vel.X, 55, vel.Z)
-    end
-end
-
-local function startAnti()
-    if antiConn then return end
-    local c = LP.Character; if not c then return end
-    local hrp = c:FindFirstChild("HumanoidRootPart")
-    local hum = c:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
-    realHum = hum
-    pcall(function() realHum.Parent = nil end)
-    fakeHum = buildFakeHum(); fakeHum.Parent = c
-    antiStateConn = fakeHum.StateChanged:Connect(function(_, newState)
-        if not antiOn then return end
-        if BAD_STATES[newState] then
-            task.defer(function()
-                if antiOn and fakeHum and fakeHum.Parent then
-                    pcall(function() fakeHum:ChangeState(Enum.HumanoidStateType.Running) end)
-                end
-            end)
-        end
-    end)
-    pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
-    pcall(function() hrp:SetNetworkOwner(LP) end)
-    lastSafeY = hrp.Position.Y; housekeeping = 0
-    bodySnap = {}
-    buildBodyCache(c, hrp)
-    makeConstraints(hrp)
-    antiAdded = c.DescendantAdded:Connect(function(d)
-        if not antiOn then return end
-        if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
-            task.defer(function() if antiOn and d.Parent then neutralizeBodyPart(d) end end)
-        elseif isMover(d) and d ~= moveVel and d ~= faceAlign then
-            task.defer(function() if antiOn then pcall(function() d:Destroy() end) end end)
-        end
-    end)
-    antiConn = RunService.Heartbeat:Connect(heartbeat)
-    antiPost = RunService.PostSimulation:Connect(postSim)
-    antiJumpConn = UserInputService.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        if input.KeyCode == Enum.KeyCode.Space then doJump() end
-    end)
-end
-
-local function stopAnti()
-    if antiAdded then antiAdded:Disconnect() antiAdded = nil end
-    if antiConn then antiConn:Disconnect() antiConn = nil end
-    if antiPost then antiPost:Disconnect() antiPost = nil end
-    if antiJumpConn then antiJumpConn:Disconnect() antiJumpConn = nil end
-    if antiStateConn then antiStateConn:Disconnect() antiStateConn = nil end
-    killConstraints()
-    local c = LP.Character
-    if c then
-        local hrp = c:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end
-        restoreAnti(c)
-        if fakeHum and fakeHum.Parent then pcall(function() fakeHum:Destroy() end) end
-        fakeHum = nil
-        if realHum and realHum.Parent == nil then
-            pcall(function()
-                realHum.Parent = c
-                realHum.WalkSpeed = 16; realHum.JumpPower = 50
-                realHum:ChangeState(Enum.HumanoidStateType.Running)
-            end)
-        end
-        realHum = nil
-    end
-    lastSafeY = nil
-end
-
-local function handleAntiDeath()
-    if not antiOn then return end
-    antiOn = false
-    stopAnti()
-    if setAntiToggleVisual then pcall(setAntiToggleVisual, false) end
-    notify("Hyko • Anti-Ragdoll", "Character respawned - Anti-Ragdoll disabled", 3)
-end
-
---============================================================--
--- FPS WIDGET
---============================================================--
-local fpsWidgetOn = false
-local fpsGui = Instance.new("ScreenGui")
-fpsGui.Name = "HykoFPS"
-fpsGui.ResetOnSpawn = false
-fpsGui.IgnoreGuiInset = true
-fpsGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-fpsGui.DisplayOrder = 200
-fpsGui.Parent = LP:WaitForChild("PlayerGui")
-
-local fpsPill = Instance.new("Frame")
-fpsPill.Name = "FPSPill"
-fpsPill.AnchorPoint = Vector2.new(0, 0)
-fpsPill.Position = UDim2.new(0, 18, 0, 18)
-fpsPill.Size = UDim2.fromOffset(120, 50)
-fpsPill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-fpsPill.BackgroundTransparency = 0.08
-fpsPill.BorderSizePixel = 0
-fpsPill.Visible = false
-fpsPill.Parent = fpsGui
-makeCorner(fpsPill, 8)
-local fpsStroke = makeStroke(fpsPill, Color3.fromRGB(230, 233, 238), 0.25, 1)
-
-local fpsGrad = Instance.new("UIGradient")
-fpsGrad.Rotation = 90
-fpsGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(246, 248, 252)),
-})
-fpsGrad.Parent = fpsPill
-
-local fpsIconTile = Instance.new("Frame")
-fpsIconTile.Size = UDim2.fromOffset(30, 30)
-fpsIconTile.Position = UDim2.fromOffset(10, 10)
-fpsIconTile.BackgroundColor3 = Theme.accent
-fpsIconTile.BackgroundTransparency = 0.9
-fpsIconTile.BorderSizePixel = 0
-fpsIconTile.Parent = fpsPill
-makeCorner(fpsIconTile, 7)
-
-local fpsIcon = Instance.new("ImageLabel")
-fpsIcon.BackgroundTransparency = 1
-fpsIcon.Position = UDim2.fromOffset(6, 6)
-fpsIcon.Size = UDim2.fromOffset(18, 18)
-fpsIcon.ImageColor3 = Theme.accent
-fpsIcon.Parent = fpsIconTile
-attachImage(fpsIcon, "10734896881", nil)
-
-local fpsNum = Instance.new("TextLabel")
-fpsNum.BackgroundTransparency = 1
-fpsNum.Position = UDim2.fromOffset(48, 6)
-fpsNum.Size = UDim2.fromOffset(64, 22)
-fpsNum.Font = Enum.Font.GothamSemibold
-fpsNum.TextSize = 18
-fpsNum.TextColor3 = Theme.text
-fpsNum.TextXAlignment = Enum.TextXAlignment.Left
-fpsNum.Text = "--"
-fpsNum.Parent = fpsPill
-
-local fpsTag = Instance.new("TextLabel")
-fpsTag.BackgroundTransparency = 1
-fpsTag.Position = UDim2.fromOffset(48, 28)
-fpsTag.Size = UDim2.fromOffset(64, 12)
-fpsTag.Font = Enum.Font.Gotham
-fpsTag.TextSize = 9
-fpsTag.TextColor3 = Theme.sub
-fpsTag.TextXAlignment = Enum.TextXAlignment.Left
-fpsTag.Text = "FPS"
-fpsTag.Parent = fpsPill
+--================= HEADER =================
+local header = Instance.new("Frame", Window)
+header.Size = UDim2.new(1, 0, 0, 60)
+header.Position = UDim2.fromOffset(0, 0)
+header.BackgroundTransparency = 1
+header.ZIndex = 3
+
+-- Avatar
+local avatarWrap = Instance.new("Frame", header)
+avatarWrap.Size = UDim2.fromOffset(36, 36)
+avatarWrap.Position = UDim2.fromOffset(16, 12)
+avatarWrap.BackgroundColor3 = P.accentSoft
+avatarWrap.BorderSizePixel = 0
+avatarWrap.ZIndex = 4
+mkCorner(avatarWrap, 18)
+mkStroke(avatarWrap, P.border, 0.4, 1)
+
+local avatar = Instance.new("ImageLabel", avatarWrap)
+avatar.Size = UDim2.fromScale(1, 1)
+avatar.BackgroundTransparency = 1
+avatar.Image = "rbxassetid://14780540796"
+avatar.ZIndex = 5
+mkCorner(avatar, 18)
 
 task.spawn(function()
-    local frames, last = 0, os.clock()
-    RunService.RenderStepped:Connect(function()
-        if not fpsWidgetOn then frames = 0; last = os.clock(); return end
-        frames = frames + 1
-        local now = os.clock()
-        local el = now - last
-        if el >= 0.7 then
-            local v = math.floor(frames / el + 0.5)
-            fpsNum.Text = tostring(v)
-            if v >= 50 then fpsNum.TextColor3 = Theme.green
-            elseif v >= 30 then fpsNum.TextColor3 = Theme.amber
-            else fpsNum.TextColor3 = Theme.red end
-            frames, last = 0, now
-        end
-    end)
+	local ok, url = pcall(function()
+		return Players:GetUserThumbnailAsync(LP.UserId,
+			Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+	end)
+	if ok and url then avatar.Image = url end
+end)
+
+-- Status dot
+local statusDot = Instance.new("Frame", header)
+statusDot.Size = UDim2.fromOffset(10, 10)
+statusDot.Position = UDim2.fromOffset(44, 38)
+statusDot.BackgroundColor3 = P.green
+statusDot.BorderSizePixel = 0
+statusDot.ZIndex = 6
+mkCorner(statusDot, 5)
+mkStroke(statusDot, Color3.fromRGB(255,255,255), 0, 2)
+
+-- Title
+local title = Instance.new("TextLabel", header)
+title.Size = UDim2.new(1, -150, 0, 18)
+title.Position = UDim2.fromOffset(62, 12)
+title.BackgroundTransparency = 1
+title.Text = "Hello, " .. (LP.DisplayName or LP.Name)
+title.TextColor3 = P.text
+title.Font = Enum.Font.GothamBold
+title.TextSize = 13
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.TextTruncate = Enum.TextTruncate.AtEnd
+title.ZIndex = 4
+
+local subtitle = Instance.new("TextLabel", header)
+subtitle.Size = UDim2.new(1, -150, 0, 12)
+subtitle.Position = UDim2.fromOffset(62, 31)
+subtitle.BackgroundTransparency = 1
+subtitle.Text = "Hyko Suite"
+subtitle.TextColor3 = P.sub
+subtitle.Font = Enum.Font.Gotham
+subtitle.TextSize = 10
+subtitle.TextXAlignment = Enum.TextXAlignment.Left
+subtitle.ZIndex = 4
+
+-- Minimize
+local minBtn = Instance.new("TextButton", header)
+minBtn.Size = UDim2.fromOffset(28, 28)
+minBtn.Position = UDim2.new(1, -68, 0, 16)
+minBtn.BackgroundColor3 = P.cardSoft
+minBtn.Text = ""
+minBtn.AutoButtonColor = false
+minBtn.ZIndex = 4
+mkCorner(minBtn, 8)
+mkStroke(minBtn, P.borderSoft, 0.3, 1)
+
+local minBarH = Instance.new("Frame", minBtn)
+minBarH.Size = UDim2.fromOffset(11, 1.6)
+minBarH.Position = UDim2.new(0.5, -5.5, 0.5, -0.8)
+minBarH.BackgroundColor3 = P.sub
+minBarH.BorderSizePixel = 0
+minBarH.ZIndex = 5
+mkCorner(minBarH, 1)
+
+local minBarV = Instance.new("Frame", minBtn)
+minBarV.Size = UDim2.fromOffset(1.6, 11)
+minBarV.Position = UDim2.new(0.5, -0.8, 0.5, -5.5)
+minBarV.BackgroundColor3 = P.sub
+minBarV.BorderSizePixel = 0
+minBarV.Visible = false
+minBarV.ZIndex = 5
+mkCorner(minBarV, 1)
+
+-- Close
+local closeBtn = Instance.new("TextButton", header)
+closeBtn.Size = UDim2.fromOffset(28, 28)
+closeBtn.Position = UDim2.new(1, -36, 0, 16)
+closeBtn.BackgroundColor3 = P.redSoft
+closeBtn.Text = ""
+closeBtn.AutoButtonColor = false
+closeBtn.ZIndex = 4
+mkCorner(closeBtn, 8)
+
+local closeIcon = Instance.new("ImageLabel", closeBtn)
+closeIcon.Size = UDim2.fromOffset(13, 13)
+closeIcon.Position = UDim2.new(0.5, -6.5, 0.5, -6.5)
+closeIcon.BackgroundTransparency = 1
+closeIcon.Image = Icons.Close
+closeIcon.ImageColor3 = P.red
+closeIcon.ScaleType = Enum.ScaleType.Fit
+closeIcon.ZIndex = 5
+
+closeBtn.MouseButton1Click:Connect(function()
+	Window.Visible = false
+	shadow.Visible = false
+end)
+
+-- Drag
+local dragging, dragStart, startPos
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+	or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = Window.Position
+	end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if not dragging then return end
+	if input.UserInputType == Enum.UserInputType.MouseMovement
+	or input.UserInputType == Enum.UserInputType.Touch then
+		local d = input.Position - dragStart
+		Window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
+			startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		syncShadow()
+	end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+	or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end)
+
+-- Divider
+local divider = Instance.new("Frame", Window)
+divider.Size = UDim2.new(1, -32, 0, 1)
+divider.Position = UDim2.fromOffset(16, 60)
+divider.BackgroundColor3 = P.border
+divider.BackgroundTransparency = 0.4
+divider.BorderSizePixel = 0
+divider.ZIndex = 3
+
+--================= TABS =================
+local TabBar = Instance.new("Frame", Window)
+TabBar.Size = UDim2.new(1, -24, 0, 36)
+TabBar.Position = UDim2.fromOffset(12, 74)
+TabBar.BackgroundColor3 = P.cardSoft
+TabBar.BorderSizePixel = 0
+TabBar.ZIndex = 3
+mkCorner(TabBar, 10)
+mkStroke(TabBar, P.borderSoft, 0.5, 1)
+
+local tabIndicator = Instance.new("Frame", TabBar)
+tabIndicator.Size = UDim2.new(0.5, -4, 1, -4)
+tabIndicator.Position = UDim2.fromOffset(2, 2)
+tabIndicator.BackgroundColor3 = P.card
+tabIndicator.BorderSizePixel = 0
+tabIndicator.ZIndex = 4
+mkCorner(tabIndicator, 8)
+mkStroke(tabIndicator, P.borderSoft, 0.2, 1)
+
+local function makeTabButton(parent, text, iconId, xScale)
+	local btn = Instance.new("TextButton", parent)
+	btn.Size = UDim2.new(0.5, 0, 1, 0)
+	btn.Position = UDim2.new(xScale, 0, 0, 0)
+	btn.BackgroundTransparency = 1
+	btn.Text = ""
+	btn.AutoButtonColor = false
+	btn.ZIndex = 5
+
+	local icon = Instance.new("ImageLabel", btn)
+	icon.Size = UDim2.fromOffset(13, 13)
+	icon.Position = UDim2.new(0.5, -44, 0.5, -6.5)
+	icon.BackgroundTransparency = 1
+	icon.Image = iconId
+	icon.ImageColor3 = P.sub
+	icon.ScaleType = Enum.ScaleType.Fit
+	icon.ZIndex = 6
+
+	local lbl = Instance.new("TextLabel", btn)
+	lbl.Position = UDim2.fromOffset(30, 0)
+	lbl.Size = UDim2.new(1, -34, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = text
+	lbl.TextColor3 = P.sub
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 11
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.ZIndex = 6
+
+	return btn, icon, lbl
+end
+
+local MainTabBtn, mainTabIcon, mainTabLabel = makeTabButton(TabBar, "Dashboard", Icons.List, 0)
+local HopTabBtn,  hopTabIcon,  hopTabLabel  = makeTabButton(TabBar, "Server Hop", Icons.Server, 0.5)
+
+-- Active styling
+mainTabIcon.ImageColor3 = P.accent
+mainTabLabel.TextColor3 = P.text
+
+--================= CONTENT =================
+local content = Instance.new("Frame", Window)
+content.Size = UDim2.new(1, -24, 1, -132)
+content.Position = UDim2.fromOffset(12, 118)
+content.BackgroundTransparency = 1
+content.ZIndex = 3
+
+local MainContent = Instance.new("Frame", content)
+MainContent.Size = UDim2.fromScale(1, 1)
+MainContent.BackgroundTransparency = 1
+MainContent.ZIndex = 4
+MainContent.Visible = true
+
+local HopContent = Instance.new("Frame", content)
+HopContent.Size = UDim2.fromScale(1, 1)
+HopContent.BackgroundTransparency = 1
+HopContent.ZIndex = 4
+HopContent.Visible = false
+
+local function switchTab(tab)
+	if tab == "main" then
+		MainContent.Visible = true
+		HopContent.Visible = false
+		mainTabIcon.ImageColor3 = P.accent
+		mainTabLabel.TextColor3 = P.text
+		hopTabIcon.ImageColor3 = P.sub
+		hopTabLabel.TextColor3 = P.sub
+		TweenService:Create(tabIndicator, TweenInfo.new(0.22,
+			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Position = UDim2.fromOffset(2, 2)
+		}):Play()
+	else
+		MainContent.Visible = false
+		HopContent.Visible = true
+		mainTabIcon.ImageColor3 = P.sub
+		mainTabLabel.TextColor3 = P.sub
+		hopTabIcon.ImageColor3 = P.accent
+		hopTabLabel.TextColor3 = P.text
+		TweenService:Create(tabIndicator, TweenInfo.new(0.22,
+			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Position = UDim2.new(0.5, 2, 0, 2)
+		}):Play()
+	end
+end
+MainTabBtn.MouseButton1Click:Connect(function() switchTab("main") end)
+HopTabBtn.MouseButton1Click:Connect(function() switchTab("hop") end)
+
+--================= MINIMIZE =================
+local isMinimized = false
+minBtn.MouseButton1Click:Connect(function()
+	if isMinimized then
+		isMinimized = false
+		minBarV.Visible = false
+		local tw = TweenService:Create(Window, TweenInfo.new(0.24,
+			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(WINDOW_W, WINDOW_H)
+		})
+		tw:Play()
+		tw.Completed:Connect(function()
+			if not isMinimized then
+				TabBar.Visible = true
+				content.Visible = true
+				divider.Visible = true
+				syncShadow()
+			end
+		end)
+	else
+		isMinimized = true
+		minBarV.Visible = true
+		TabBar.Visible = false
+		content.Visible = false
+		divider.Visible = false
+		local tw = TweenService:Create(Window, TweenInfo.new(0.24,
+			Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(WINDOW_W, WINDOW_H_MINI)
+		})
+		tw:Play()
+		tw.Completed:Connect(function() syncShadow() end)
+	end
+end)
+
+syncShadow()
+
+--============================================================--
+-- [I] UI BUILDERS
+--============================================================--
+local function makeCard(parent, yPos, height)
+	local card = Instance.new("Frame", parent)
+	card.Size = UDim2.new(1, 0, 0, height)
+	card.Position = UDim2.fromOffset(0, yPos)
+	card.BackgroundColor3 = P.card
+	card.BorderSizePixel = 0
+	card.ZIndex = 4
+	mkCorner(card, 10)
+	mkStroke(card, P.borderSoft, 0.25, 1)
+	return card
+end
+
+local function makeIconBadge(parent, iconId, bgColor, iconColor, x, y, size)
+	size = size or 22
+	local badge = Instance.new("Frame", parent)
+	badge.Size = UDim2.fromOffset(size, size)
+	badge.Position = UDim2.fromOffset(x, y)
+	badge.BackgroundColor3 = bgColor
+	badge.BorderSizePixel = 0
+	badge.ZIndex = 5
+	mkCorner(badge, math.floor(size * 0.32))
+
+	local is = size - 8
+	local icon = Instance.new("ImageLabel", badge)
+	icon.Size = UDim2.fromOffset(is, is)
+	icon.Position = UDim2.new(0.5, -is/2, 0.5, -is/2)
+	icon.BackgroundTransparency = 1
+	icon.Image = iconId
+	icon.ImageColor3 = iconColor
+	icon.ScaleType = Enum.ScaleType.Fit
+	icon.ZIndex = 6
+
+	return badge, icon
+end
+
+local function makeToggle(card, name, defaultState, yOffset, iconId, badgeBg, iconColor, callback)
+	makeIconBadge(card, iconId, badgeBg, iconColor, 14, yOffset + 5, 22)
+
+	local lbl = Instance.new("TextLabel", card)
+	lbl.BackgroundTransparency = 1
+	lbl.Position = UDim2.fromOffset(44, yOffset)
+	lbl.Size = UDim2.new(1, -110, 0, 32)
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 11
+	lbl.TextColor3 = P.text
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextTruncate = Enum.TextTruncate.AtEnd
+	lbl.Text = name
+	lbl.ZIndex = 5
+
+	local switchBg = Instance.new("Frame", card)
+	switchBg.Size = UDim2.fromOffset(38, 21)
+	switchBg.Position = UDim2.new(1, -52, 0, yOffset + 6)
+	switchBg.BackgroundColor3 = defaultState and P.green or P.off
+	switchBg.BorderSizePixel = 0
+	switchBg.ZIndex = 5
+	mkCorner(switchBg, 11)
+
+	local thumb = Instance.new("Frame", switchBg)
+	thumb.Size = UDim2.fromOffset(17, 17)
+	thumb.Position = defaultState and UDim2.fromOffset(19, 2) or UDim2.fromOffset(2, 2)
+	thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	thumb.BorderSizePixel = 0
+	thumb.ZIndex = 6
+	mkCorner(thumb, 9)
+
+	local btn = Instance.new("TextButton", card)
+	btn.Size = UDim2.new(1, 0, 0, 32)
+	btn.Position = UDim2.fromOffset(0, yOffset)
+	btn.BackgroundTransparency = 1
+	btn.Text = ""
+	btn.ZIndex = 7
+
+	local state = defaultState
+	local function applyState(s, fire)
+		state = s
+		TweenService:Create(switchBg, TweenInfo.new(0.2, Enum.EasingStyle.Quart),
+			{BackgroundColor3 = state and P.green or P.off}):Play()
+		TweenService:Create(thumb, TweenInfo.new(0.2, Enum.EasingStyle.Quart),
+			{Position = state and UDim2.fromOffset(19, 2) or UDim2.fromOffset(2, 2)}):Play()
+		if fire and callback then callback(state) end
+	end
+	btn.MouseButton1Click:Connect(function() applyState(not state, true) end)
+	return {
+		setState = function(s) applyState(s, false) end,
+		getState = function() return state end,
+	}
+end
+
+local function makeSlider(card, name, minVal, maxVal, defaultVal, yOffset, iconId, badgeBg, iconColor, callback)
+	makeIconBadge(card, iconId, badgeBg, iconColor, 14, yOffset + 2, 22)
+
+	local lbl = Instance.new("TextLabel", card)
+	lbl.BackgroundTransparency = 1
+	lbl.Position = UDim2.fromOffset(44, yOffset - 2)
+	lbl.Size = UDim2.new(1, -100, 0, 16)
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 11
+	lbl.TextColor3 = P.text
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Text = name
+	lbl.ZIndex = 5
+
+	local valChip = Instance.new("Frame", card)
+	valChip.Size = UDim2.fromOffset(46, 20)
+	valChip.Position = UDim2.new(1, -60, 0, yOffset + 2)
+	valChip.BackgroundColor3 = badgeBg
+	valChip.BorderSizePixel = 0
+	valChip.ZIndex = 5
+	mkCorner(valChip, 6)
+
+	local valLbl = Instance.new("TextLabel", valChip)
+	valLbl.Size = UDim2.fromScale(1, 1)
+	valLbl.BackgroundTransparency = 1
+	valLbl.Font = Enum.Font.GothamBold
+	valLbl.Text = tostring(defaultVal)
+	valLbl.TextColor3 = iconColor
+	valLbl.TextSize = 11
+	valLbl.ZIndex = 6
+
+	local track = Instance.new("TextButton", card)
+	track.Size = UDim2.new(1, -28, 0, 4)
+	track.Position = UDim2.fromOffset(14, yOffset + 32)
+	track.BackgroundColor3 = P.borderSoft
+	track.Text = ""
+	track.AutoButtonColor = false
+	track.ZIndex = 5
+	mkCorner(track, 2)
+
+	local fill = Instance.new("Frame", track)
+	fill.Size = UDim2.new((defaultVal - minVal) / (maxVal - minVal), 0, 1, 0)
+	fill.BackgroundColor3 = iconColor
+	fill.BorderSizePixel = 0
+	fill.ZIndex = 6
+	mkCorner(fill, 2)
+
+	local thumb = Instance.new("Frame", track)
+	thumb.Size = UDim2.fromOffset(12, 12)
+	thumb.Position = UDim2.new((defaultVal - minVal) / (maxVal - minVal), -6, 0.5, -6)
+	thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	thumb.BorderSizePixel = 0
+	thumb.ZIndex = 7
+	mkCorner(thumb, 6)
+	mkStroke(thumb, P.border, 0.2, 1)
+
+	local draggingSlider = false
+	local function updateSlider(input)
+		local tw = track.AbsoluteSize.X
+		local tx = track.AbsolutePosition.X
+		local pct = math.clamp((input.Position.X - tx) / tw, 0, 1)
+		local val = math.floor(minVal + pct * (maxVal - minVal))
+		fill.Size = UDim2.new(pct, 0, 1, 0)
+		thumb.Position = UDim2.new(pct, -6, 0.5, -6)
+		valLbl.Text = tostring(val)
+		if callback then callback(val) end
+	end
+	track.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+			draggingSlider = true
+			updateSlider(input)
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if not draggingSlider then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch then
+			updateSlider(input)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+			draggingSlider = false
+		end
+	end)
+end
+
+--============================================================--
+-- [J] DASHBOARD CARDS
+--============================================================--
+local curSpeed = 60
+local speedOn  = false
+local savedHum, savedCollide, mainConn = nil, {}, nil
+local yLockOn  = true
+_G.curSpeed = curSpeed
+
+-- Speed card
+local speedCard = makeCard(MainContent, 0, 68)
+makeSlider(speedCard, "Movement Speed", 10, 800, 60, 12,
+	Icons.Auto, P.accentSoft, P.accent, function(val)
+		curSpeed = val
+		_G.curSpeed = val
+	end)
+
+-- Boost / Invisible card
+local boostCard = makeCard(MainContent, 76, 76)
+
+local function enableSpeed()
+	local c = LP.Character
+	if not c then return false end
+	local hrp = c:FindFirstChild("HumanoidRootPart")
+	local hum = c:FindFirstChildOfClass("Humanoid")
+	if not hrp then return false end
+	if hum then savedHum = hum; hum.Parent = nil end
+	pcall(function() workspace.CurrentCamera.CameraSubject = hrp end)
+	savedCollide = {}
+	for _, p in ipairs(c:GetDescendants()) do
+		if p:IsA("BasePart") and p ~= hrp then
+			savedCollide[p] = p.CanCollide
+			p.CanCollide = false
+		end
+	end
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = {c}
+	rayParams.IgnoreWater = true
+	mainConn = RunService.Heartbeat:Connect(function()
+		local ch = LP.Character
+		if not ch then return end
+		local root = ch:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		local cam = workspace.CurrentCamera
+		if not cam then return end
+		local look = cam.CFrame.LookVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		if flat.Magnitude > 0.01 then
+			root.CFrame = CFrame.new(root.Position, root.Position + flat.Unit)
+		end
+		root.AssemblyAngularVelocity = Vector3.zero
+		local v = readMove()
+		if v.Magnitude < 0.05 then
+			root.AssemblyLinearVelocity = Vector3.zero
+		else
+			local camCF = cam.CFrame
+			local worldDir = camCF.LookVector * (-v.Z) + camCF.RightVector * v.X
+			worldDir = Vector3.new(worldDir.X, 0, worldDir.Z)
+			if worldDir.Magnitude > 0.01 then
+				root.AssemblyLinearVelocity = worldDir.Unit * curSpeed
+			end
+		end
+		if yLockOn then
+			local origin = root.Position + Vector3.new(0, 4, 0)
+			local result = workspace:Raycast(origin, Vector3.new(0, -80, 0), rayParams)
+			if result then
+				local targetY = result.Position.Y + 3.5
+				local delta = targetY - root.Position.Y
+				if math.abs(delta) < 8 and delta > 0 then
+					root.CFrame = CFrame.new(root.Position.X, targetY, root.Position.Z)
+						* (root.CFrame - root.Position)
+					root.AssemblyLinearVelocity = Vector3.new(
+						root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+				end
+			end
+		end
+	end)
+	return true
+end
+
+local function disableSpeed()
+	if mainConn then mainConn:Disconnect() mainConn = nil end
+	local c = LP.Character
+	if not c then savedHum = nil; savedCollide = {}; return end
+	local hrp = c:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		hrp.AssemblyLinearVelocity  = Vector3.zero
+		hrp.AssemblyAngularVelocity = Vector3.zero
+	end
+	for part, can in pairs(savedCollide) do
+		if part and part.Parent then part.CanCollide = can end
+	end
+	savedCollide = {}
+	if savedHum and savedHum.Parent == nil then
+		pcall(function()
+			savedHum.Parent = c
+			savedHum.WalkSpeed = 16
+			savedHum.JumpPower = 50
+		end)
+	end
+	savedHum = nil
+	task.wait(0.1)
+	pcall(function() LP:LoadCharacter() end)
+end
+
+makeToggle(boostCard, "Speed Boost", false, 8,
+	Icons.Hop, P.accentSoft, P.accent, function(state)
+		if state then
+			if enableSpeed() then speedOn = true end
+		else
+			speedOn = false
+			disableSpeed()
+		end
+	end)
+
+makeToggle(boostCard, "Invisible", false, 42,
+	Icons.Settings, P.purpleSoft, P.purple, function(state)
+		invisOn = state
+		setInvis(invisOn)
+	end)
+
+-- Anti-NPC card
+local protCard = makeCard(MainContent, 160, 110)
+local anti61Handle, anti62Handle
+
+local function switchAntiMode(newMode)
+	if antiMode == newMode then newMode = "off" end
+	if antiMode == newMode then return end
+	unlockAll()
+	antiMode = newMode
+	anti61Handle.setState(newMode == "v61")
+	anti62Handle.setState(newMode == "v62")
+	if newMode == "v62" then applyPlayerNoTouch() end
+end
+
+anti61Handle = makeToggle(protCard, "Anti-NPC · Soft (v6.1)", false, 8,
+	Icons.List, P.greenSoft, P.green, function(state)
+		if state then switchAntiMode("v61") else switchAntiMode("off") end
+	end)
+
+anti62Handle = makeToggle(protCard, "Anti-NPC · Hard (v6.2)", false, 42,
+	Icons.Check, P.greenSoft, P.green, function(state)
+		if state then switchAntiMode("v62") else switchAntiMode("off") end
+	end)
+
+makeToggle(protCard, "Block Rouse", true, 76,
+	Icons.Close, P.redSoft, P.red, function(state)
+		blockRouse = state
+	end)
+
+-- ESP / Loot card
+local espCard = makeCard(MainContent, 278, 76)
+makeToggle(espCard, "Player ESP", false, 8,
+	Icons.Players, P.accentSoft, P.accent, function(state)
+		if state then enableESP() else disableESP() end
+	end)
+makeToggle(espCard, "Fast Loot", true, 42,
+	Icons.Search, P.amberSoft, P.amber, function(state)
+		fastLootOn = state
+	end)
+
+--============================================================--
+-- [K] SERVER HOP TAB
+--============================================================--
+local InfoCard = Instance.new("Frame", HopContent)
+InfoCard.Size = UDim2.new(1, 0, 0, 44)
+InfoCard.BackgroundColor3 = P.card
+InfoCard.BorderSizePixel = 0
+InfoCard.ZIndex = 5
+mkCorner(InfoCard, 10)
+mkStroke(InfoCard, P.borderSoft, 0.25, 1)
+
+makeIconBadge(InfoCard, Icons.Players, P.accentSoft, P.accent, 14, 11, 22)
+
+local InfoLabel = Instance.new("TextLabel", InfoCard)
+InfoLabel.Position = UDim2.fromOffset(44, 0)
+InfoLabel.Size = UDim2.new(1, -110, 1, 0)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Font = Enum.Font.GothamMedium
+InfoLabel.Text = "Players in this server"
+InfoLabel.TextColor3 = P.sub
+InfoLabel.TextSize = 11
+InfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+InfoLabel.ZIndex = 6
+
+local NowCount = Instance.new("TextLabel", InfoCard)
+NowCount.Size = UDim2.fromOffset(60, 44)
+NowCount.Position = UDim2.new(1, -70, 0, 0)
+NowCount.BackgroundTransparency = 1
+NowCount.Font = Enum.Font.GothamBold
+NowCount.Text = "0"
+NowCount.TextColor3 = P.green
+NowCount.TextSize = 15
+NowCount.TextXAlignment = Enum.TextXAlignment.Right
+NowCount.ZIndex = 6
+
+local StatusLabel = Instance.new("TextLabel", HopContent)
+StatusLabel.Position = UDim2.fromOffset(4, 50)
+StatusLabel.Size = UDim2.new(1, -8, 0, 16)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Text = "Ready"
+StatusLabel.TextColor3 = P.sub
+StatusLabel.TextSize = 10
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.ZIndex = 5
+
+local InputCard = Instance.new("Frame", HopContent)
+InputCard.Position = UDim2.fromOffset(0, 72)
+InputCard.Size = UDim2.new(1, 0, 0, 44)
+InputCard.BackgroundColor3 = P.card
+InputCard.BorderSizePixel = 0
+InputCard.ZIndex = 5
+mkCorner(InputCard, 10)
+mkStroke(InputCard, P.borderSoft, 0.25, 1)
+
+makeIconBadge(InputCard, Icons.Settings, P.amberSoft, P.amber, 14, 11, 22)
+
+local MaxLabel = Instance.new("TextLabel", InputCard)
+MaxLabel.Position = UDim2.fromOffset(44, 0)
+MaxLabel.Size = UDim2.new(1, -100, 1, 0)
+MaxLabel.BackgroundTransparency = 1
+MaxLabel.Font = Enum.Font.GothamMedium
+MaxLabel.Text = "Hop when players exceed"
+MaxLabel.TextColor3 = P.sub
+MaxLabel.TextSize = 11
+MaxLabel.TextXAlignment = Enum.TextXAlignment.Left
+MaxLabel.ZIndex = 6
+
+local MaxBox = Instance.new("TextBox", InputCard)
+MaxBox.Position = UDim2.new(1, -50, 0.5, -12)
+MaxBox.Size = UDim2.fromOffset(36, 24)
+MaxBox.BackgroundColor3 = P.amberSoft
+MaxBox.Font = Enum.Font.GothamBold
+MaxBox.Text = "1"
+MaxBox.TextColor3 = P.amber
+MaxBox.TextSize = 12
+MaxBox.ClearTextOnFocus = false
+MaxBox.TextXAlignment = Enum.TextXAlignment.Center
+MaxBox.ZIndex = 6
+mkCorner(MaxBox, 6)
+
+-- Hop Now button (with icon)
+local HopBtn = Instance.new("TextButton", HopContent)
+HopBtn.Position = UDim2.fromOffset(0, 124)
+HopBtn.Size = UDim2.new(0.48, 0, 0, 40)
+HopBtn.BackgroundColor3 = P.accent
+HopBtn.Text = ""
+HopBtn.AutoButtonColor = false
+HopBtn.ZIndex = 5
+mkCorner(HopBtn, 10)
+
+local hopBtnIcon = Instance.new("ImageLabel", HopBtn)
+hopBtnIcon.Size = UDim2.fromOffset(13, 13)
+hopBtnIcon.Position = UDim2.new(0.5, -42, 0.5, -6.5)
+hopBtnIcon.BackgroundTransparency = 1
+hopBtnIcon.Image = Icons.Hop
+hopBtnIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+hopBtnIcon.ScaleType = Enum.ScaleType.Fit
+hopBtnIcon.ZIndex = 6
+
+local hopBtnText = Instance.new("TextLabel", HopBtn)
+hopBtnText.Position = UDim2.fromOffset(30, 0)
+hopBtnText.Size = UDim2.new(1, -34, 1, 0)
+hopBtnText.BackgroundTransparency = 1
+hopBtnText.Font = Enum.Font.GothamBold
+hopBtnText.Text = "Hop Now"
+hopBtnText.TextColor3 = Color3.fromRGB(255, 255, 255)
+hopBtnText.TextSize = 11
+hopBtnText.TextXAlignment = Enum.TextXAlignment.Left
+hopBtnText.ZIndex = 6
+
+-- Auto button
+local AutoBtn = Instance.new("TextButton", HopContent)
+AutoBtn.Position = UDim2.new(0.52, 0, 0, 124)
+AutoBtn.Size = UDim2.new(0.48, 0, 0, 40)
+AutoBtn.BackgroundColor3 = P.card
+AutoBtn.Text = ""
+AutoBtn.AutoButtonColor = false
+AutoBtn.ZIndex = 5
+mkCorner(AutoBtn, 10)
+mkStroke(AutoBtn, P.borderSoft, 0.25, 1)
+
+local autoBtnIcon = Instance.new("ImageLabel", AutoBtn)
+autoBtnIcon.Size = UDim2.fromOffset(13, 13)
+autoBtnIcon.Position = UDim2.new(0.5, -32, 0.5, -6.5)
+autoBtnIcon.BackgroundTransparency = 1
+autoBtnIcon.Image = Icons.Auto
+autoBtnIcon.ImageColor3 = P.sub
+autoBtnIcon.ScaleType = Enum.ScaleType.Fit
+autoBtnIcon.ZIndex = 6
+
+local autoBtnText = Instance.new("TextLabel", AutoBtn)
+autoBtnText.Position = UDim2.fromOffset(26, 0)
+autoBtnText.Size = UDim2.new(1, -30, 1, 0)
+autoBtnText.BackgroundTransparency = 1
+autoBtnText.Font = Enum.Font.GothamBold
+autoBtnText.Text = "Auto: OFF"
+autoBtnText.TextColor3 = P.sub
+autoBtnText.TextSize = 11
+autoBtnText.TextXAlignment = Enum.TextXAlignment.Left
+autoBtnText.ZIndex = 6
+
+-- Search bar
+local SearchBar = Instance.new("Frame", HopContent)
+SearchBar.Position = UDim2.fromOffset(0, 172)
+SearchBar.Size = UDim2.new(1, 0, 0, 36)
+SearchBar.BackgroundColor3 = P.card
+SearchBar.BorderSizePixel = 0
+SearchBar.ZIndex = 5
+mkCorner(SearchBar, 10)
+mkStroke(SearchBar, P.borderSoft, 0.25, 1)
+
+local searchIcon = Instance.new("ImageLabel", SearchBar)
+searchIcon.Size = UDim2.fromOffset(13, 13)
+searchIcon.Position = UDim2.fromOffset(12, 11)
+searchIcon.BackgroundTransparency = 1
+searchIcon.Image = Icons.Search
+searchIcon.ImageColor3 = P.sub
+searchIcon.ScaleType = Enum.ScaleType.Fit
+searchIcon.ZIndex = 6
+
+local SearchBox = Instance.new("TextBox", SearchBar)
+SearchBox.Size = UDim2.new(1, -60, 1, 0)
+SearchBox.Position = UDim2.fromOffset(34, 0)
+SearchBox.BackgroundTransparency = 1
+SearchBox.Font = Enum.Font.Gotham
+SearchBox.Text = ""
+SearchBox.PlaceholderText = "Search by Job ID..."
+SearchBox.PlaceholderColor3 = P.dim
+SearchBox.TextColor3 = P.text
+SearchBox.TextSize = 11
+SearchBox.ClearTextOnFocus = false
+SearchBox.TextXAlignment = Enum.TextXAlignment.Left
+SearchBox.ZIndex = 6
+
+local RefreshBtn = Instance.new("TextButton", SearchBar)
+RefreshBtn.Position = UDim2.new(1, -32, 0.5, -11)
+RefreshBtn.Size = UDim2.fromOffset(22, 22)
+RefreshBtn.BackgroundColor3 = P.accentSoft
+RefreshBtn.Text = ""
+RefreshBtn.AutoButtonColor = false
+RefreshBtn.ZIndex = 6
+mkCorner(RefreshBtn, 6)
+
+local refreshIcon = Instance.new("ImageLabel", RefreshBtn)
+refreshIcon.Size = UDim2.fromOffset(12, 12)
+refreshIcon.Position = UDim2.new(0.5, -6, 0.5, -6)
+refreshIcon.BackgroundTransparency = 1
+refreshIcon.Image = Icons.Refresh
+refreshIcon.ImageColor3 = P.accent
+refreshIcon.ScaleType = Enum.ScaleType.Fit
+refreshIcon.ZIndex = 7
+
+-- Server list
+local ServerListFrame = Instance.new("Frame", HopContent)
+ServerListFrame.Position = UDim2.fromOffset(0, 216)
+ServerListFrame.Size = UDim2.new(1, 0, 1, -216)
+ServerListFrame.BackgroundTransparency = 1
+ServerListFrame.ClipsDescendants = true
+ServerListFrame.ZIndex = 5
+
+local ServerScrolling = Instance.new("ScrollingFrame", ServerListFrame)
+ServerScrolling.Size = UDim2.new(1, 0, 1, 0)
+ServerScrolling.BackgroundTransparency = 1
+ServerScrolling.BorderSizePixel = 0
+ServerScrolling.ScrollBarThickness = 3
+ServerScrolling.ScrollBarImageColor3 = P.dim
+ServerScrolling.ScrollBarImageTransparency = 0.4
+ServerScrolling.CanvasSize = UDim2.new(0, 0, 0, 0)
+ServerScrolling.ZIndex = 5
+
+local ServerListLayout = Instance.new("UIListLayout", ServerScrolling)
+ServerListLayout.Padding = UDim.new(0, 6)
+ServerListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local serverCards = {}
+
+local function clearServerCards()
+	for _, card in ipairs(serverCards) do card:Destroy() end
+	serverCards = {}
+end
+
+local function teleportToServer(serverId)
+	if not serverId then return false end
+	local ok, err = pcall(function()
+		TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
+	end)
+	return ok, err
+end
+
+local function formatJobId(id)
+	if not id then return "N/A" end
+	local str = tostring(id)
+	if #str > 10 then return str:sub(1, 8) .. "..." end
+	return str
+end
+
+local function createServerCard(serverData, index)
+	local card = Instance.new("Frame")
+	card.Size = UDim2.new(1, 0, 0, 52)
+	card.BackgroundColor3 = P.card
+	card.BorderSizePixel = 0
+	card.LayoutOrder = index
+	card.ZIndex = 5
+	mkCorner(card, 10)
+	mkStroke(card, P.borderSoft, 0.25, 1)
+
+	makeIconBadge(card, Icons.Server, P.accentSoft, P.accent, 12, 15, 22)
+
+	local jobIdLabel = Instance.new("TextLabel", card)
+	jobIdLabel.Size = UDim2.fromOffset(150, 16)
+	jobIdLabel.Position = UDim2.fromOffset(44, 7)
+	jobIdLabel.BackgroundTransparency = 1
+	jobIdLabel.Font = Enum.Font.GothamBold
+	jobIdLabel.Text = formatJobId(serverData.id)
+	jobIdLabel.TextColor3 = P.text
+	jobIdLabel.TextSize = 11
+	jobIdLabel.TextXAlignment = Enum.TextXAlignment.Left
+	jobIdLabel.ZIndex = 6
+
+	local playerCount = Instance.new("TextLabel", card)
+	playerCount.Size = UDim2.fromOffset(150, 12)
+	playerCount.Position = UDim2.fromOffset(44, 28)
+	playerCount.BackgroundTransparency = 1
+	playerCount.Font = Enum.Font.Gotham
+	playerCount.Text = (serverData.playing or 0) .. " / " ..
+		(serverData.maxPlayers or "?") .. " players"
+	playerCount.TextColor3 = P.sub
+	playerCount.TextSize = 10
+	playerCount.TextXAlignment = Enum.TextXAlignment.Left
+	playerCount.ZIndex = 6
+
+	local tpBtn = Instance.new("TextButton", card)
+	tpBtn.Size = UDim2.fromOffset(70, 30)
+	tpBtn.Position = UDim2.new(1, -82, 0.5, -15)
+	tpBtn.BackgroundColor3 = P.accent
+	tpBtn.Text = ""
+	tpBtn.AutoButtonColor = false
+	tpBtn.ZIndex = 6
+	mkCorner(tpBtn, 8)
+
+	local tpIcon = Instance.new("ImageLabel", tpBtn)
+	tpIcon.Size = UDim2.fromOffset(12, 12)
+	tpIcon.Position = UDim2.fromOffset(10, 9)
+	tpIcon.BackgroundTransparency = 1
+	tpIcon.Image = Icons.Teleport
+	tpIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+	tpIcon.ScaleType = Enum.ScaleType.Fit
+	tpIcon.ZIndex = 7
+
+	local tpText = Instance.new("TextLabel", tpBtn)
+	tpText.Position = UDim2.fromOffset(26, 0)
+	tpText.Size = UDim2.new(1, -28, 1, 0)
+	tpText.BackgroundTransparency = 1
+	tpText.Font = Enum.Font.GothamBold
+	tpText.Text = "Join"
+	tpText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tpText.TextSize = 11
+	tpText.TextXAlignment = Enum.TextXAlignment.Left
+	tpText.ZIndex = 7
+
+	tpBtn.MouseButton1Click:Connect(function()
+		tpText.Text = "..."
+		local ok = teleportToServer(serverData.id)
+		if not ok then
+			tpText.Text = "Fail"
+			task.wait(1)
+			tpText.Text = "Join"
+		end
+	end)
+
+	card.Parent = ServerScrolling
+	table.insert(serverCards, card)
+end
+
+local function fetchServers()
+	local url = "https://games.roblox.com/v1/games/" .. PlaceId
+		.. "/servers/Public?sortOrder=Asc&limit=100"
+	local ok, raw = pcall(function() return game:HttpGet(url) end)
+	if not ok or not raw or raw == "" then return nil end
+	local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
+	if not ok2 or not data or not data.data then return nil end
+	return data.data
+end
+
+local function updateServerList()
+	clearServerCards()
+	task.spawn(function()
+		local servers = fetchServers()
+		if not servers or #servers == 0 then
+			StatusLabel.Text = "No servers found"
+			StatusLabel.TextColor3 = P.red
+			return
+		end
+		local currentId = tostring(game.JobId)
+		local filtered = {}
+		for _, s in ipairs(servers) do
+			if tostring(s.id) ~= currentId then
+				table.insert(filtered, s)
+			end
+		end
+		table.sort(filtered, function(a, b)
+			return (a.playing or 0) < (b.playing or 0)
+		end)
+		local query = SearchBox.Text
+		if query and query ~= "" then
+			query = query:lower()
+			local q = {}
+			for _, s in ipairs(filtered) do
+				if tostring(s.id):lower():find(query, 1, true) then
+					table.insert(q, s)
+				end
+			end
+			filtered = q
+		end
+		for i, server in ipairs(filtered) do
+			createServerCard(server, i)
+			if i % 8 == 0 then task.wait() end
+		end
+		task.wait(0.05)
+		ServerScrolling.CanvasSize = UDim2.new(0, 0, 0,
+			ServerListLayout.AbsoluteContentSize.Y + 10)
+		StatusLabel.Text = #filtered .. " servers available"
+		StatusLabel.TextColor3 = P.sub
+	end)
+end
+
+local function getRandomServer()
+	local servers = fetchServers()
+	if not servers or #servers == 0 then return nil end
+	local currentId = tostring(game.JobId)
+	local candidates = {}
+	for _, s in ipairs(servers) do
+		if s.id and tostring(s.id) ~= currentId then
+			table.insert(candidates, tostring(s.id))
+		end
+	end
+	if #candidates == 0 then return nil end
+	return candidates[math.random(1, #candidates)]
+end
+
+local function hopOnce()
+	local threshold = math.max(1, math.floor(tonumber(MaxBox.Text) or 1))
+	local currentCount = #Players:GetPlayers()
+	if currentCount <= threshold then
+		StatusLabel.Text = "Server meets condition (" .. currentCount .. ")"
+		StatusLabel.TextColor3 = P.green
+		return false
+	end
+	StatusLabel.Text = "Searching..."
+	StatusLabel.TextColor3 = P.amber
+	task.wait(0.4)
+	local serverId = getRandomServer()
+	if not serverId then
+		StatusLabel.Text = "Failed to fetch servers"
+		StatusLabel.TextColor3 = P.red
+		return false
+	end
+	StatusLabel.Text = "Teleporting..."
+	StatusLabel.TextColor3 = P.accent
+	task.wait(0.4)
+	local ok, err = pcall(function()
+		TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
+	end)
+	if not ok then
+		StatusLabel.Text = "Error: " .. tostring(err):sub(1, 42)
+		StatusLabel.TextColor3 = P.red
+		return false
+	end
+	return true
+end
+
+HopBtn.MouseButton1Click:Connect(function()
+	HopBtn.Active = false
+	hopOnce()
+	task.wait(2)
+	HopBtn.Active = true
+end)
+
+local autoEnabled = false
+local autoThread = nil
+AutoBtn.MouseButton1Click:Connect(function()
+	autoEnabled = not autoEnabled
+	if autoEnabled then
+		autoBtnText.Text = "Auto: ON"
+		autoBtnText.TextColor3 = Color3.fromRGB(255, 255, 255)
+		autoBtnIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+		AutoBtn.BackgroundColor3 = P.green
+		autoThread = task.spawn(function()
+			while autoEnabled do
+				local threshold = math.max(1, math.floor(tonumber(MaxBox.Text) or 1))
+				local count = #Players:GetPlayers()
+				if count <= threshold then
+					StatusLabel.Text = count .. " players · monitoring"
+					StatusLabel.TextColor3 = P.green
+					task.wait(3)
+				else
+					hopOnce()
+					task.wait(5)
+				end
+			end
+		end)
+	else
+		autoBtnText.Text = "Auto: OFF"
+		autoBtnText.TextColor3 = P.sub
+		autoBtnIcon.ImageColor3 = P.sub
+		AutoBtn.BackgroundColor3 = P.card
+		if autoThread then task.cancel(autoThread); autoThread = nil end
+		StatusLabel.Text = "Auto Hop disabled"
+		StatusLabel.TextColor3 = P.sub
+	end
+end)
+
+SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+	updateServerList()
+end)
+RefreshBtn.MouseButton1Click:Connect(function() updateServerList() end)
+
+task.spawn(function()
+	while ScreenGui.Parent do
+		NowCount.Text = tostring(#Players:GetPlayers())
+		task.wait(1)
+	end
 end)
 
 --============================================================--
--- UI WIRING - Visuals
+-- [L] LOOPS
 --============================================================--
-Window:AddSection({ Name = "Player Visuals", Tab = Visuals })
-
-Window:AddParagraph({
-    Title       = "Player ESP",
-    Description = "Elegant outline + soft chams + refined nametag with health bar.",
-    Tab         = Visuals,
-})
-
-Window:AddToggle({
-    Title = "Enable Player ESP",
-    Description = "Outline + Chams + Nametag for every player",
-    Tab = Visuals, Default = false,
-    Callback = function(state)
-        if state then enableESP(); notify("Hyko • ESP", "Player ESP enabled", 3)
-        else disableESP(); notify("Hyko • ESP", "Player ESP disabled", 3) end
-    end,
-})
-
-Window:AddSlider({
-    Title = "ESP Distance",
-    Description = "Max distance for ESP rendering (studs)",
-    Tab = Visuals,
-    MinValue = 100, MaxValue = 5000, Default = 1200, AllowDecimals = false,
-    Callback = function(v)
-        ESP_MAX_DISTANCE = v
-        for _, e in pairs(espEntries) do
-            if e.billboard and e.billboard.Parent then
-                pcall(function() e.billboard.MaxDistance = v end)
-            end
-        end
-    end,
-})
-
-Window:AddParagraph({
-    Title       = "FPS Widget",
-    Description = "Floating FPS counter with Lucide monitor icon.",
-    Tab         = Visuals,
-})
-
-Window:AddToggle({
-    Title = "Show FPS Counter",
-    Description = "Display a floating FPS pill at the top-left of the screen",
-    Tab = Visuals, Default = false,
-    Callback = function(state)
-        fpsWidgetOn = state
-        fpsPill.Visible = state
-        notify("Hyko • FPS Widget", state and "FPS counter shown" or "FPS counter hidden", 3)
-    end,
-})
-
-do
-    local dragging, dragStart, startPos
-    fpsPill.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true; dragStart = input.Position; startPos = fpsPill.Position
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if not dragging then return end
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
-            local d = input.Position - dragStart
-            fpsPill.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + d.X,
-                startPos.Y.Scale, startPos.Y.Offset + d.Y)
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
-    end)
-end
-
---============================================================--
--- UI WIRING - Utility
---============================================================--
-Window:AddSection({ Name = "Protection", Tab = Utility })
-Window:AddParagraph({
-    Title       = "Anti-Ragdoll",
-    Description = "Hard-lock body: fake humanoid, neutralized parts, upright enforcement.\nAuto-disables and restores on death / reset.",
-    Tab         = Utility,
-})
-
-local antiToggleRef
-antiToggleRef = Window:AddToggle({
-    Title = "Enable Anti-Ragdoll",
-    Description = "Blocks Ragdoll / FallingDown / Physics / PlatformStanding / GettingUp",
-    Tab = Utility, Default = false,
-    Callback = function(state)
-        if state then
-            startAnti()
-            notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll enabled (speed " .. tostring(antiSpeed) .. ")", 3)
-        else
-            stopAnti()
-            notify("Hyko • Anti-Ragdoll", "Anti-Ragdoll disabled", 3)
-        end
-    end,
-})
-
-setAntiToggleVisual = function(v)
-    pcall(function()
-        if antiToggleRef and antiToggleRef.Set then
-            antiToggleRef:Set(v)
-        end
-    end)
-end
-
-Window:AddSlider({
-    Title = "Speed", Description = "Anti-Ragdoll movement speed (default 60)",
-    Tab = Utility,
-    MinValue = 20, MaxValue = 800, Default = 60, AllowDecimals = false,
-    Callback = function(v) antiSpeed = v end,
-})
-
-Window:AddParagraph({
-    Title       = "God Mode",
-    Description = "PreSimulation + HealthChanged + Died guard. Immortal at all times.",
-    Tab         = Utility,
-})
-
-Window:AddToggle({
-    Title = "Enable God Mode",
-    Description = "Keep your character at maximum health at all times",
-    Tab = Utility, Default = false,
-    Callback = function(state)
-        if state then
-            startGodMode()
-            notify("Hyko • God Mode", "God Mode enabled", 3)
-        else
-            stopGodMode()
-            notify("Hyko • God Mode", "God Mode disabled", 3)
-        end
-    end,
-})
-
-Window:AddSection({ Name = "Interaction", Tab = Utility })
-Window:AddParagraph({
-    Title       = "Fast Loot",
-    Description = "Turns every ProximityPrompt hold into an instant (0s) interaction.",
-    Tab         = Utility,
-})
-Window:AddToggle({
-    Title = "Enable Fast Loot", Description = "Instant ProximityPrompt interaction",
-    Tab = Utility, Default = false,
-    Callback = function(state)
-        if state then enableLoot(); notify("Hyko • Fast Loot", "Fast Loot enabled", 3)
-        else disableLoot(); notify("Hyko • Fast Loot", "Fast Loot disabled", 3) end
-    end,
-})
-Window:AddParagraph({
-    Title       = "Auto Loot",
-    Description = "Continuously fires the nearest enabled prompt in range.",
-    Tab         = Utility,
-})
-Window:AddToggle({
-    Title = "Enable Auto Loot", Description = "Auto-collect the nearest ProximityPrompt",
-    Tab = Utility, Default = false,
-    Callback = function(state)
-        if state then
-            enableAutoLoot()
-            notify("Hyko • Auto Loot", "Auto Loot enabled (radius " .. tostring(autoLootRadius) .. ")", 3)
-        else disableAutoLoot(); notify("Hyko • Auto Loot", "Auto Loot disabled", 3) end
-    end,
-})
-Window:AddSlider({
-    Title = "Auto Loot Radius", Description = "Radius in studs to search for prompts",
-    Tab = Utility,
-    MinValue = 5, MaxValue = 150, Default = 32, AllowDecimals = false,
-    Callback = function(v) autoLootRadius = v end,
-})
-
---============================================================--
--- UI WIRING - Auto Farm
---============================================================--
-Window:AddSection({ Name = "Auto Farm Event", Tab = Farm })
-
-Window:AddParagraph({
-    Title       = "Auto Farm Event",
-    Description = "Locks onto 1 target until it dies or leaves range. Detaches Humanoid, flies with LinearVelocity, equips weapon, then attacks.\nGuards in GuardAreas are ignored.",
-    Tab         = Farm,
-})
-
-Window:AddToggle({
-    Title = "Enable Auto Farm",
-    Description = "Automatically engage the nearest hostile unit",
-    Tab = Farm, Default = false,
-    Callback = function(state)
-        if state then
-            enableFarm()
-            notify("Hyko • Auto Farm", "Auto Farm enabled (speed " .. tostring(farmSpeed) .. ")", 3)
-        else
-            disableFarm()
-            notify("Hyko • Auto Farm", "Auto Farm disabled - Humanoid restored", 3)
-        end
-    end,
-})
-
-Window:AddSlider({
-    Title = "Movement Speed",
-    Description = "LinearVelocity flight speed toward target (studs/s, default 500)",
-    Tab = Farm,
-    MinValue = 50, MaxValue = 2000, Default = 500, AllowDecimals = false,
-    Callback = function(v) farmSpeed = v end,
-})
-
-Window:AddSlider({
-    Title = "Search Radius",
-    Description = "Maximum distance to search for targets (studs)",
-    Tab = Farm,
-    MinValue = 100, MaxValue = 10000, Default = 3000, AllowDecimals = false,
-    Callback = function(v) farmRadius = v end,
-})
-
-Window:AddToggle({
-    Title = "Auto Equip Weapon",
-    Description = "Automatically equip the best available weapon from the Backpack",
-    Tab = Farm, Default = true,
-    Callback = function(state) farmAutoEquip = state end,
-})
-
-Window:AddToggle({
-    Title = "Auto Attack",
-    Description = "Activate the equipped tool while in melee range of the target",
-    Tab = Farm, Default = true,
-    Callback = function(state) farmAttack = state end,
-})
-
---============================================================--
--- SERVER HOP TAB
---============================================================--
-local hopState = {
-    autoOn        = false,
-    autoThread    = nil,
-    threshold     = 1,
-    sortByPlayers = true,
-    serverList    = {},
-    refreshTick   = 0,
-}
-
-local function hopFetchServers()
-    local url = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-    local ok, raw = pcall(function() return game:HttpGet(url) end)
-    if not ok or not raw or raw == "" then return nil end
-    local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
-    if not ok2 or not data or not data.data then return nil end
-    return data.data
-end
-
-local function hopJoinServer(serverId)
-    if not serverId then return false end
-    local ok = pcall(function()
-        TeleportService:TeleportToPlaceInstance(PlaceId, serverId, LP)
-    end)
-    return ok
-end
-
-local function hopRandomServer()
-    local servers = hopFetchServers()
-    if not servers or #servers == 0 then return nil end
-    local currentId = tostring(game.JobId)
-    local candidates = {}
-    for _, s in ipairs(servers) do
-        if s.id and tostring(s.id) ~= currentId then
-            table.insert(candidates, tostring(s.id))
-        end
-    end
-    if #candidates == 0 then return nil end
-    return candidates[math.random(1, #candidates)]
-end
-
-Window:AddSection({ Name = "Quick Actions", Tab = ServerHop })
-
-Window:AddParagraph({
-    Title       = "Find & Join",
-    Description = "Hop to a random server or enable auto-hop when the current one is too full.",
-    Tab         = ServerHop,
-})
-
-Window:AddButton({
-    Title       = "Find New Server (Random)",
-    Description = "Teleport to a random public server of this place",
-    Tab         = ServerHop,
-    Callback    = function()
-        notify("Hyko • Server Hop", "Searching for a random server...", 2)
-        task.spawn(function()
-            local id = hopRandomServer()
-            if not id then
-                notify("Hyko • Server Hop", "No server available", 3)
-                return
-            end
-            notify("Hyko • Server Hop", "Teleporting...", 2)
-            hopJoinServer(id)
-        end)
-    end,
-})
-
-Window:AddButton({
-    Title       = "Rejoin Current Server",
-    Description = "Rejoin the server you are currently in",
-    Tab         = ServerHop,
-    Callback    = function()
-        local currentId = game.JobId
-        if not currentId or currentId == "" then
-            notify("Hyko • Server Hop", "No active JobId", 3)
-            return
-        end
-        notify("Hyko • Server Hop", "Rejoining...", 2)
-        hopJoinServer(currentId)
-    end,
-})
-
-Window:AddSection({ Name = "Auto Hop", Tab = ServerHop })
-
-Window:AddParagraph({
-    Title       = "Auto Hop",
-    Description = "Automatically hop when player count exceeds the threshold.",
-    Tab         = ServerHop,
-})
-
-Window:AddSlider({
-    Title         = "Player Threshold",
-    Description   = "Hop when server has more than this many players",
-    Tab           = ServerHop,
-    MinValue      = 1,
-    MaxValue      = 50,
-    Default       = 1,
-    AllowDecimals = false,
-    Callback      = function(v)
-        hopState.threshold = v
-    end,
-})
-
-Window:AddToggle({
-    Title       = "Enable Auto Hop",
-    Description = "Continuously monitor player count and hop when needed",
-    Tab         = ServerHop,
-    Default     = false,
-    Callback    = function(state)
-        hopState.autoOn = state
-        if state then
-            notify("Hyko • Auto Hop", "Auto Hop enabled (threshold " .. tostring(hopState.threshold) .. ")", 3)
-            hopState.autoThread = task.spawn(function()
-                while hopState.autoOn do
-                    local count = #Players:GetPlayers()
-                    if count <= hopState.threshold then
-                        task.wait(3)
-                    else
-                        notify("Hyko • Auto Hop", "Hopping (server has " .. count .. " players)...", 3)
-                        local id = hopRandomServer()
-                        if id then
-                            hopJoinServer(id)
-                        end
-                        task.wait(5)
-                    end
-                end
-            end)
-        else
-            if hopState.autoThread then
-                task.cancel(hopState.autoThread)
-                hopState.autoThread = nil
-            end
-            notify("Hyko • Auto Hop", "Auto Hop disabled", 3)
-        end
-    end,
-})
-
-Window:AddSection({ Name = "Server List", Tab = ServerHop })
-
-Window:AddParagraph({
-    Title       = "Quick Select",
-    Description = "Fetch public servers and click Join on any. Sorted by player count.",
-    Tab         = ServerHop,
-})
-
-Window:AddButton({
-    Title       = "Load Server List",
-    Description = "Fetch and display up to 50 public servers (top 10 shown as buttons)",
-    Tab         = ServerHop,
-    Callback    = function()
-        notify("Hyko • Server List", "Loading servers...", 2)
-        task.spawn(function()
-            local servers = hopFetchServers()
-            if not servers or #servers == 0 then
-                notify("Hyko • Server List", "No servers found", 3)
-                return
-            end
-
-            local currentId = tostring(game.JobId)
-            local filtered = {}
-            for _, s in ipairs(servers) do
-                if tostring(s.id) ~= currentId then
-                    table.insert(filtered, s)
-                end
-            end
-
-            if hopState.sortByPlayers then
-                table.sort(filtered, function(a, b)
-                    return (a.playing or 0) < (b.playing or 0)
-                end)
-            end
-
-            hopState.serverList = filtered
-            hopState.refreshTick = hopState.refreshTick + 1
-
-            local topN = math.min(10, #filtered)
-            for i = 1, topN do
-                local srv = filtered[i]
-                local sid = tostring(srv.id)
-                local label = string.format("Server %d - %d/%d players",
-                    i, srv.playing or 0, srv.maxPlayers or 0)
-
-                Window:AddButton({
-                    Title       = label,
-                    Description = "JobId: " .. sid:sub(1, 20) .. "...",
-                    Tab         = ServerHop,
-                    Callback    = function()
-                        notify("Hyko • Server List", "Joining server " .. i .. "...", 2)
-                        hopJoinServer(sid)
-                    end,
-                })
-            end
-
-            notify("Hyko • Server List", tostring(#filtered) .. " servers found - top " .. topN .. " listed", 4)
-        end)
-    end,
-})
-
-Window:AddButton({
-    Title       = "Join Lowest Player Server",
-    Description = "Automatically join the server with the fewest players",
-    Tab         = ServerHop,
-    Callback    = function()
-        task.spawn(function()
-            local servers = hopFetchServers()
-            if not servers or #servers == 0 then
-                notify("Hyko • Server Hop", "No servers found", 3)
-                return
-            end
-            local currentId = tostring(game.JobId)
-            local best, bestCount = nil, math.huge
-            for _, s in ipairs(servers) do
-                if tostring(s.id) ~= currentId then
-                    local c = s.playing or 0
-                    if c < bestCount then
-                        bestCount = c
-                        best = s
-                    end
-                end
-            end
-            if not best then
-                notify("Hyko • Server Hop", "No alternative server found", 3)
-                return
-            end
-            notify("Hyko • Server Hop", "Joining server with " .. bestCount .. " players...", 3)
-            hopJoinServer(tostring(best.id))
-        end)
-    end,
-})
-
-Window:AddButton({
-    Title       = "Join Highest Player Server",
-    Description = "Automatically join the server with the most players",
-    Tab         = ServerHop,
-    Callback    = function()
-        task.spawn(function()
-            local servers = hopFetchServers()
-            if not servers or #servers == 0 then
-                notify("Hyko • Server Hop", "No servers found", 3)
-                return
-            end
-            local currentId = tostring(game.JobId)
-            local best, bestCount = nil, -1
-            for _, s in ipairs(servers) do
-                if tostring(s.id) ~= currentId then
-                    local c = s.playing or 0
-                    if c > bestCount then
-                        bestCount = c
-                        best = s
-                    end
-                end
-            end
-            if not best then
-                notify("Hyko • Server Hop", "No alternative server found", 3)
-                return
-            end
-            notify("Hyko • Server Hop", "Joining server with " .. bestCount .. " players...", 3)
-            hopJoinServer(tostring(best.id))
-        end)
-    end,
-})
-
---============================================================--
--- UI WIRING - Settings
---============================================================--
-Window:AddSection({ Name = "Appearance", Tab = Settings })
-
-Window:AddToggle({
-    Title       = "Show Window Background",
-    Description = "Display a decorative background image behind the UI",
-    Default     = true,
-    Tab         = Settings,
-    Callback    = function(state)
-        setBackgroundVisibility(state)
-        notify("Hyko • Background", state and "Background shown" or "Background hidden", 3)
-    end,
-})
-
-Window:AddSlider({
-    Title         = "Background Transparency",
-    Description   = "Higher = more transparent (default 0.35)",
-    Tab           = Settings,
-    MinValue      = 0,
-    MaxValue      = 1,
-    Default       = 0.35,
-    AllowDecimals = true,
-    Callback      = function(v) setBackgroundTransparency(v) end,
-})
-
-Window:AddSection({ Name = "Performance", Tab = Settings })
-Window:AddParagraph({
-    Title       = "FPS Boost",
-    Description = "Aggressive client optimization: quality drop, shadows off, FX stripped.",
-    Tab         = Settings,
-})
-Window:AddToggle({
-    Title = "Enable FPS Boost", Description = "Client-side graphics optimization",
-    Tab = Settings, Default = false,
-    Callback = function(state)
-        if state then enableBoost(); notify("Hyko • FPS Boost", "FPS Boost enabled", 3)
-        else disableBoost(); notify("Hyko • FPS Boost", "FPS Boost disabled - restored", 3) end
-    end,
-})
-
-Window:AddSection({ Name = "Interface", Tab = Settings })
-Window:AddKeybind({
-    Title = "Minimize Keybind", Description = "Set the keybind for minimizing the UI",
-    Tab = Settings,
-    Callback = function(Key)
-        Window:SetSetting("Keybind", Key)
-        notify("Hyko • Settings", "Minimize keybind set to " .. tostring(Key), 3)
-    end,
-})
-Window:AddDropdown({
-    Title = "Set Theme", Tab = Settings,
-    Description = "Set the theme of the library",
-    Options = { ["Light Mode"] = "Light", ["Dark Mode"] = "Dark", ["Extra Dark"] = "Void" },
-    Callback = function(theme)
-        Window:SetTheme(Themes[theme])
-        notify("Hyko • Theme", "Theme switched to " .. theme, 3)
-    end,
-})
-Window:AddToggle({
-    Title = "UI Blur", Description = "Requires Roblox graphics quality 8 or higher",
-    Default = true, Tab = Settings,
-    Callback = function(Boolean)
-        Window:SetSetting("Blur", Boolean)
-        notify("Hyko • Blur", Boolean and "UI blur enabled" or "UI blur disabled", 3)
-    end,
-})
-Window:AddSlider({
-    Title = "UI Transparency", Tab = Settings,
-    Description = "Set the transparency of the UI",
-    AllowDecimals = true, MaxValue = 1,
-    Callback = function(Amount) Window:SetSetting("Transparency", Amount) end,
-})
-
---============================================================--
--- SHOW / HIDE UI
---============================================================--
-do
-    local pg = LP:WaitForChild("PlayerGui")
-
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "HykoToggleGui"
-    gui.ResetOnSpawn = false
-    gui.IgnoreGuiInset = true
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.DisplayOrder = 999
-    gui.Parent = pg
-
-    local btn = Instance.new("TextButton")
-    btn.Name = "HykoShowUI"
-    btn.AnchorPoint = Vector2.new(1, 0)
-    btn.Position = UDim2.new(1, -18, 0, 18)
-    btn.Size = UDim2.fromOffset(136, 42)
-    btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    btn.BackgroundTransparency = 0.05
-    btn.BorderSizePixel = 0
-    btn.Text = ""
-    btn.AutoButtonColor = false
-    btn.Active = true
-    btn.Parent = gui
-    makeCorner(btn, 8)
-
-    local stroke = makeStroke(btn, Color3.fromRGB(228, 231, 237), 0.25, 1)
-
-    local grad = Instance.new("UIGradient")
-    grad.Rotation = 90
-    grad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(244, 246, 250)),
-    })
-    grad.Parent = btn
-
-    local iconTile = Instance.new("Frame")
-    iconTile.Size = UDim2.fromOffset(28, 28)
-    iconTile.Position = UDim2.fromOffset(8, 7)
-    iconTile.BackgroundColor3 = Color3.fromRGB(255, 245, 250)
-    iconTile.BackgroundTransparency = 0.1
-    iconTile.BorderSizePixel = 0
-    iconTile.Parent = btn
-    makeCorner(iconTile, 6)
-
-    local iconStroke = makeStroke(iconTile, Color3.fromRGB(255, 220, 235), 0.4, 1)
-
-    local catIcon = Instance.new("ImageLabel")
-    catIcon.BackgroundTransparency = 1
-    catIcon.Position = UDim2.fromOffset(3, 3)
-    catIcon.Size = UDim2.fromOffset(22, 22)
-    catIcon.Parent = iconTile
-    attachImage(catIcon, "71999030813587", nil)
-
-    local label = Instance.new("TextLabel")
-    label.BackgroundTransparency = 1
-    label.Position = UDim2.fromOffset(44, 0)
-    label.Size = UDim2.new(1, -52, 1, 0)
-    label.Font = Enum.Font.GothamMedium
-    label.TextSize = 12
-    label.TextColor3 = Color3.fromRGB(28, 32, 40)
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.TextYAlignment = Enum.TextYAlignment.Center
-    label.Text = "Hide UI"
-    label.Parent = btn
-
-    local uiVisible = true
-
-    local function setVisible(v)
-        uiVisible = v
-        label.Text = v and "Hide UI" or "Show UI"
-        if libGui and libGui.Parent then
-            libGui.Enabled = v
-        end
-    end
-
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {
-            BackgroundTransparency = 0,
-        }):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.18), {Transparency = 0.05}):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {
-            BackgroundTransparency = 0.05,
-        }):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.18), {Transparency = 0.25}):Play()
-    end)
-
-    btn.Activated:Connect(function()
-        setVisible(not uiVisible)
-    end)
-
-    local dragging, dragStart, startPos
-    btn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true; dragStart = input.Position; startPos = btn.Position
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if not dragging then return end
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
-            local d = input.Position - dragStart
-            btn.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + d.X,
-                startPos.Y.Scale, startPos.Y.Offset + d.Y)
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
-    end)
-end
-
---============================================================--
--- DEATH / RESPAWN HOOKS
---============================================================--
-LP.CharacterAdded:Connect(function(char)
-    if antiOn then
-        task.wait(0.2)
-        handleAntiDeath()
-    end
-    task.wait(0.2)
-    if godModeOn then applyGodHealth(char) end
-    task.wait(0.3)
-    if bgEnabled then attachBackground() end
+task.spawn(function()
+	while task.wait(0.5) do
+		if invisOn then setInvis(true) end
+	end
 end)
 
-do
-    local function watchHum(char)
-        local hum = char:WaitForChild("Humanoid", 5)
-        if not hum then return end
-        hum.Died:Connect(function()
-            handleAntiDeath()
-            if farmOn then stopFarmFlight(LP.Character) end
-        end)
-    end
-    if LP.Character then watchHum(LP.Character) end
-    LP.CharacterAdded:Connect(watchHum)
-end
+task.spawn(function()
+	while task.wait(0.4) do
+		if antiMode ~= "off" then
+			local list = scanAllNPCs()
+			for _, npc in ipairs(list) do
+				if antiMode == "v61" then
+					pcall(lockNPC_v61, npc)
+				else
+					pcall(lockNPC_v62, npc)
+				end
+			end
+			if antiMode == "v62" then applyPlayerNoTouch() end
+		end
+		if invisOn then setInvis(true) end
+	end
+end)
 
-notify(
-    "Hyko Loaded",
-    "ESP • Anti-Ragdoll • God Mode • Auto Farm • Loot • FPS Boost • Server Hop",
-    8
-)
+LP.CharacterAdded:Connect(function()
+	task.wait(0.5)
+	refreshPlayerChrs()
+	if invisOn then setInvis(true) end
+	if antiMode == "v62" then applyPlayerNoTouch() end
+	if speedOn then
+		pcall(function()
+			if mainConn then mainConn:Disconnect() mainConn = nil end
+			enableSpeed()
+		end)
+	end
+end)
+
+print("[Hyko Suite] Loaded · Lucide UI · Dashboard + Server Hop")
