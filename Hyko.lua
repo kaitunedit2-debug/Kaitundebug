@@ -1,6 +1,5 @@
 --// Hyko Suite — Dual Anti-NPC (v6.1 ⇄ v6.2) + Server Hop + NPC Blocker
---// Executor-agnostic: Xeno / Delta / Synapse / Script-Ware / Fluxus / Solara / Wave / etc.
---// Lucide icons • Auto-sync shadow • Optimized lock loops
+--// Executor-agnostic • LAG-FIXED build (logic unchanged, only performance)
 
 --============================================================--
 -- [0] EXECUTOR COMPATIBILITY LAYER
@@ -23,31 +22,24 @@ local PhysicsService   = safeService("PhysicsService")
 local LP        = Players.LocalPlayer
 local PlaceId   = game.PlaceId
 
--- Executor function aliases (works across Xeno, Delta, Synapse, SW, Fluxus, ...)
-local rawgetmt          = rawgetmetatable
+local rawgetmt      = rawgetmetatable
 	or (debug and debug.getmetatable)
 	or getrawmetatable
-local setreadonlyFn     = setreadonly
+local setreadonlyFn = setreadonly
 	or make_writeable
 	or (debug and debug.setreadonly)
-local newcclosureFn     = newcclosure
-	or (function(f) return f end)
-local getnamecallFn     = getnamecallmethod
-	or (function() return "" end)
+local newcclosureFn = newcclosure or (function(f) return f end)
+local getnamecallFn = getnamecallmethod or (function() return "" end)
 
--- HTTP GET wrapper — try every known executor API before falling back
 local function httpGet(url)
-	-- Synapse / Script-Ware / KRNL
 	if syn and syn.request then
 		local ok, res = pcall(syn.request, {Url = url, Method = "GET"})
 		if ok and res and res.Body then return res.Body end
 	end
-	-- Xeno / Solara / Wave / generic `request`
 	if request then
 		local ok, res = pcall(request, {Url = url, Method = "GET"})
 		if ok and res and res.Body then return res.Body end
 	end
-	-- Fluxus / older
 	if http_request then
 		local ok, res = pcall(http_request, {Url = url, Method = "GET"})
 		if ok and res and res.Body then return res.Body end
@@ -56,7 +48,6 @@ local function httpGet(url)
 		local ok, res = pcall(http.request, {Url = url, Method = "GET"})
 		if ok and res and res.Body then return res.Body end
 	end
-	-- Native Roblox (available on Xeno + most modern execs)
 	if game.HttpGet then
 		local ok, res = pcall(function() return game:HttpGet(url) end)
 		if ok and type(res) == "string" then return res end
@@ -68,18 +59,13 @@ local function httpGet(url)
 	return nil
 end
 
--- fireproximityprompt wrapper
 local fireProxPrompt = fireproximityprompt
-	or (fireproximityprompt and function(p) fireproximityprompt(p) end)
-	or nil
-
 local function doFireProximityPrompt(prompt)
 	if not prompt then return end
 	if fireProxPrompt then
 		pcall(fireProxPrompt, prompt)
 		return
 	end
-	-- Fallback: use built-in methods (works on some executors without fireproximityprompt)
 	if prompt.InputHoldBegin and prompt.InputHoldEnd then
 		pcall(function()
 			prompt:InputHoldBegin()
@@ -167,7 +153,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 end)
 
 --============================================================--
--- [C] NAMECALL HOOK  (fully optional — skips if executor unsupported)
+-- [C] NAMECALL HOOK
 --============================================================--
 local blockRouse = true
 local hookInstalled = false
@@ -408,8 +394,30 @@ local function unlockAll()
 	for npc in pairs(frozenNPCs) do unlockNPC(npc) end
 end
 
+-- [LAGFIX] Async lock queue — không block main loop, xử lý song song
+local pendingLocks = setmetatable({}, {__mode = "k"})
+local function tryLockNPC(npc, mode)
+	if frozenNPCs[npc] or pendingLocks[npc] then return end
+	if not npc.Parent then return end
+	pendingLocks[npc] = true
+	task.spawn(function()
+		pcall(function()
+			if mode == "v61" then
+				lockNPC_v61(npc)
+			else
+				lockNPC_v62(npc)
+			end
+		end)
+		pendingLocks[npc] = nil
+	end)
+end
+
+-- [LAGFIX] CFrame lock: throttle xuống ~20Hz (mỗi 3 frame) — NPC anchored nên không cần 60Hz
+local hbFrameCounter = 0
 RunService.Heartbeat:Connect(function()
 	if not next(lockedCFrames) then return end
+	hbFrameCounter = (hbFrameCounter + 1) % 3
+	if hbFrameCounter ~= 0 then return end
 	for npc, cf in pairs(lockedCFrames) do
 		if not npc.Parent then
 			lockedCFrames[npc] = nil
@@ -1937,34 +1945,49 @@ task.spawn(function()
 end)
 
 --============================================================--
--- [L] LOOPS
+-- [L] LOOPS  — [LAGFIX] tất cả interval được tối ưu
 --============================================================--
+
+-- Invis loop: chỉ 1 nơi duy nhất (0.5s)
 task.spawn(function()
 	while task.wait(0.5) do
 		if invisOn then setInvis(true) end
 	end
 end)
 
+-- Anti-NPC main loop: 0.5s (thay vì 0.1s), lock không block
 task.spawn(function()
-	while task.wait(0.1) do
+	while task.wait(0.5) do
 		if antiMode ~= "off" then
 			local list = scanAllNPCs()
 			for _, npc in ipairs(list) do
-				if antiMode == "v61" then
-					pcall(lockNPC_v61, npc)
-				else
-					pcall(lockNPC_v62, npc)
+				if not frozenNPCs[npc] then
+					tryLockNPC(npc, antiMode)
 				end
-			end
-			if antiMode == "v62" then
-				applyPlayerNoTouch()
-				tagAllPlayerParts()
 			end
 		end
 		updateBlocker()
-		if invisOn then setInvis(true) end
 	end
 end)
+
+-- [LAGFIX] tag/applyNoTouch chỉ chạy backstop 3s (thay vì mỗi 0.1s)
+task.spawn(function()
+	while task.wait(3) do
+		if antiMode == "v62" then
+			applyPlayerNoTouch()
+			tagAllPlayerParts()
+		end
+	end
+end)
+
+-- [LAGFIX] Event-driven: khi có char mới → re-apply ngay
+local function onAnyCharSpawn()
+	task.wait(0.4)
+	if antiMode == "v62" then
+		applyPlayerNoTouch()
+		tagAllPlayerParts()
+	end
+end
 
 LP.CharacterAdded:Connect(function()
 	task.wait(0.5)
@@ -1980,9 +2003,20 @@ LP.CharacterAdded:Connect(function()
 	end
 end)
 
+for _, plr in ipairs(Players:GetPlayers()) do
+	if plr ~= LP then
+		plr.CharacterAdded:Connect(onAnyCharSpawn)
+	end
+end
+Players.PlayerAdded:Connect(function(plr)
+	if plr ~= LP then
+		plr.CharacterAdded:Connect(onAnyCharSpawn)
+	end
+end)
+
 tagAllPlayerParts()
 
-print("[Hyko Suite] Loaded · Executor-agnostic · Namecall hook:",
+print("[Hyko Suite] Loaded · LAG-FIXED · Executor-agnostic · Namecall:",
 	hookInstalled and "ON" or "OFF",
-	"· HTTP:", httpGet ~= nil and "OK" or "NONE",
-	"· fireproximityprompt:", fireProxPrompt and "OK" or "MISSING")
+	"· HTTP:", httpGet and "OK" or "NONE",
+	"· fireprox:", fireProxPrompt and "OK" or "MISSING")
