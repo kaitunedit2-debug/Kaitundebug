@@ -1,5 +1,6 @@
---// Hyko Suite — Ultra Anti-NPC (v6.1 ⇄ v6.2) + Server Hop + NPC Blocker
---// UI-FIXED build · Heartbeat fallback · gethui parent · defensive
+--// Hyko Suite — Anti-NPC (v6.1) + Server Hop
+--// Logic v6.1 gốc · Async lock · Distance-gated CFrame · Event-driven
+--// Không blocker · Không dual mode · UI-FIXED
 
 --============================================================--
 -- [0] EXECUTOR COMPATIBILITY LAYER
@@ -17,7 +18,6 @@ local UserInputService = safeService("UserInputService")
 local TweenService     = safeService("TweenService")
 local HttpService      = safeService("HttpService")
 local TeleportService  = safeService("TeleportService")
-local PhysicsService   = safeService("PhysicsService")
 
 local LP      = Players.LocalPlayer
 local PlaceId = game.PlaceId
@@ -30,40 +30,38 @@ local gethuiFn      = gethui or function() return nil end
 
 local function httpGet(url)
 	if syn and syn.request then
-		local ok, res = pcall(syn.request, {Url = url, Method = "GET"})
-		if ok and res and res.Body then return res.Body end
+		local ok, r = pcall(syn.request, {Url=url, Method="GET"})
+		if ok and r and r.Body then return r.Body end
 	end
 	if request then
-		local ok, res = pcall(request, {Url = url, Method = "GET"})
-		if ok and res and res.Body then return res.Body end
+		local ok, r = pcall(request, {Url=url, Method="GET"})
+		if ok and r and r.Body then return r.Body end
 	end
 	if http_request then
-		local ok, res = pcall(http_request, {Url = url, Method = "GET"})
-		if ok and res and res.Body then return res.Body end
+		local ok, r = pcall(http_request, {Url=url, Method="GET"})
+		if ok and r and r.Body then return r.Body end
 	end
 	if http and http.request then
-		local ok, res = pcall(http.request, {Url = url, Method = "GET"})
-		if ok and res and res.Body then return res.Body end
+		local ok, r = pcall(http.request, {Url=url, Method="GET"})
+		if ok and r and r.Body then return r.Body end
 	end
 	if game.HttpGet then
-		local ok, res = pcall(function() return game:HttpGet(url) end)
-		if ok and type(res) == "string" then return res end
+		local ok, r = pcall(function() return game:HttpGet(url) end)
+		if ok and type(r)=="string" then return r end
 	end
 	if game.HttpGetAsync then
-		local ok, res = pcall(function() return game:HttpGetAsync(url) end)
-		if ok and type(res) == "string" then return res end
+		local ok, r = pcall(function() return game:HttpGetAsync(url) end)
+		if ok and type(r)=="string" then return r end
 	end
 	return nil
 end
 
 local fireProxPrompt = fireproximityprompt
-local function doFireProximityPrompt(prompt)
-	if not prompt then return end
-	if fireProxPrompt then pcall(fireProxPrompt, prompt); return end
-	if prompt.InputHoldBegin and prompt.InputHoldEnd then
-		pcall(function()
-			prompt:InputHoldBegin(); task.wait(); prompt:InputHoldEnd()
-		end)
+local function doFireProximityPrompt(p)
+	if not p then return end
+	if fireProxPrompt then pcall(fireProxPrompt, p); return end
+	if p.InputHoldBegin and p.InputHoldEnd then
+		pcall(function() p:InputHoldBegin(); task.wait(); p:InputHoldEnd() end)
 	end
 end
 
@@ -92,15 +90,13 @@ end)
 local function readMove()
 	if Controls then
 		local ok, v = pcall(function() return Controls:GetMoveVector() end)
-		if ok and v and v.Magnitude > 0.05 then
-			return Vector3.new(v.X, 0, v.Z)
-		end
+		if ok and v and v.Magnitude > 0.05 then return Vector3.new(v.X, 0, v.Z) end
 	end
 	local d = Vector3.zero
-	if UserInputService:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0, 0, -1) end
-	if UserInputService:IsKeyDown(Enum.KeyCode.S) then d += Vector3.new(0, 0, 1)  end
-	if UserInputService:IsKeyDown(Enum.KeyCode.A) then d += Vector3.new(-1, 0, 0) end
-	if UserInputService:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1, 0, 0)  end
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then d += Vector3.new(0,0,-1) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then d += Vector3.new(0,0,1) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then d += Vector3.new(-1,0,0) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then d += Vector3.new(1,0,0) end
 	return d
 end
 
@@ -124,7 +120,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 	local c = LP.Character
 	local hrp = c and c:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
-	local best, bestDist = nil, math.huge
+	local best, bd = nil, math.huge
 	for _, d in ipairs(workspace:GetDescendants()) do
 		if d:IsA("ProximityPrompt") and d.Enabled then
 			local par = d.Parent
@@ -135,8 +131,8 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 			end
 			if pos then
 				local dist = (pos - hrp.Position).Magnitude
-				if dist <= d.MaxActivationDistance + 4 and dist < bestDist then
-					best, bestDist = d, dist
+				if dist <= d.MaxActivationDistance + 4 and dist < bd then
+					best, bd = d, dist
 				end
 			end
 		end
@@ -190,15 +186,17 @@ local function disconnect(x)
 end
 
 --============================================================--
--- [E] ANTI-NPC  — ULTRA FREEZE
+-- [E] ANTI-NPC — v6.1 LOGIC, OPTIMIZED
 --============================================================--
-local antiMode      = "off"
-local frozenNPCs    = {}
-local playerChrs    = {}
+local antiOn     = false
+local frozenNPCs = {}
+local playerChrs = {}
 
+-- Perf tuning (không đổi logic)
 local LOCK_RADIUS       = 600
 local LOCK_RADIUS_SQ    = LOCK_RADIUS * LOCK_RADIUS
-local CFrameLockRate    = 4   -- mỗi 4 heartbeat ≈ 15Hz
+local CFrameLockRate    = 4      -- CFrame lock mỗi N Heartbeat (~15Hz)
+local WATCHDOG_INTERVAL = 1.5    -- re-anchor nếu bị phá
 
 local function refreshPlayerChrs()
 	playerChrs = {}
@@ -217,39 +215,28 @@ local function isNPC(model)
 	return model:FindFirstChildOfClass("Humanoid") ~= nil
 end
 
--- Safe list of state names (Enum lookup by name avoids missing-enum errors)
-local DISABLED_STATE_NAMES = {
-	"Walking", "Running", "Jumping", "Climbing", "GettingUp",
-	"FallingDown", "Ragdoll", "Landed", "Freefall", "Swimming",
-	"Flying", "PlatformStanding", "Dead",
-}
-
-local function disableHumanoidStates(hum)
-	for _, name in ipairs(DISABLED_STATE_NAMES) do
-		local st = Enum.HumanoidStateType[name]
-		if st then
-			pcall(function() hum:SetStateEnabled(st, false) end)
-		end
-	end
-end
-
---=========== v6.1 (SOFT) ===========--
-local function lockNPC_v61(npc)
+--=========== LOCK (giống v6.1 gốc) ===========--
+local function lockNPC(npc)
 	if frozenNPCs[npc] or not npc.Parent then return end
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
 		or npc:FindFirstChild("Torso") or npc:FindFirstChild("UpperTorso")
 	local hum = npc:FindFirstChildOfClass("Humanoid")
 	local collider = npc:FindFirstChild("Collider")
-	local data = { mode = "v61", collides = {}, alerts = {}, vfx = {} }
+	local data = { collides = {}, alerts = {}, vfx = {} }
 
 	if hrp and hrp:IsA("BasePart") then
-		data.hrp = hrp; data.origAnchored = hrp.Anchored
+		data.hrp = hrp
+		data.origAnchored = hrp.Anchored
 		pcall(function() hrp:SetNetworkOwner(LP); hrp.Anchored = true end)
+		data.lockedCF = hrp.CFrame
 	end
 	if hum then
-		data.hum = hum; data.origWalk = hum.WalkSpeed; data.origJump = hum.JumpPower
+		data.hum = hum
+		data.origWalk = hum.WalkSpeed
+		data.origJump = hum.JumpPower
 		pcall(function()
-			hum.WalkSpeed = 0; hum.JumpPower = 0
+			hum.WalkSpeed = 0
+			hum.JumpPower = 0
 			hum:ChangeState(Enum.HumanoidStateType.Physics)
 		end)
 	end
@@ -269,110 +256,16 @@ local function lockNPC_v61(npc)
 		if d:IsA("ParticleEmitter") and d.Enabled then
 			local nm = d.Name:lower()
 			if nm:find("alert") or nm:find("detect") or nm:find("wake")
-				or nm:find("sleep") or nm:find("anger") then
+			or nm:find("sleep") or nm:find("anger") then
 				data.vfx[d] = d.Enabled; d.Enabled = false
 			end
 		end
 	end
 
 	if collider then
-		data.collider = collider; data.origCollide = collider.CanCollide
+		data.collider = collider
+		data.origCollide = collider.CanCollide
 		pcall(function() collider.CanCollide = false end)
-	end
-	frozenNPCs[npc] = data
-end
-
---=========== v6.2 (HARD / ULTRA) ===========--
-local function lockNPC_v62(npc)
-	if frozenNPCs[npc] or not npc.Parent then return end
-	local hrp = npc:FindFirstChild("HumanoidRootPart")
-		or npc:FindFirstChild("Torso") or npc:FindFirstChild("UpperTorso")
-	local hum = npc:FindFirstChildOfClass("Humanoid")
-	local data = { mode = "v62", parts = {}, alerts = {}, vfx = {} }
-
-	if hrp and hrp:IsA("BasePart") then
-		data.hrp = hrp; data.origAnchored = hrp.Anchored
-		pcall(function()
-			hrp:SetNetworkOwner(LP)
-			hrp.Anchored = true
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-		end)
-		data.lockedCF = hrp.CFrame
-	end
-
-	if hum then
-		data.hum = hum
-		data.origWalk = hum.WalkSpeed
-		data.origJump = hum.JumpPower
-		local hasESM = pcall(function() return hum.EvaluateStateMachine end)
-		if hasESM then
-			data.origStateMachine = hum.EvaluateStateMachine
-		end
-		pcall(function()
-			hum.WalkSpeed = 0
-			hum.JumpPower = 0
-			hum.AutoRotate = false
-			hum.PlatformStand = true
-			if hasESM then hum.EvaluateStateMachine = false end
-			hum:ChangeState(Enum.HumanoidStateType.Physics)
-			hum:UnequipTools()
-		end)
-		disableHumanoidStates(hum)
-		pcall(function() hum.MoveDirection = Vector3.zero end)
-	end
-
-	local animator = hum and hum:FindFirstChildOfClass("Animator")
-	if animator then
-		data.animator = animator
-		pcall(function() animator:Destroy() end)
-	end
-
-	for _, d in ipairs(npc:GetDescendants()) do
-		if d:IsA("BasePart") then
-			local rec = { part = d }
-			local needStore = false
-			if d.CanCollide then rec.cc = true; needStore = true end
-			if d.CanTouch then   rec.ct = true; needStore = true end
-			if d.CanQuery then   rec.cq = true; needStore = true end
-			if needStore then table.insert(data.parts, rec) end
-			pcall(function()
-				d.CanCollide = false
-				d.CanTouch = false
-				d.CanQuery = false
-				d.Massless = true
-			end)
-		end
-		if d:IsA("TouchTransmitter") then pcall(function() d:Destroy() end) end
-		if d:IsA("BillboardGui") then
-			data.alerts[d] = d.Enabled; d.Enabled = false
-		end
-		if d:IsA("Sound") and d.Playing then pcall(function() d:Stop() end) end
-		if d:IsA("ParticleEmitter") and d.Enabled then
-			local nm = d.Name:lower()
-			if nm:find("alert") or nm:find("detect") or nm:find("wake")
-				or nm:find("sleep") or nm:find("anger") then
-				data.vfx[d] = d.Enabled; d.Enabled = false
-			end
-		end
-	end
-
-	for _, nm in ipairs({"Collider", "EggPoint", "CENTER", "HeadProxy", "Hitbox"}) do
-		local pt = npc:FindFirstChild(nm)
-		if pt and pt:IsA("BasePart") then
-			if pt.CanCollide or pt.CanTouch or pt.CanQuery then
-				table.insert(data.parts, {
-					part = pt,
-					cc = pt.CanCollide, ct = pt.CanTouch, cq = pt.CanQuery,
-					tr = pt.Transparency,
-				})
-			end
-			pcall(function()
-				pt.CanCollide = false; pt.CanTouch = false
-				pt.CanQuery = false; pt.Transparency = 1
-				pt.Massless = true
-			end)
-		end
 	end
 
 	frozenNPCs[npc] = data
@@ -388,11 +281,6 @@ local function unlockNPC(npc)
 		pcall(function()
 			data.hum.WalkSpeed = data.origWalk or 16
 			data.hum.JumpPower = data.origJump or 50
-			data.hum.PlatformStand = false
-			data.hum.AutoRotate = true
-			if data.origStateMachine ~= nil then
-				data.hum.EvaluateStateMachine = data.origStateMachine
-			end
 		end)
 	end
 	for p in pairs(data.collides or {}) do
@@ -400,17 +288,6 @@ local function unlockNPC(npc)
 	end
 	if data.collider and data.collider.Parent then
 		pcall(function() data.collider.CanCollide = data.origCollide ~= false end)
-	end
-	for _, rec in ipairs(data.parts or {}) do
-		local p = rec.part
-		if p and p.Parent then
-			pcall(function()
-				if rec.cc then p.CanCollide = true end
-				if rec.ct then p.CanTouch = true end
-				if rec.cq then p.CanQuery = true end
-				if rec.tr ~= nil then p.Transparency = rec.tr end
-			end)
-		end
 	end
 	for d, en in pairs(data.alerts or {}) do
 		if d and d.Parent then d.Enabled = en end
@@ -425,24 +302,21 @@ local function unlockAll()
 	for npc in pairs(frozenNPCs) do unlockNPC(npc) end
 end
 
--- Async lock queue
+-- Async queue — không block main thread
 local pendingLocks = setmetatable({}, {__mode = "k"})
-local function tryLockNPC(npc, mode)
+local function tryLockNPC(npc)
 	if frozenNPCs[npc] or pendingLocks[npc] then return end
 	if not npc.Parent then return end
 	pendingLocks[npc] = true
 	task.defer(function()
-		pcall(function()
-			if mode == "v61" then lockNPC_v61(npc) else lockNPC_v62(npc) end
-		end)
+		pcall(lockNPC, npc)
 		pendingLocks[npc] = nil
 	end)
 end
 
--- CFrame lock — Heartbeat (universal, works on all executors)
-local psCounter = 0
+-- CFrame lock — Heartbeat/4 + distance-gated
+local hbCounter = 0
 local cachedMyRoot = nil
-
 local function updateMyRoot()
 	local c = LP.Character
 	cachedMyRoot = c and c:FindFirstChild("HumanoidRootPart")
@@ -451,13 +325,12 @@ updateMyRoot()
 
 RunService.Heartbeat:Connect(function()
 	if next(frozenNPCs) == nil then return end
-	psCounter = (psCounter + 1) % CFrameLockRate
-	if psCounter ~= 0 then return end
+	hbCounter = (hbCounter + 1) % CFrameLockRate
+	if hbCounter ~= 0 then return end
 
 	local myRoot = cachedMyRoot
 	if not myRoot or not myRoot.Parent then
-		updateMyRoot()
-		myRoot = cachedMyRoot
+		updateMyRoot(); myRoot = cachedMyRoot
 	end
 	local mx, my, mz = 0, 0, 0
 	if myRoot then
@@ -474,9 +347,7 @@ RunService.Heartbeat:Connect(function()
 			if myRoot then
 				local p = hrp.Position
 				local dx, dy, dz = p.X - mx, p.Y - my, p.Z - mz
-				if dx*dx + dy*dy + dz*dz > LOCK_RADIUS_SQ then
-					lockIt = false
-				end
+				if dx*dx + dy*dy + dz*dz > LOCK_RADIUS_SQ then lockIt = false end
 			end
 			if lockIt then
 				hrp.CFrame = data.lockedCF
@@ -487,45 +358,35 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
--- NPC detection event-driven
+-- Event-driven: NPC mới spawn → lock ngay
 workspace.DescendantAdded:Connect(function(inst)
-	if antiMode == "off" then return end
+	if not antiOn then return end
 	if not inst:IsA("Model") then return end
 	task.defer(function()
-		if antiMode == "off" then return end
-		if isNPC(inst) then tryLockNPC(inst, antiMode) end
+		if not antiOn then return end
+		if isNPC(inst) then tryLockNPC(inst) end
 	end)
 end)
 
+-- Backstop scan — 3s/lần
 local function scanAndLockAll()
 	refreshPlayerChrs()
-	local mode = antiMode
-	if mode == "off" then return end
+	if not antiOn then return end
 	for _, obj in ipairs(workspace:GetDescendants()) do
 		if obj:IsA("Model") and not frozenNPCs[obj] and isNPC(obj) then
-			tryLockNPC(obj, mode)
+			tryLockNPC(obj)
 		end
 	end
 end
 
--- Watchdog — re-freeze
+-- Watchdog — re-anchor nếu bị phá
 task.spawn(function()
-	while task.wait(1.2) do
-		if antiMode ~= "off" then
+	while task.wait(WATCHDOG_INTERVAL) do
+		if antiOn then
 			for npc, data in pairs(frozenNPCs) do
 				if not npc.Parent then
 					frozenNPCs[npc] = nil
 				else
-					local hum = data.hum
-					if hum and hum.Parent then
-						pcall(function()
-							if hum.WalkSpeed > 0 then hum.WalkSpeed = 0 end
-							if hum.JumpPower > 0 then hum.JumpPower = 0 end
-							if hum.EvaluateStateMachine then
-								hum.EvaluateStateMachine = false
-							end
-						end)
-					end
 					local hrp = data.hrp
 					if hrp and hrp.Parent and not hrp.Anchored then
 						pcall(function()
@@ -539,80 +400,6 @@ task.spawn(function()
 		end
 	end
 end)
-
---============================================================--
--- [E2] NPC BLOCKER
---============================================================--
-local BLOCKER_GROUP = "HykoNPCBlocker"
-local PLAYER_GROUP  = "HykoPlayerParts"
-pcall(function() PhysicsService:RegisterCollisionGroup(BLOCKER_GROUP) end)
-pcall(function() PhysicsService:RegisterCollisionGroup(PLAYER_GROUP) end)
-pcall(function()
-	PhysicsService:CollisionGroupSetCollidable(BLOCKER_GROUP, PLAYER_GROUP, false)
-end)
-
-local blockerSize = 18
-local blockerPart = nil
-
-local function tagAllPlayerParts()
-	for _, plr in ipairs(Players:GetPlayers()) do
-		local c = plr.Character
-		if c then
-			for _, d in ipairs(c:GetDescendants()) do
-				if d:IsA("BasePart") and d.CollisionGroup ~= PLAYER_GROUP then
-					pcall(function() d.CollisionGroup = PLAYER_GROUP end)
-				end
-			end
-		end
-	end
-end
-
-local function ensureBlocker()
-	if blockerPart and blockerPart.Parent then return blockerPart end
-	local p = Instance.new("Part")
-	p.Name = "HykoNPCBlocker"
-	p.Shape = Enum.PartType.Ball
-	p.Size = Vector3.new(blockerSize, blockerSize, blockerSize)
-	p.Anchored = true
-	p.CanCollide = true
-	p.CanTouch = true
-	p.CanQuery = false
-	p.CastShadow = false
-	p.Transparency = 1
-	p.Massless = true
-	p.CollisionGroup = BLOCKER_GROUP
-	p.Parent = workspace
-	blockerPart = p
-	return p
-end
-
-local function removeBlocker()
-	if blockerPart then pcall(function() blockerPart:Destroy() end) end
-	blockerPart = nil
-end
-
-local function updateBlocker()
-	if antiMode ~= "v62" then removeBlocker(); return end
-	local c = LP.Character
-	local hrp = c and c:FindFirstChild("HumanoidRootPart")
-	if not hrp then removeBlocker(); return end
-	local p = ensureBlocker()
-	if p.Size.X ~= blockerSize then
-		p.Size = Vector3.new(blockerSize, blockerSize, blockerSize)
-	end
-	p.CFrame = CFrame.new(hrp.Position)
-end
-
-local function applyPlayerNoTouch()
-	if antiMode ~= "v62" then return end
-	local c = LP.Character
-	if not c then return end
-	for _, p in ipairs(c:GetDescendants()) do
-		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-			pcall(function() p.CanTouch = false end)
-		end
-	end
-end
 
 --============================================================--
 -- [F] INVISIBLE
@@ -643,14 +430,10 @@ espFolder.Name = "HykoESP"
 espFolder.Parent = workspace
 
 local TC = {
-	accent = Color3.fromRGB(10, 132, 255),
-	text   = Color3.fromRGB(23, 26, 33),
-	sub    = Color3.fromRGB(138, 144, 158),
-	green  = Color3.fromRGB(48, 209, 88),
-	amber  = Color3.fromRGB(255, 159, 10),
-	red    = Color3.fromRGB(255, 69, 58),
-	cardBg = Color3.fromRGB(255, 255, 255),
-	cardStroke = Color3.fromRGB(230, 233, 240),
+	accent=Color3.fromRGB(10,132,255), text=Color3.fromRGB(23,26,33),
+	sub=Color3.fromRGB(138,144,158), green=Color3.fromRGB(48,209,88),
+	amber=Color3.fromRGB(255,159,10), red=Color3.fromRGB(255,69,58),
+	cardBg=Color3.fromRGB(255,255,255), cardStroke=Color3.fromRGB(230,233,240),
 }
 
 local function getRootHum(char)
@@ -843,51 +626,36 @@ task.spawn(function()
 end)
 
 --============================================================--
--- [H] UI  — UI-FIX: dùng gethui() + syn.protect_gui + fallbacks
+-- [H] UI
 --============================================================--
 local PlayerGui = LP:WaitForChild("PlayerGui")
 
--- Chọn parent an toàn nhất
 local function pickUiParent()
-	-- ưu tiên gethui() nếu có
 	local ok, hui = pcall(gethuiFn)
 	if ok and hui and typeof(hui) == "Instance" then return hui end
-	-- fallback PlayerGui
 	if PlayerGui and PlayerGui.Parent then return PlayerGui end
-	-- fallback CoreGui (một số executor cho phép)
 	local cg = game:GetService("CoreGui")
 	if cg then return cg end
 	return PlayerGui
 end
-
 local uiParent = pickUiParent()
 
-local ScreenGui = nil
-do
-	-- reuse nếu đã có
-	local existing
-	for _, parent in ipairs({uiParent, PlayerGui}) do
-		local ok, found = pcall(function() return parent:FindFirstChild("HykoGui") end)
-		if ok and found then existing = found break end
-	end
-	if existing then
-		existing:Destroy()
-	end
-	ScreenGui = Instance.new("ScreenGui")
-	ScreenGui.Name = "HykoGui"
-	ScreenGui.ResetOnSpawn = false
-	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	ScreenGui.IgnoreGuiInset = true
-	ScreenGui.DisplayOrder = 999999
-	-- protect_gui (Synapse / Script-Ware / một số executor)
+for _, parent in ipairs({uiParent, PlayerGui}) do
 	pcall(function()
-		if syn and syn.protect_gui then syn.protect_gui(ScreenGui) end
+		local found = parent:FindFirstChild("HykoGui")
+		if found then found:Destroy() end
 	end)
-	pcall(function()
-		if protect_gui then protect_gui(ScreenGui) end
-	end)
-	ScreenGui.Parent = uiParent
 end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "HykoGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder = 999999
+pcall(function() if syn and syn.protect_gui then syn.protect_gui(ScreenGui) end end)
+pcall(function() if protect_gui then protect_gui(ScreenGui) end end)
+ScreenGui.Parent = uiParent
 
 local P = {
 	bgTop      = Color3.fromRGB(252, 253, 255),
@@ -912,7 +680,7 @@ local P = {
 }
 
 local WINDOW_W      = 340
-local WINDOW_H      = 600
+local WINDOW_H      = 520
 local WINDOW_H_MINI = 64
 local SHADOW_PAD    = 8
 
@@ -1525,51 +1293,31 @@ makeToggle(boostCard, "Invisible", false, 6 + ROW_H,
 		invisOn = state; setInvis(invisOn)
 	end)
 
-local protCard = makeCard(MainContent, 164, 160)
-local anti61Handle, anti62Handle
+-- protCard: Anti-NPC + Block Rouse
+local protCard = makeCard(MainContent, 164, 78)
 
-local function switchAntiMode(newMode)
-	if antiMode == newMode then newMode = "off" end
-	if antiMode == newMode then return end
-	unlockAll()
-	antiMode = newMode
-	if anti61Handle then anti61Handle.setState(newMode == "v61") end
-	if anti62Handle then anti62Handle.setState(newMode == "v62") end
-	if newMode ~= "off" then
-		task.spawn(scanAndLockAll)
-		if newMode == "v62" then
-			applyPlayerNoTouch()
-			tagAllPlayerParts()
-		end
+local function switchAnti(state)
+	if state == antiOn then return end
+	if not state then
+		antiOn = false
+		unlockAll()
 	else
-		removeBlocker()
+		antiOn = true
+		task.spawn(scanAndLockAll)
 	end
 end
 
-anti61Handle = makeToggle(protCard, "Anti-NPC · Soft (v6.1)", false, 6,
-	Icons.List, P.greenSoft, P.green, function(state)
-		if state then switchAntiMode("v61") else switchAntiMode("off") end
-	end)
-
-anti62Handle = makeToggle(protCard, "Anti-NPC · Hard (v6.2)", false, 6 + ROW_H,
+makeToggle(protCard, "Anti-NPC", false, 6,
 	Icons.Check, P.greenSoft, P.green, function(state)
-		if state then switchAntiMode("v62") else switchAntiMode("off") end
+		switchAnti(state)
 	end)
 
-makeToggle(protCard, "Block Rouse", true, 6 + ROW_H * 2,
+makeToggle(protCard, "Block Rouse", true, 6 + ROW_H,
 	Icons.Close, P.redSoft, P.red, function(state)
 		blockRouse = state
 	end)
 
-makeSlider(protCard, "Blocker Size", 6, 80, 18, 6 + ROW_H * 3,
-	Icons.Check, P.purpleSoft, P.purple, function(val)
-		blockerSize = val
-		if blockerPart and blockerPart.Parent then
-			blockerPart.Size = Vector3.new(val, val, val)
-		end
-	end)
-
-local espCard = makeCard(MainContent, 332, 80)
+local espCard = makeCard(MainContent, 250, 80)
 makeToggle(espCard, "Player ESP", false, 6,
 	Icons.Players, P.accentSoft, P.accent, function(state)
 		if state then enableESP() else disableESP() end
@@ -2060,22 +1808,7 @@ end)
 
 task.spawn(function()
 	while task.wait(3) do
-		if antiMode ~= "off" then scanAndLockAll() end
-	end
-end)
-
-task.spawn(function()
-	while task.wait(0.1) do
-		updateBlocker()
-	end
-end)
-
-task.spawn(function()
-	while task.wait(3) do
-		if antiMode == "v62" then
-			applyPlayerNoTouch()
-			tagAllPlayerParts()
-		end
+		if antiOn then scanAndLockAll() end
 	end
 end)
 
@@ -2084,8 +1817,6 @@ LP.CharacterAdded:Connect(function()
 	updateMyRoot()
 	refreshPlayerChrs()
 	if invisOn then setInvis(true) end
-	if antiMode == "v62" then applyPlayerNoTouch() end
-	tagAllPlayerParts()
 	if speedOn then
 		pcall(function()
 			if mainConn then mainConn:Disconnect() mainConn = nil end
@@ -2094,24 +1825,7 @@ LP.CharacterAdded:Connect(function()
 	end
 end)
 
-local function onAnyCharSpawn()
-	task.wait(0.4)
-	if antiMode == "v62" then
-		applyPlayerNoTouch()
-		tagAllPlayerParts()
-	end
-end
-for _, plr in ipairs(Players:GetPlayers()) do
-	if plr ~= LP then plr.CharacterAdded:Connect(onAnyCharSpawn) end
-end
-Players.PlayerAdded:Connect(function(plr)
-	if plr ~= LP then plr.CharacterAdded:Connect(onAnyCharSpawn) end
-end)
-
-tagAllPlayerParts()
-
-print("[Hyko Suite] ULTRA loaded · Namecall:",
+print("[Hyko Suite] Loaded · Namecall:",
 	hookInstalled and "ON" or "OFF",
 	"· HTTP:", httpGet and "OK" or "NONE",
-	"· fireprox:", fireProxPrompt and "OK" or "MISSING",
-	"· UI:", ScreenGui and ScreenGui.Parent and "OK" or "FAIL")
+	"· fireprox:", fireProxPrompt and "OK" or "MISSING")
