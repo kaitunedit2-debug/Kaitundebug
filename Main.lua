@@ -262,10 +262,6 @@ end)
 local Animations = {}
 local Components = (Screen:FindFirstChild("Components"));
 local Library = {};
-local StoredInfo = {
-	["Sections"] = {};
-	["Tabs"] = {}
-};
 
 --// Animations [Window]
 function Animations:Open(Window: CanvasGroup, Transparency: number, UseCurrentSize: boolean)
@@ -375,6 +371,10 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 	local Options = {};
 	local Examples = {};
+	local StoredInfo = {
+		["Sections"] = {};
+		["Tabs"] = {}
+	};
 	local Maximized = false;
 	local BlurEnabled = false
 
@@ -392,11 +392,16 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	Setup.ThemeMode = Settings.Theme or "Dark"
 
 	--// Blur nền (Blur.lua) -- nhận Blurring = true hoặc số 0..1 (độ mạnh)
+	local BlurIntensity = (typeof(Settings.Blurring) == "number" and math.clamp(Settings.Blurring, 0, 1)) or 1
 	local BlurObject
 	local MakeBlur = function()
 		if not Blur then return nil end
 
-		local Ok, Result = pcall(Blur.new, Window, (typeof(Settings.Blurring) == "number" and Settings.Blurring) or 1, { Visible = false })
+		local Ok, Result = pcall(Blur.new, Window, BlurIntensity, {
+			Visible = false,
+			AutoTrackVisibility = false,
+			Size = 22,
+		})
 		if Ok then
 			if typeof(Result.Show) ~= "function" then
 				warn("[UI LIB]: Đang dùng Blur.lua CŨ - hãy đổi link Sources.Blur sang Blur.lua mới để có blur đẹp.")
@@ -417,22 +422,36 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	--// Liquid Glass (LiquidGlass.lua) -- LiquidGlass = true hoặc { Intensity = 1, Tint = Color3, ... }
 	local GlassObject
 	local GlassSettings = Settings.LiquidGlass
+	local GlassIntensity = (typeof(GlassSettings) == "table" and tonumber(GlassSettings.Intensity)) or 1
+	local GlassEnabled = GlassSettings ~= nil and GlassSettings ~= false
 
-	if GlassSettings and LiquidGlass then
+	local MakeGlass = function()
+		if not LiquidGlass then
+			warn("[UI LIB]: Không tải được LiquidGlass.lua. Hãy đặt file cạnh Main.lua.")
+			return nil
+		end
+
 		local Config = (typeof(GlassSettings) == "table" and table.clone(GlassSettings)) or {}
-
+		Config.Intensity = GlassIntensity
 		Config.Corner = Config.Corner or (Window:FindFirstChildOfClass("UICorner") and Window:FindFirstChildOfClass("UICorner").CornerRadius)
-		--// Không tự làm trong suốt các khung nữa (tránh UI bị trắng/trống). Muốn thì truyền Frames = { {Window, 0.5}, ... }
+		Config.ZIndex = Config.ZIndex or (Window.ZIndex + 1)
+		Config.Visible = true
+		-- Không ép các frame nội dung trong suốt; kính chỉ phủ nền cửa sổ.
 
 		local Ok, Result = pcall(LiquidGlass.new, Window, Config)
 		if Ok then
-			GlassObject = Result
-		else
-			warn("[UI LIB]: LiquidGlass lỗi: " .. tostring(Result))
-
-			local Leftover = Window:FindFirstChild("LiquidGlass")
-			if Leftover then Leftover:Destroy() end
+			return Result
 		end
+
+		warn("[UI LIB]: LiquidGlass lỗi: " .. tostring(Result))
+		local Leftover = Window:FindFirstChild("LiquidGlass")
+		if Leftover then Leftover:Destroy() end
+		return nil
+	end
+
+	if GlassEnabled then
+		GlassObject = MakeGlass()
+		GlassEnabled = GlassObject ~= nil
 	end
 
 	if Settings.MinimizeKeybind then
@@ -442,8 +461,8 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	--// Minimize -> thanh "Show UI" (hoạt động cả PC lẫn mobile)
 	local Minimized, Busy = false, true --// Busy = true trong lúc animation mở đầu chạy
 	local Touch = Services.Input.TouchEnabled
-	local PillSize = Touch and Vector2.new(138, 36) or Vector2.new(116, 30)
-	local PillTop = Touch and 14 or 10
+	local PillSize = Touch and Vector2.new(164, 42) or Vector2.new(146, 38)
+	local PillTop = Touch and 16 or 12
 	local MinScale = 0.06
 	local Saved = { Position = nil, Size = nil }
 
@@ -463,23 +482,19 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		Name = "ShowUI",
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, PillTop),
-		Size = UDim2.fromOffset(PillSize.X * 0.4, PillSize.Y * 0.6),
+		Size = UDim2.fromOffset(PillSize.X * 0.55, PillSize.Y * 0.7),
 		BackgroundColor3 = Theme.Primary,
 		BackgroundTransparency = 1,
 		AutoButtonColor = false,
-		Font = Enum.Font.GothamMedium,
-		Text = "Show UI",
-		TextColor3 = Theme.Title,
-		TextTransparency = 1,
-		TextSize = Touch and 15 or 13,
+		Text = "",
 		Visible = false,
 		ZIndex = 200,
 		Parent = Screen,
 	})
 
-	SetProperty(Instance.new("UICorner"), { CornerRadius = UDim.new(1, 0), Parent = Pill })
+	SetProperty(Instance.new("UICorner"), { CornerRadius = UDim.new(0, 12), Parent = Pill })
 	local PillStroke = SetProperty(Instance.new("UIStroke"), {
-		Color = Color3.fromRGB(255, 255, 255),
+		Color = Theme.Tab,
 		Thickness = 1,
 		Transparency = 1,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
@@ -487,30 +502,85 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	})
 	local PillScale = SetProperty(Instance.new("UIScale"), { Scale = 1, Parent = Pill })
 
-	--// Pill cũng dùng liquid glass + blur riêng nếu có
-	local PillGlass, PillBlur
-	if GlassSettings and LiquidGlass then
-		local Ok, Result = pcall(LiquidGlass.new, Pill, { Corner = UDim.new(1, 0), RimThickness = 1.2, Intensity = 1, ZIndex = 201 })
-		PillGlass = Ok and Result or nil
+	local PillAccent = SetProperty(Instance.new("Frame"), {
+		Name = "Accent",
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 13, 0.5, 0),
+		Size = UDim2.fromOffset(7, 7),
+		BackgroundColor3 = Color3.fromRGB(104, 164, 255),
+		BorderSizePixel = 0,
+		ZIndex = 201,
+		Parent = Pill,
+	})
+	SetProperty(Instance.new("UICorner"), { CornerRadius = UDim.new(1, 0), Parent = PillAccent })
+	SetProperty(Instance.new("UIStroke"), {
+		Color = Color3.fromRGB(160, 195, 255),
+		Thickness = 1,
+		Transparency = 0.35,
+		Parent = PillAccent,
+	})
 
-		if not Ok then
-			local Leftover = Pill:FindFirstChild("LiquidGlass")
-			if Leftover then Leftover:Destroy() end
+	local PillLabel = SetProperty(Instance.new("TextLabel"), {
+		Name = "Label",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 29, 0, 0),
+		Size = UDim2.new(1, -42, 1, 0),
+		Font = Enum.Font.GothamMedium,
+		Text = "Show UI",
+		TextColor3 = Theme.Title,
+		TextTransparency = 1,
+		TextSize = Touch and 14 or 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Active = false,
+		ZIndex = 201,
+		Parent = Pill,
+	})
+
+	--// Hiệu ứng riêng cho thanh Minimal Show UI. Tạo lười để bật/tắt trực tiếp trong Settings.
+	local PillGlass, PillBlur
+	local MakePillGlass = function()
+		if PillGlass or not GlassEnabled or not LiquidGlass then return PillGlass end
+		local Ok, Result = pcall(LiquidGlass.new, Pill, {
+			Corner = UDim.new(0, 12),
+			RimThickness = 1.1,
+			Intensity = GlassIntensity,
+			ZIndex = Pill.ZIndex + 1,
+			Tint = Color3.fromRGB(238, 245, 255),
+		})
+		if Ok then
+			PillGlass = Result
+		else
+			warn("[UI LIB]: Pill LiquidGlass lỗi: " .. tostring(Result))
 		end
+		return PillGlass
 	end
-	if BlurEnabled and Blur then
-		local Ok, Result = pcall(Blur.new, Pill, 1, { Visible = false, Inset = 3 })
-		PillBlur = Ok and Result or nil
-		if PillBlur and typeof(PillBlur.Show) ~= "function" then BlurHide(PillBlur) end
+
+	local MakePillBlur = function()
+		if PillBlur or not BlurEnabled or not Blur then return PillBlur end
+		local Ok, Result = pcall(Blur.new, Pill, BlurIntensity, {
+			Visible = false,
+			AutoTrackVisibility = false,
+			Size = 18,
+		})
+		if Ok then
+			PillBlur = Result
+		else
+			warn("[UI LIB]: Pill Blur lỗi: " .. tostring(Result))
+		end
+		return PillBlur
 	end
 
 	--// Tâm của thanh -> điểm cửa sổ co về / bung ra
 	local GetTarget = function()
 		local Size = Window.AbsoluteSize / math.max(WindowScale.Scale, 0.001)
 		local Anchor = Window.AnchorPoint
-		local Center = Vector2.new(Screen.AbsoluteSize.X / 2, PillTop + PillSize.Y / 2)
+		local PillPosition = Pill.Position
+		local Center = Vector2.new(
+			Screen.AbsoluteSize.X * PillPosition.X.Scale + PillPosition.X.Offset,
+			Screen.AbsoluteSize.Y * PillPosition.Y.Scale + PillPosition.Y.Offset + PillSize.Y / 2
+		)
 
-		--// Bù AnchorPoint để TÂM cửa sổ rơi đúng tâm thanh (không phụ thuộc AnchorPoint)
+		-- Cửa sổ thu về đúng vị trí thanh Show UI, kể cả sau khi người dùng kéo thanh đi nơi khác.
 		local Offset = (Vector2.new(0.5, 0.5) - Anchor) * Size * MinScale
 		return UDim2.fromOffset(Center.X - Offset.X, Center.Y - Offset.Y)
 	end
@@ -518,19 +588,36 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	local ShowPill = function()
 		Pill.Visible = true
 		PillScale.Scale = 1
-		Pill.Size = UDim2.fromOffset(PillSize.X * 0.4, PillSize.Y * 0.6)
+		Pill.Size = UDim2.fromOffset(PillSize.X * 0.55, PillSize.Y * 0.7)
 
-		Play(Pill, .5, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Size = UDim2.fromOffset(PillSize.X, PillSize.Y), BackgroundTransparency = math.clamp(Setup.Transparency + 0.1, 0, 0.6) })
-		Play(Pill, .3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { TextTransparency = 0 })
-		Play(PillStroke, .3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 0.55 })
+		Play(Pill, .42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
+			Size = UDim2.fromOffset(PillSize.X, PillSize.Y),
+			BackgroundTransparency = 0.08,
+		})
+		Play(PillLabel, .28, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { TextTransparency = 0 })
+		Play(PillAccent, .28, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { BackgroundTransparency = 0 })
+		Play(PillStroke, .3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 0.58 })
 
-		if PillBlur then BlurShow(PillBlur, .3) end
+		if GlassEnabled then
+			local Glass = MakePillGlass()
+			if Glass then Glass:SetVisible(true) end
+		end
+		if BlurEnabled then
+			local BlurEffect = MakePillBlur()
+			if BlurEffect then BlurShow(BlurEffect, .3) end
+		end
 	end
 
 	local HidePill = function()
 		if PillBlur then BlurHide(PillBlur, .2) end
+		if PillGlass then PillGlass:SetVisible(false) end
 
-		local Animation = Play(Pill, .28, Enum.EasingStyle.Quint, Enum.EasingDirection.In, { Size = UDim2.fromOffset(PillSize.X * 0.4, PillSize.Y * 0.6), BackgroundTransparency = 1, TextTransparency = 1 })
+		local Animation = Play(Pill, .28, Enum.EasingStyle.Quint, Enum.EasingDirection.In, {
+			Size = UDim2.fromOffset(PillSize.X * 0.55, PillSize.Y * 0.7),
+			BackgroundTransparency = 1,
+		})
+		Play(PillLabel, .18, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { TextTransparency = 1 })
+		Play(PillAccent, .18, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { BackgroundTransparency = 1 })
 		Play(PillStroke, .2, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { Transparency = 1 })
 
 		return Animation
@@ -581,26 +668,55 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 		Connect(Grow.Completed, function()
 			Minimized, Busy = false, false
-			if BlurObject then BlurShow(BlurObject, .3) end
+			if BlurObject and BlurEnabled then BlurShow(BlurObject, .3) end
 		end)
 	end
 
-	--// Phản hồi khi chạm / rê chuột
-	Connect(Pill.MouseButton1Click, Restore)
+	--// Kéo được trên PC/mobile; chỉ tap mới restore để không vô tình mở UI khi thả sau khi kéo.
+	local PillDrag = { Active = false, Moved = false, Start = nil, StartPosition = nil, Input = nil, DragInput = nil }
 	Connect(Pill.InputBegan, function(Input)
 		if Busy then return end
-
 		if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
-			Play(PillScale, .1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 0.94 })
-		elseif Input.UserInputType == Enum.UserInputType.MouseMovement then
-			Play(PillScale, .2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 1.05 })
+			PillDrag.Active = true
+			PillDrag.Moved = false
+			PillDrag.Start = Input.Position
+			PillDrag.StartPosition = Pill.Position
+			PillDrag.Input = Input
+			PillDrag.DragInput = Input.UserInputType == Enum.UserInputType.Touch and Input or nil
+			Play(PillScale, .1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 0.97 })
 		end
 	end)
-	Connect(Pill.InputEnded, function(Input)
-		if Busy then return end
-
-		if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.MouseMovement then
-			Play(PillScale, .2, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Scale = 1 })
+	Connect(Pill.InputChanged, function(Input)
+		if Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch then
+			PillDrag.DragInput = Input
+		end
+	end)
+	Connect(Services.Input.InputChanged, function(Input)
+		if not PillDrag.Active or Busy then return end
+		local IsMouseMove = PillDrag.Input and PillDrag.Input.UserInputType == Enum.UserInputType.MouseButton1 and Input.UserInputType == Enum.UserInputType.MouseMovement
+		if Input == PillDrag.DragInput or IsMouseMove then
+			local Delta = Input.Position - PillDrag.Start
+			if Delta.Magnitude > 4 then PillDrag.Moved = true end
+			if PillDrag.Moved then
+				local Width, Height = Pill.AbsoluteSize.X, Pill.AbsoluteSize.Y
+				local ScreenSize = Screen.AbsoluteSize
+				local Left = math.clamp(PillDrag.StartPosition.X.Offset + Delta.X, Width / 2 + 6 - ScreenSize.X / 2, ScreenSize.X / 2 - Width / 2 - 6)
+				local Top = math.clamp(PillDrag.StartPosition.Y.Offset + Delta.Y, 6, ScreenSize.Y - Height - 6)
+				Pill.Position = UDim2.new(0.5, Left, 0, Top)
+			end
+		end
+	end)
+	Connect(Services.Input.InputEnded, function(Input)
+		if not PillDrag.Active then return end
+		local SameTouch = Input == PillDrag.Input and Input.UserInputType == Enum.UserInputType.Touch
+		local SameMouse = Input.UserInputType == Enum.UserInputType.MouseButton1 and PillDrag.Input and PillDrag.Input.UserInputType == Enum.UserInputType.MouseButton1
+		if SameTouch or SameMouse then
+			local ShouldRestore = not PillDrag.Moved
+			PillDrag.Active = false
+			PillDrag.Input = nil
+			PillDrag.DragInput = nil
+			Play(PillScale, .18, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Scale = 1 })
+			if ShouldRestore then Restore() end
 		end
 	end)
 
@@ -703,10 +819,16 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		});
 	end
 
-	function Options:AddTab(Settings: { Title: string, Icon: string, Section: string? })
-		if StoredInfo["Tabs"][Settings.Title] then 
-			error("[UI LIB]: A tab with the same name has already been created") 
-		end 
+	function Options:AddTab(Settings: { Title: string, Icon: string, Section: string?, LayoutOrder: number? })
+		local RequestedName = tostring(Settings.Title or "")
+		for ExistingName, ExistingData in next, StoredInfo["Tabs"] do
+			if ExistingName:lower() == RequestedName:lower() then
+				if ExistingName == "Settings" and ExistingData[2] then
+					return ExistingData[2]
+				end
+				error("[UI LIB]: A tab with the same name has already been created")
+			end
+		end
 
 		local Example, MainExample = Examples["TabButtonExample"], Examples["MainExample"];
 		local Section = StoredInfo["Sections"][Settings.Section];
@@ -719,7 +841,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			SetProperty(Tab["ICO"], { Image = Settings.Icon });
 		end
 
-		StoredInfo["Tabs"][Settings.Title] = { Tab }
+		StoredInfo["Tabs"][Settings.Title] = { Tab, Main.ScrollingFrame }
 		SetProperty(Tab["TextLabel"], { Text = Settings.Title });
 
 		SetProperty(Main, { 
@@ -729,7 +851,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 		SetProperty(Tab, { 
 			Parent = Example.Parent,
-			LayoutOrder = Section or #StoredInfo["Sections"] + 1,
+			LayoutOrder = Settings.LayoutOrder or Section or #StoredInfo["Sections"] + 1,
 			Name = Settings.Title;
 			Visible = true;
 		});
@@ -990,7 +1112,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		local Circle = Fill["Circle"];
 
 		local Active = false
-		local Value = 0
+		local Value = math.clamp(tonumber(Settings.Default) or 0, 0, Settings.MaxValue)
 		
 		local SetNumber = function(Number)
 			if Settings.AllowDecimals then
@@ -1003,25 +1125,28 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			return Number
 		end
 
-		local Update = function(Number)
-			local Scale = (Player.Mouse.X - Slide.AbsolutePosition.X) / Slide.AbsoluteSize.X			
-			Scale = (Scale > 1 and 1) or (Scale < 0 and 0) or Scale
+		local Update = function(Number, PointerX)
+			local X = PointerX or Player.Mouse.X
+			local Scale = (X - Slide.AbsolutePosition.X) / math.max(Slide.AbsoluteSize.X, 1)
+			Scale = math.clamp(Scale, 0, 1)
 			
-			if Number then
-				Number = (Number > Settings.MaxValue and Settings.MaxValue) or (Number < 0 and 0) or Number
+			if Number ~= nil then
+				Number = math.clamp(Number, 0, Settings.MaxValue)
 			end
 			
-			Value = SetNumber(Number or (Scale * Settings.MaxValue))
-			Amount.Text = Value
-			Fill.Size = UDim2.fromScale((Number and Number / Settings.MaxValue) or Scale, 1)
+			Value = SetNumber(Number ~= nil and Number or (Scale * Settings.MaxValue))
+			Amount.Text = tostring(Value)
+			local FillPercent = Number ~= nil and (Number / math.max(Settings.MaxValue, 1)) or Scale
+			Fill.Size = UDim2.fromScale(math.clamp(FillPercent, 0, 1), 1)
 			Settings.Callback(Value)
 		end
 
-		local Activate = function()
+		local Activate = function(Input)
 			Active = true
-
-			repeat task.wait()
-				Update()
+			repeat
+				local PointerX = Input and Input.UserInputType == Enum.UserInputType.Touch and Input.Position.X or nil
+				Update(nil, PointerX)
+				task.wait()
 			until not Active
 		end
 		
@@ -1029,14 +1154,19 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			Update(tonumber(Amount.Text) or 0)
 		end)
 
-		Connect(Fire.MouseButton1Down, Activate)
+		Connect(Fire.InputBegan, function(Input)
+			if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+				Activate(Input)
+			end
+		end)
 		Connect(Services.Input.InputEnded, function(Input) 
 			if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
 				Active = false
 			end
 		end)
 
-		Fill.Size = UDim2.fromScale(Value, 1);
+		Amount.Text = tostring(Value)
+		Fill.Size = UDim2.fromScale(Settings.MaxValue > 0 and Value / Settings.MaxValue or 0, 1);
 		Animations:Component(Slider);
 		SetProperty(Title, { Text = Settings.Title });
 		SetProperty(Description, { Text = Settings.Description });
@@ -1195,6 +1325,9 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		Window.BackgroundColor3 = Theme.Primary
 		Holder.BackgroundColor3 = Theme.Secondary
 		Window.UIStroke.Color = Theme.Shadow
+		Pill.BackgroundColor3 = Theme.Primary
+		PillLabel.TextColor3 = Theme.Title
+		PillStroke.Color = Theme.Tab or Theme.Title
 
 		for Index, Descendant in next, Screen:GetDescendants() do
 			local Name, Class =  Themes.Names[Descendant.Name],  Themes.Classes[Descendant.ClassName]
@@ -1209,66 +1342,115 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 	--// Changing Settings
 
-	function Options:SetSetting(Setting, Value) --// Available settings - Size, Transparency, Blur, Theme
+	function Options:SetSetting(Setting, Value) --// Size, Transparency, Blur, LiquidGlass, Theme, Keybind
 		if Setting == "Size" then
-			
 			Window.Size = Value
 			Setup.Size = Value
-			
 		elseif Setting == "Transparency" then
-			
 			Window.GroupTransparency = Value
 			Setup.Transparency = Value
-			
-			for Index, Notification in next, Screen:GetDescendants() do
+			for _, Notification in next, Screen:GetDescendants() do
 				if Notification:IsA("CanvasGroup") and Notification.Name == "Notification" then
 					Notification.GroupTransparency = Value
 				end
 			end
-			
 		elseif Setting == "Blur" then
-
-			if Value then
-				BlurEnabled = true
-
-				if not BlurObject then
-					BlurObject = MakeBlur()
-					BlurEnabled = BlurObject ~= nil
-				end
-
-				if BlurObject and not Minimized then
-					if typeof(Value) == "number" then BlurSetIntensity(BlurObject, Value) end
-					BlurShow(BlurObject, .3)
-				end
-			elseif BlurObject then
-				BlurEnabled = false
-				BlurHide(BlurObject, .3)
+			local Enable = Value == true or (typeof(Value) == "number" and Value > 0)
+			if typeof(Value) == "number" then
+				BlurIntensity = math.clamp(Value, 0, 1)
+				if BlurObject then BlurSetIntensity(BlurObject, BlurIntensity) end
+				if PillBlur then BlurSetIntensity(PillBlur, BlurIntensity) end
 			end
-
-		elseif Setting == "LiquidGlass" then
-
-			if GlassObject then
-				if typeof(Value) == "number" then
-					GlassObject:SetIntensity(Value)
-				else
-					GlassObject:SetVisible(Value and true or false)
+			BlurEnabled = Enable
+			if Enable then
+				if not BlurObject then BlurObject = MakeBlur() end
+				BlurEnabled = BlurObject ~= nil
+				if BlurObject and not Minimized then BlurShow(BlurObject, .35) end
+				if Minimized then
+					local Effect = MakePillBlur()
+					if Effect then BlurShow(Effect, .3) end
 				end
 			else
-				warn("[UI LIB]: LiquidGlass chưa được bật (cần LiquidGlass = true khi CreateWindow và file LiquidGlass.lua).")
+				if BlurObject then BlurHide(BlurObject, .3) end
+				if PillBlur then BlurHide(PillBlur, .25) end
 			end
-
+		elseif Setting == "LiquidGlass" then
+			local Enable = Value == true or (typeof(Value) == "number" and Value > 0)
+			if typeof(Value) == "number" then
+				GlassIntensity = math.clamp(Value, 0, 1.5)
+				if GlassObject then GlassObject:SetIntensity(GlassIntensity) end
+				if PillGlass then PillGlass:SetIntensity(GlassIntensity) end
+			end
+			GlassEnabled = Enable
+			if Enable then
+				if not GlassObject then GlassObject = MakeGlass() end
+				GlassEnabled = GlassObject ~= nil
+				if GlassObject then GlassObject:SetVisible(not Minimized) end
+				if Minimized then
+					local Effect = MakePillGlass()
+					if Effect then Effect:SetVisible(true) end
+				end
+			else
+				if GlassObject then GlassObject:SetVisible(false) end
+				if PillGlass then PillGlass:SetVisible(false) end
+			end
 		elseif Setting == "Theme" and typeof(Value) == "table" then
-			
 			Options:SetTheme(Value)
-			
 		elseif Setting == "Keybind" then
-			
 			Setup.Keybind = Value
-			
 		else
 			warn("Tried to change a setting that doesn't exist or isn't available to change.")
 		end
 	end
+
+	--// Built-in Appearance section: luôn có trong tab Settings, không phụ thuộc script ngoài có tự tạo hay không.
+	local VisualSettingsTab = Options:AddTab({ Title = "Settings", LayoutOrder = 999 })
+	Options:AddSection({ Name = "Appearance", Tab = VisualSettingsTab })
+	Options:AddToggle({
+		Title = "Background Blur",
+		Description = "Softly blur the 3D scene behind the window.",
+		Default = BlurEnabled,
+		Tab = VisualSettingsTab,
+		Callback = function(Value) Options:SetSetting("Blur", Value) end,
+	})
+	Options:AddSlider({
+		Title = "Blur Strength",
+		Description = "Adjust the amount of background blur.",
+		MaxValue = 1,
+		AllowDecimals = true,
+		DecimalAmount = 2,
+		Default = BlurIntensity,
+		Tab = VisualSettingsTab,
+		Callback = function(Value)
+			BlurIntensity = Value
+			if BlurEnabled then Options:SetSetting("Blur", Value) end
+		end,
+	})
+	Options:AddToggle({
+		Title = "Liquid Glass",
+		Description = "Add layered reflections, soft tint and a glass rim.",
+		Default = GlassEnabled,
+		Tab = VisualSettingsTab,
+		Callback = function(Value) Options:SetSetting("LiquidGlass", Value) end,
+	})
+	Options:AddSlider({
+		Title = "Glass Intensity",
+		Description = "Control the glass tint and reflective highlights.",
+		MaxValue = 1.5,
+		AllowDecimals = true,
+		DecimalAmount = 2,
+		Default = GlassIntensity,
+		Tab = VisualSettingsTab,
+		Callback = function(Value)
+			GlassIntensity = Value
+			if GlassEnabled then Options:SetSetting("LiquidGlass", Value) end
+		end,
+	})
+	Options:AddParagraph({
+		Title = "Minimal Show UI",
+		Description = "The floating rounded bar can be dragged anywhere. Tap it once to restore the window.",
+		Tab = VisualSettingsTab,
+	})
 
 	SetProperty(Window, { Size = Settings.Size, Visible = true, Parent = Screen });
 	Animations:Open(Window, Settings.Transparency or 0)
