@@ -202,13 +202,53 @@ Resizeable = function(Tab, Minimum, Maximum)
 end
 
 --// Setup [UI]
+--// Nguồn tải module khi chạy bằng executor. Đổi link thành repo của bạn (hoặc để file cùng tên trong workspace).
+local Sources = {
+	Blur = "https://raw.githubusercontent.com/lxte/lates-lib/main/Assets/Blur.lua",
+	LiquidGlass = "", --// ví dụ: "https://raw.githubusercontent.com/<user>/<repo>/main/LiquidGlass.lua"
+}
+
+if getgenv and getgenv().LateLibSources then
+	for Name, Url in next, getgenv().LateLibSources do
+		Sources[Name] = Url
+	end
+end
+
+--// Tải module an toàn: workspace file -> URL -> require (Studio). Lỗi thì trả nil chứ không làm sập UI.
+local LoadModule = function(Name: string)
+	local Ok, Result = pcall(function()
+		if identifyexecutor then
+			if isfile and readfile and isfile(Name .. ".lua") then
+				return loadstring(readfile(Name .. ".lua"))()
+			end
+
+			local Url = Sources[Name]
+			if Url and Url ~= "" then
+				return loadstring(game:HttpGet(Url))()
+			end
+
+			error("không có nguồn cho " .. Name)
+		else
+			return require(script:WaitForChild(Name, 5))
+		end
+	end)
+
+	if not Ok then
+		warn(("[UI LIB]: Không tải được %s (%s)"):format(Name, tostring(Result)))
+		return nil
+	end
+
+	return Result
+end
+
 if (identifyexecutor) then
 	Screen = Services.Insert:LoadLocalAsset("rbxassetid://18490507748");
-	Blur = loadstring(game:HttpGet("https://raw.githubusercontent.com/lxte/lates-lib/main/Assets/Blur.lua"))();
 else
 	Screen = (script.Parent);
-	Blur = require(script.Blur)
 end
+
+Blur = LoadModule("Blur")
+local LiquidGlass = LoadModule("LiquidGlass")
 
 Screen.Main.Visible = false
 
@@ -220,7 +260,6 @@ end)
 
 --// Tables for Data
 local Animations = {}
-local Blurs = {}
 local Components = (Screen:FindFirstChild("Components"));
 local Library = {};
 local StoredInfo = {
@@ -290,7 +329,7 @@ end
 
 --// Library [Window]
 
-function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparency: number, MinimizeKeybind: Enum.KeyCode?, Blurring: boolean, Theme: string })
+function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparency: number, MinimizeKeybind: Enum.KeyCode?, Blurring: (boolean | number)?, LiquidGlass: (boolean | { [string]: any })?, Theme: string })
 	local Window = Clone(Screen:WaitForChild("Main"));
 	local Sidebar = Window:FindFirstChild("Sidebar");
 	local Holder = Window:FindFirstChild("Main");
@@ -299,7 +338,6 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 	local Options = {};
 	local Examples = {};
-	local Opened = true;
 	local Maximized = false;
 	local BlurEnabled = false
 
@@ -316,26 +354,74 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	Setup.Size = Settings.Size
 	Setup.ThemeMode = Settings.Theme or "Dark"
 
+	--// Blur nền (Blur.lua) -- nhận Blurring = true hoặc số 0..1 (độ mạnh)
+	local BlurObject
+	local MakeBlur = function()
+		if not Blur then return nil end
+
+		local Ok, Result = pcall(Blur.new, Window, (typeof(Settings.Blurring) == "number" and Settings.Blurring) or 1, { Visible = false })
+		if Ok then return Result end
+
+		warn("[UI LIB]: Blur lỗi: " .. tostring(Result))
+		return nil
+	end
+
 	if Settings.Blurring then
-		Blurs[Settings.Title] = Blur.new(Window, 5)
-		BlurEnabled = true
+		BlurObject = MakeBlur()
+		BlurEnabled = BlurObject ~= nil
+	end
+
+	--// Liquid Glass (LiquidGlass.lua) -- LiquidGlass = true hoặc { Intensity = 1, Tint = Color3, ... }
+	local GlassObject
+	local GlassSettings = Settings.LiquidGlass
+
+	if GlassSettings and LiquidGlass then
+		local Config = (typeof(GlassSettings) == "table" and table.clone(GlassSettings)) or {}
+
+		Config.Corner = Config.Corner or (Window:FindFirstChildOfClass("UICorner") and Window:FindFirstChildOfClass("UICorner").CornerRadius)
+		Config.Frames = Config.Frames or {
+			{ Window, 0.55 },
+			{ Holder, 0.5 },
+			{ Sidebar, 0.6 },
+		}
+
+		local Ok, Result = pcall(LiquidGlass.new, Window, Config)
+		if Ok then
+			GlassObject = Result
+		else
+			warn("[UI LIB]: LiquidGlass lỗi: " .. tostring(Result))
+		end
 	end
 
 	if Settings.MinimizeKeybind then
 		Setup.Keybind = Settings.MinimizeKeybind
 	end
 
-	--// Minimize (thu nhỏ thành thanh "Show UI")
-	local Minimized, Busy = false, false
-	local PillSize = UDim2.fromOffset(120, 28)
-	local PillPos = UDim2.new(0.5, 0, 0, 12)
+	--// Minimize -> thanh "Show UI" (hoạt động cả PC lẫn mobile)
+	local Minimized, Busy = false, true --// Busy = true trong lúc animation mở đầu chạy
+	local Touch = Services.Input.TouchEnabled
+	local PillSize = Touch and Vector2.new(138, 36) or Vector2.new(116, 30)
+	local PillTop = Touch and 14 or 10
+	local MinScale = 0.06
+	local Saved = { Position = nil, Size = nil }
 
-	local Pill = Instance.new("TextButton")
-	SetProperty(Pill, {
+	local Play = function(Object: Instance, Time: number, Style: Enum.EasingStyle, Direction: Enum.EasingDirection, Properties: {})
+		local Animation = Services.Tween:Create(Object, TweenInfo.new(Time, Style, Direction), Properties)
+		Animation:Play()
+		return Animation
+	end
+
+	--// UIScale giúp cả cửa sổ co lại đều như macOS (không bị méo layout)
+	local WindowScale = Window:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+	WindowScale.Scale = 1
+	WindowScale.Parent = Window
+
+	--// Thanh Show UI
+	local Pill = SetProperty(Instance.new("TextButton"), {
 		Name = "ShowUI",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = PillPos,
-		Size = UDim2.fromOffset(0, 28),
+		Position = UDim2.new(0.5, 0, 0, PillTop),
+		Size = UDim2.fromOffset(PillSize.X * 0.4, PillSize.Y * 0.6),
 		BackgroundColor3 = Theme.Primary,
 		BackgroundTransparency = 1,
 		AutoButtonColor = false,
@@ -343,47 +429,84 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		Text = "Show UI",
 		TextColor3 = Theme.Title,
 		TextTransparency = 1,
-		TextSize = 13,
-		ClipsDescendants = true,
+		TextSize = Touch and 15 or 13,
 		Visible = false,
-		ZIndex = 100,
+		ZIndex = 200,
 		Parent = Screen,
 	})
-	local PillCorner = Instance.new("UICorner")
-	SetProperty(PillCorner, { CornerRadius = UDim.new(1, 0), Parent = Pill })
-	local PillStroke = Instance.new("UIStroke")
-	SetProperty(PillStroke, { Color = Theme.Outline, Thickness = 1, Transparency = 1, Parent = Pill })
 
-	local Saved = { Size = nil, Position = nil }
-	local Info = TweenInfo.new(.35, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut)
+	SetProperty(Instance.new("UICorner"), { CornerRadius = UDim.new(1, 0), Parent = Pill })
+	local PillStroke = SetProperty(Instance.new("UIStroke"), {
+		Color = Color3.fromRGB(255, 255, 255),
+		Thickness = 1,
+		Transparency = 1,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = Pill,
+	})
+	local PillScale = SetProperty(Instance.new("UIScale"), { Scale = 1, Parent = Pill })
+
+	--// Pill cũng dùng liquid glass + blur riêng nếu có
+	local PillGlass, PillBlur
+	if GlassSettings and LiquidGlass then
+		local Ok, Result = pcall(LiquidGlass.new, Pill, { Corner = UDim.new(1, 0), RimThickness = 1.2, Intensity = 1, ZIndex = 201 })
+		PillGlass = Ok and Result or nil
+	end
+	if BlurEnabled and Blur then
+		local Ok, Result = pcall(Blur.new, Pill, 1, { Visible = false, Inset = 3 })
+		PillBlur = Ok and Result or nil
+	end
+
+	--// Tâm của thanh -> điểm cửa sổ co về / bung ra
+	local GetTarget = function()
+		local Size = Window.AbsoluteSize / math.max(WindowScale.Scale, 0.001)
+		local Anchor = Window.AnchorPoint
+		local Center = Vector2.new(Screen.AbsoluteSize.X / 2, PillTop + PillSize.Y / 2)
+
+		--// Bù AnchorPoint để TÂM cửa sổ rơi đúng tâm thanh (không phụ thuộc AnchorPoint)
+		local Offset = (Vector2.new(0.5, 0.5) - Anchor) * Size * MinScale
+		return UDim2.fromOffset(Center.X - Offset.X, Center.Y - Offset.Y)
+	end
+
+	local ShowPill = function()
+		Pill.Visible = true
+		PillScale.Scale = 1
+		Pill.Size = UDim2.fromOffset(PillSize.X * 0.4, PillSize.Y * 0.6)
+
+		Play(Pill, .5, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Size = UDim2.fromOffset(PillSize.X, PillSize.Y), BackgroundTransparency = math.clamp(Setup.Transparency + 0.1, 0, 0.6) })
+		Play(Pill, .3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { TextTransparency = 0 })
+		Play(PillStroke, .3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 0.55 })
+
+		if PillBlur then PillBlur:Show(.3) end
+	end
+
+	local HidePill = function()
+		if PillBlur then PillBlur:Hide(.2) end
+
+		local Animation = Play(Pill, .28, Enum.EasingStyle.Quint, Enum.EasingDirection.In, { Size = UDim2.fromOffset(PillSize.X * 0.4, PillSize.Y * 0.6), BackgroundTransparency = 1, TextTransparency = 1 })
+		Play(PillStroke, .2, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { Transparency = 1 })
+
+		return Animation
+	end
 
 	local Minimize = function()
-		if Minimized or Busy or not Opened then return end
+		if Minimized or Busy then return end
 		Busy = true
 
-		Saved.Size, Saved.Position = Window.Size, Window.Position
-
-		if BlurEnabled and Blurs[Settings.Title] then
-			Blurs[Settings.Title].root.Parent = nil
-		end
-
-		--// Cửa sổ nhỏ dần về phía thanh trên đỉnh màn hình
+		Saved.Position, Saved.Size = Window.Position, Window.Size
 		local Shadow = Window:FindFirstChildOfClass("UIStroke")
-		if Shadow then Tween(Shadow, .25, { Transparency = 1 }) end
-		Services.Tween:Create(Window, Info, {
-			Size = PillSize,
-			Position = UDim2.new(0.5, 0, 0, 12 + PillSize.Y.Offset / 2),
-			GroupTransparency = 1,
-		}):Play()
 
-		task.delay(.25, function()
-			Pill.Visible = true
-			Services.Tween:Create(Pill, Info, { Size = PillSize, BackgroundTransparency = Setup.Transparency }):Play()
-			Services.Tween:Create(Pill, Info, { TextTransparency = 0 }):Play()
-			Services.Tween:Create(PillStroke, Info, { Transparency = 0.5 }):Play()
+		if BlurObject then BlurObject:Hide(.3) end
+		if Shadow then Play(Shadow, .25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 1 }) end
+
+		--// Cửa sổ co lại + bay lên thanh (Position đi nhanh hơn Scale để tạo cảm giác "hút" vào)
+		Play(Window, .42, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut, { Position = GetTarget(), GroupTransparency = 1 })
+		local Shrink = Play(WindowScale, .42, Enum.EasingStyle.Quart, Enum.EasingDirection.In, { Scale = MinScale })
+
+		task.delay(.26, function()
+			if not Minimized then ShowPill() end
 		end)
 
-		task.delay(.4, function()
+		Connect(Shrink.Completed, function()
 			Window.Visible = false
 			Minimized, Busy = true, false
 		end)
@@ -393,51 +516,53 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		if not Minimized or Busy then return end
 		Busy = true
 
-		--// Thanh thu lại, cửa sổ phóng to ra từ đó
-		Services.Tween:Create(Pill, Info, { Size = UDim2.fromOffset(0, 28), BackgroundTransparency = 1, TextTransparency = 1 }):Play()
-		Services.Tween:Create(PillStroke, Info, { Transparency = 1 }):Play()
+		--// Bấm xuống tạo cảm giác "nhấn" rồi thanh thu lại, cửa sổ bung ra từ thanh
+		Play(PillScale, .08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 0.92 })
+		local Hidden = HidePill()
 
 		Window.Visible = true
 		local Shadow = Window:FindFirstChildOfClass("UIStroke")
-		if Shadow then Tween(Shadow, .3, { Transparency = 0.5 }) end
-		Services.Tween:Create(Window, Info, {
-			Size = Saved.Size,
-			Position = Saved.Position,
-			GroupTransparency = Setup.Transparency or 0,
-		}):Play()
+		if Shadow then Play(Shadow, .4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 0.5 }) end
 
-		task.delay(.35, function()
+		Play(Window, .45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, { Position = Saved.Position, GroupTransparency = Setup.Transparency or 0 })
+		local Grow = Play(WindowScale, .5, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Scale = 1 })
+
+		Connect(Hidden.Completed, function()
 			Pill.Visible = false
-			Minimized, Busy = false, false
+		end)
 
-			if BlurEnabled and Blurs[Settings.Title] then
-				Blurs[Settings.Title].root.Parent = workspace.CurrentCamera
-			end
+		Connect(Grow.Completed, function()
+			Minimized, Busy = false, false
+			if BlurObject then BlurObject:Show(.3) end
 		end)
 	end
 
+	--// Phản hồi khi chạm / rê chuột
 	Connect(Pill.MouseButton1Click, Restore)
-	Connect(Pill.MouseEnter, function() Tween(Pill, .2, { BackgroundTransparency = math.max(Setup.Transparency - 0.15, 0) }) end)
-	Connect(Pill.MouseLeave, function() Tween(Pill, .2, { BackgroundTransparency = Setup.Transparency }) end)
+	Connect(Pill.InputBegan, function(Input)
+		if Busy then return end
 
-	--// Animate
-	local Close = function()
-		if Minimized or Busy then return end
-		if Opened then
-			if BlurEnabled then
-				Blurs[Settings.Title].root.Parent = nil
-			end
+		if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
+			Play(PillScale, .1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 0.94 })
+		elseif Input.UserInputType == Enum.UserInputType.MouseMovement then
+			Play(PillScale, .2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 1.05 })
+		end
+	end)
+	Connect(Pill.InputEnded, function(Input)
+		if Busy then return end
 
-			Opened = false
-			Animations:Close(Window)
-			Window.Visible = false
+		if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.MouseMovement then
+			Play(PillScale, .2, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Scale = 1 })
+		end
+	end)
+
+	--// Một logic ẩn/hiện duy nhất cho mọi cách ẩn (nút X, nút thu nhỏ, phím tắt PC)
+	--// -> luôn để lại thanh "Show UI" để mobile bấm mở lại được
+	local Toggle = function()
+		if Minimized then
+			Restore()
 		else
-			Animations:Open(Window, Setup.Transparency)
-			Opened = true
-
-			if BlurEnabled then
-				Blurs[Settings.Title].root.Parent = workspace.CurrentCamera
-			end
+			Minimize()
 		end
 	end
 
@@ -448,7 +573,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 			Connect(Button.MouseButton1Click, function() 
 				if Name == "Close" then
-					Close()
+					Minimize()
 				elseif Name == "Maximize" then
 					if Maximized then
 						Maximized = false
@@ -466,11 +591,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 	Services.Input.InputBegan:Connect(function(Input, Focused) 
 		if (Input == Setup.Keybind or Input.KeyCode == Setup.Keybind) and not Focused then
-			if Minimized then
-				Restore()
-			else
-				Close()
-			end
+			Toggle()
 		end
 	end)
 
@@ -1058,26 +1179,36 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			end
 			
 		elseif Setting == "Blur" then
-			
-			local AlreadyBlurred, Root = Blurs[Settings.Title], nil
-			
-			if AlreadyBlurred then
-				Root = Blurs[Settings.Title]["root"]
-			end
-			
+
 			if Value then
 				BlurEnabled = true
 
-				if not AlreadyBlurred or not Root then
-					Blurs[Settings.Title] = Blur.new(Window, 5)
-				elseif Root and not Root.Parent then
-					Root.Parent = workspace.CurrentCamera
+				if not BlurObject then
+					BlurObject = MakeBlur()
+					BlurEnabled = BlurObject ~= nil
 				end
-			elseif not Value and (AlreadyBlurred and Root and Root.Parent) then
-				Root.Parent = nil
+
+				if BlurObject and not Minimized then
+					if typeof(Value) == "number" then BlurObject:SetIntensity(Value) end
+					BlurObject:Show(.3)
+				end
+			elseif BlurObject then
 				BlurEnabled = false
+				BlurObject:Hide(.3)
 			end
-			
+
+		elseif Setting == "LiquidGlass" then
+
+			if GlassObject then
+				if typeof(Value) == "number" then
+					GlassObject:SetIntensity(Value)
+				else
+					GlassObject:SetVisible(Value and true or false)
+				end
+			else
+				warn("[UI LIB]: LiquidGlass chưa được bật (cần LiquidGlass = true khi CreateWindow và file LiquidGlass.lua).")
+			end
+
 		elseif Setting == "Theme" and typeof(Value) == "table" then
 			
 			Options:SetTheme(Value)
@@ -1093,6 +1224,9 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 	SetProperty(Window, { Size = Settings.Size, Visible = true, Parent = Screen });
 	Animations:Open(Window, Settings.Transparency or 0)
+
+	if BlurObject then BlurObject:Show(.4) end
+	task.delay(.4, function() Busy = false end)
 
 	return Options
 end
