@@ -327,6 +327,43 @@ function Animations:Component(Component: any, Custom: boolean)
 	end)
 end
 
+--// Helper blur an toàn: chạy được cả với Blur.lua cũ (không có Show/Hide) lẫn bản mới
+local BlurShow = function(Object, Time)
+	if not Object then return end
+
+	pcall(function()
+		if typeof(Object.Show) == "function" then
+			Object:Show(Time)
+		elseif Object.root then
+			Object.root.Parent = workspace.CurrentCamera
+		end
+	end)
+end
+
+local BlurHide = function(Object, Time)
+	if not Object then return end
+
+	pcall(function()
+		if typeof(Object.Hide) == "function" then
+			Object:Hide(Time)
+		elseif Object.root then
+			Object.root.Parent = nil
+		end
+	end)
+end
+
+local BlurSetIntensity = function(Object, Value)
+	if not Object then return end
+
+	pcall(function()
+		if typeof(Object.SetIntensity) == "function" then
+			Object:SetIntensity(Value)
+		elseif typeof(Object.setBlurIntensity) == "function" then
+			Object:setBlurIntensity(Value)
+		end
+	end)
+end
+
 --// Library [Window]
 
 function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparency: number, MinimizeKeybind: Enum.KeyCode?, Blurring: (boolean | number)?, LiquidGlass: (boolean | { [string]: any })?, Theme: string })
@@ -360,7 +397,13 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		if not Blur then return nil end
 
 		local Ok, Result = pcall(Blur.new, Window, (typeof(Settings.Blurring) == "number" and Settings.Blurring) or 1, { Visible = false })
-		if Ok then return Result end
+		if Ok then
+			if typeof(Result.Show) ~= "function" then
+				warn("[UI LIB]: Đang dùng Blur.lua CŨ - hãy đổi link Sources.Blur sang Blur.lua mới để có blur đẹp.")
+				BlurHide(Result)
+			end
+			return Result
+		end
 
 		warn("[UI LIB]: Blur lỗi: " .. tostring(Result))
 		return nil
@@ -379,17 +422,16 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		local Config = (typeof(GlassSettings) == "table" and table.clone(GlassSettings)) or {}
 
 		Config.Corner = Config.Corner or (Window:FindFirstChildOfClass("UICorner") and Window:FindFirstChildOfClass("UICorner").CornerRadius)
-		Config.Frames = Config.Frames or {
-			{ Window, 0.55 },
-			{ Holder, 0.5 },
-			{ Sidebar, 0.6 },
-		}
+		--// Không tự làm trong suốt các khung nữa (tránh UI bị trắng/trống). Muốn thì truyền Frames = { {Window, 0.5}, ... }
 
 		local Ok, Result = pcall(LiquidGlass.new, Window, Config)
 		if Ok then
 			GlassObject = Result
 		else
 			warn("[UI LIB]: LiquidGlass lỗi: " .. tostring(Result))
+
+			local Leftover = Window:FindFirstChild("LiquidGlass")
+			if Leftover then Leftover:Destroy() end
 		end
 	end
 
@@ -450,10 +492,16 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	if GlassSettings and LiquidGlass then
 		local Ok, Result = pcall(LiquidGlass.new, Pill, { Corner = UDim.new(1, 0), RimThickness = 1.2, Intensity = 1, ZIndex = 201 })
 		PillGlass = Ok and Result or nil
+
+		if not Ok then
+			local Leftover = Pill:FindFirstChild("LiquidGlass")
+			if Leftover then Leftover:Destroy() end
+		end
 	end
 	if BlurEnabled and Blur then
 		local Ok, Result = pcall(Blur.new, Pill, 1, { Visible = false, Inset = 3 })
 		PillBlur = Ok and Result or nil
+		if PillBlur and typeof(PillBlur.Show) ~= "function" then BlurHide(PillBlur) end
 	end
 
 	--// Tâm của thanh -> điểm cửa sổ co về / bung ra
@@ -476,11 +524,11 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		Play(Pill, .3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { TextTransparency = 0 })
 		Play(PillStroke, .3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 0.55 })
 
-		if PillBlur then PillBlur:Show(.3) end
+		if PillBlur then BlurShow(PillBlur, .3) end
 	end
 
 	local HidePill = function()
-		if PillBlur then PillBlur:Hide(.2) end
+		if PillBlur then BlurHide(PillBlur, .2) end
 
 		local Animation = Play(Pill, .28, Enum.EasingStyle.Quint, Enum.EasingDirection.In, { Size = UDim2.fromOffset(PillSize.X * 0.4, PillSize.Y * 0.6), BackgroundTransparency = 1, TextTransparency = 1 })
 		Play(PillStroke, .2, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { Transparency = 1 })
@@ -495,7 +543,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		Saved.Position, Saved.Size = Window.Position, Window.Size
 		local Shadow = Window:FindFirstChildOfClass("UIStroke")
 
-		if BlurObject then BlurObject:Hide(.3) end
+		if BlurObject then BlurHide(BlurObject, .3) end
 		if Shadow then Play(Shadow, .25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 1 }) end
 
 		--// Cửa sổ co lại + bay lên thanh (Position đi nhanh hơn Scale để tạo cảm giác "hút" vào)
@@ -533,7 +581,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 		Connect(Grow.Completed, function()
 			Minimized, Busy = false, false
-			if BlurObject then BlurObject:Show(.3) end
+			if BlurObject then BlurShow(BlurObject, .3) end
 		end)
 	end
 
@@ -1189,12 +1237,12 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 				end
 
 				if BlurObject and not Minimized then
-					if typeof(Value) == "number" then BlurObject:SetIntensity(Value) end
-					BlurObject:Show(.3)
+					if typeof(Value) == "number" then BlurSetIntensity(BlurObject, Value) end
+					BlurShow(BlurObject, .3)
 				end
 			elseif BlurObject then
 				BlurEnabled = false
-				BlurObject:Hide(.3)
+				BlurHide(BlurObject, .3)
 			end
 
 		elseif Setting == "LiquidGlass" then
@@ -1225,8 +1273,8 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	SetProperty(Window, { Size = Settings.Size, Visible = true, Parent = Screen });
 	Animations:Open(Window, Settings.Transparency or 0)
 
-	if BlurObject then BlurObject:Show(.4) end
 	task.delay(.4, function() Busy = false end)
+	BlurShow(BlurObject, .4)
 
 	return Options
 end
