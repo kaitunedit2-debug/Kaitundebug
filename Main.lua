@@ -204,8 +204,11 @@ end
 --// Setup [UI]
 local AssetURLs = {
 	Blur = "https://raw.githubusercontent.com/lxte/lates-lib/main/Assets/Blur.lua";
-	--// ĐỔI link này thành repo của bạn (nơi bạn upload Assets/LiquidGlass.lua)
-	LiquidGlass = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/Assets/LiquidGlass.lua";
+	--// Thử lần lượt các link (thư mục Assets trước, rồi thư mục gốc)
+	LiquidGlass = {
+		"https://raw.githubusercontent.com/kaitunedit2-debug/Kaitundebug/refs/heads/main/Assets/LiquidGlass.lua";
+		"https://raw.githubusercontent.com/kaitunedit2-debug/Kaitundebug/refs/heads/main/LiquidGlass.lua";
+	};
 }
 
 if (identifyexecutor) then
@@ -213,9 +216,14 @@ if (identifyexecutor) then
 	Blur = loadstring(game:HttpGet(AssetURLs.Blur))();
 
 	--// LiquidGlass load kiểu an toàn: lỗi thì chỉ tắt tính năng, không làm hỏng cả UI
-	local Loaded, Result = pcall(function()
-		return loadstring(game:HttpGet(AssetURLs.LiquidGlass))();
-	end)
+	local Loaded, Result = false, nil
+	for _, URL in ipairs(AssetURLs.LiquidGlass) do
+		Loaded, Result = pcall(function()
+			return loadstring(game:HttpGet(URL))();
+		end)
+
+		if Loaded and type(Result) == "table" then break end
+	end
 
 	if not Loaded and readfile and isfile and isfile("LiquidGlass.lua") then
 		Loaded, Result = pcall(function()
@@ -878,6 +886,34 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		SetProperty(Paragraph, {
 			Parent = Settings.Tab,
 			Visible = true,
+		})
+	end
+
+	--// Tạo sẵn công tắc + thanh chỉnh LiquidGlass trong 1 tab (dùng cho tab Settings)
+	function Options:AddLiquidGlassSettings(Settings: { Tab: Instance, Default: boolean })
+		local Default = Settings.Default
+		if Default == nil then
+			Default = (Glass ~= nil and Glass.Enabled) or false
+		end
+
+		Options:AddToggle({
+			Title = "Liquid Glass",
+			Description = "Hiệu ứng kính lỏng như giọt nước",
+			Default = Default,
+			Tab = Settings.Tab,
+			Callback = function(Value)
+				Options:SetSetting("LiquidGlass", Value)
+			end,
+		})
+
+		Options:AddSlider({
+			Title = "Liquid Glass Intensity",
+			Description = "Độ đậm của hiệu ứng (0 - 100)",
+			MaxValue = 100,
+			Tab = Settings.Tab,
+			Callback = function(Value)
+				Options:SetSetting("LiquidGlassIntensity", Value / 100)
+			end,
 		})
 	end
 
