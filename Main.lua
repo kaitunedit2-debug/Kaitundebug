@@ -461,8 +461,9 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	--// Minimize -> thanh "Show UI" (hoạt động cả PC lẫn mobile)
 	local Minimized, Busy = false, true --// Busy = true trong lúc animation mở đầu chạy
 	local Touch = Services.Input.TouchEnabled
-	local PillSize = Touch and Vector2.new(164, 42) or Vector2.new(146, 38)
-	local PillTop = Touch and 16 or 12
+	-- Minimal restore bar: compact rectangle, softly rounded, theme-matched.
+	local PillSize = Touch and Vector2.new(112, 32) or Vector2.new(104, 30)
+	local PillTop = 12
 	local MinScale = 0.06
 	local Saved = { Position = nil, Size = nil }
 
@@ -472,69 +473,24 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		return Animation
 	end
 
-	--// UIScale giúp cả cửa sổ co lại đều như macOS (không bị méo layout)
 	local WindowScale = Window:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 	WindowScale.Scale = 1
 	WindowScale.Parent = Window
 
-	--// Thanh Show UI
 	local Pill = SetProperty(Instance.new("TextButton"), {
-		Name = "ShowUI",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, PillTop),
-		Size = UDim2.fromOffset(PillSize.X * 0.55, PillSize.Y * 0.7),
-		BackgroundColor3 = Theme.Primary,
-		BackgroundTransparency = 1,
-		AutoButtonColor = false,
-		Text = "",
-		Visible = false,
-		ZIndex = 200,
-		Parent = Screen,
+		Name = "ShowUI", AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, PillTop), Size = UDim2.fromOffset(PillSize.X, PillSize.Y),
+		BackgroundColor3 = Theme.Component or Theme.Primary, BackgroundTransparency = 0.04,
+		AutoButtonColor = false, Text = "Show UI", TextColor3 = Theme.Title,
+		TextSize = 12, Font = Enum.Font.GothamMedium, Visible = false,
+		ZIndex = 200, Parent = Screen,
 	})
-
-	SetProperty(Instance.new("UICorner"), { CornerRadius = UDim.new(0, 12), Parent = Pill })
+	SetProperty(Instance.new("UICorner"), { CornerRadius = UDim.new(0, 5), Parent = Pill })
 	local PillStroke = SetProperty(Instance.new("UIStroke"), {
-		Color = Theme.Tab,
-		Thickness = 1,
-		Transparency = 1,
-		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-		Parent = Pill,
+		Color = Theme.Outline or Theme.Tab, Thickness = 1, Transparency = 0.35,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = Pill,
 	})
 	local PillScale = SetProperty(Instance.new("UIScale"), { Scale = 1, Parent = Pill })
-
-	local PillAccent = SetProperty(Instance.new("Frame"), {
-		Name = "Accent",
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 13, 0.5, 0),
-		Size = UDim2.fromOffset(7, 7),
-		BackgroundColor3 = Color3.fromRGB(104, 164, 255),
-		BorderSizePixel = 0,
-		ZIndex = 201,
-		Parent = Pill,
-	})
-	SetProperty(Instance.new("UICorner"), { CornerRadius = UDim.new(1, 0), Parent = PillAccent })
-	SetProperty(Instance.new("UIStroke"), {
-		Color = Color3.fromRGB(160, 195, 255),
-		Thickness = 1,
-		Transparency = 0.35,
-		Parent = PillAccent,
-	})
-
-	local PillLabel = SetProperty(Instance.new("TextLabel"), {
-		Name = "Label",
-		BackgroundTransparency = 1,
-		Position = UDim2.new(0, 29, 0, 0),
-		Size = UDim2.new(1, -42, 1, 0),
-		Font = Enum.Font.GothamMedium,
-		Text = "Show UI",
-		TextColor3 = Theme.Title,
-		TextTransparency = 1,
-		TextSize = Touch and 14 or 13,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Active = false,
-		ZIndex = 201,
-		Parent = Pill,
-	})
 
 	--// Hiệu ứng riêng cho thanh Minimal Show UI. Tạo lười để bật/tắt trực tiếp trong Settings.
 	local PillGlass, PillBlur
@@ -587,16 +543,13 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 	local ShowPill = function()
 		Pill.Visible = true
-		PillScale.Scale = 1
-		Pill.Size = UDim2.fromOffset(PillSize.X * 0.55, PillSize.Y * 0.7)
-
-		Play(Pill, .42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
-			Size = UDim2.fromOffset(PillSize.X, PillSize.Y),
-			BackgroundTransparency = 0.08,
-		})
-		Play(PillLabel, .28, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { TextTransparency = 0 })
-		Play(PillAccent, .28, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { BackgroundTransparency = 0 })
-		Play(PillStroke, .3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 0.58 })
+		PillScale.Scale = 0.96
+		Pill.Size = UDim2.fromOffset(PillSize.X, PillSize.Y)
+		Pill.BackgroundColor3 = Theme.Component or Theme.Primary
+		Pill.TextColor3 = Theme.Title
+		Play(PillScale, .22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, { Scale = 1 })
+		Play(Pill, .22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { BackgroundTransparency = 0.04 })
+		Play(PillStroke, .22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, { Transparency = 0.35 })
 
 		if GlassEnabled then
 			local Glass = MakePillGlass()
@@ -612,12 +565,8 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		if PillBlur then BlurHide(PillBlur, .2) end
 		if PillGlass then PillGlass:SetVisible(false) end
 
-		local Animation = Play(Pill, .28, Enum.EasingStyle.Quint, Enum.EasingDirection.In, {
-			Size = UDim2.fromOffset(PillSize.X * 0.55, PillSize.Y * 0.7),
-			BackgroundTransparency = 1,
-		})
-		Play(PillLabel, .18, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { TextTransparency = 1 })
-		Play(PillAccent, .18, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { BackgroundTransparency = 1 })
+		local Animation = Play(Pill, .2, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { BackgroundTransparency = 1 })
+		Play(PillScale, .2, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { Scale = 0.94 })
 		Play(PillStroke, .2, Enum.EasingStyle.Sine, Enum.EasingDirection.In, { Transparency = 1 })
 
 		return Animation
@@ -1325,8 +1274,8 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		Window.BackgroundColor3 = Theme.Primary
 		Holder.BackgroundColor3 = Theme.Secondary
 		Window.UIStroke.Color = Theme.Shadow
-		Pill.BackgroundColor3 = Theme.Primary
-		PillLabel.TextColor3 = Theme.Title
+		Pill.BackgroundColor3 = Theme.Component or Theme.Primary
+		Pill.TextColor3 = Theme.Title
 		PillStroke.Color = Theme.Tab or Theme.Title
 
 		for Index, Descendant in next, Screen:GetDescendants() do
@@ -1448,7 +1397,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	})
 	Options:AddParagraph({
 		Title = "Minimal Show UI",
-		Description = "The floating rounded bar can be dragged anywhere. Tap it once to restore the window.",
+		Description = "A compact theme-matched Show UI bar can be dragged. Tap it to restore the window.",
 		Tab = VisualSettingsTab,
 	})
 
