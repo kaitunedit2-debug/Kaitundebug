@@ -323,6 +323,22 @@ local FitSize = function(Size)
 	return UDim2.new(Size.X.Scale, X, Size.Y.Scale, Y)
 end
 
+--// Accepts 123456, "123456", "rbxassetid://123456" or a full url. Empty / nil means "no image".
+local NormalizeImage = function(Value)
+	if Value == nil then return nil end
+
+	if type(Value) == "number" then
+		return "rbxassetid://" .. tostring(math.floor(Value))
+	end
+
+	Value = tostring(Value):match("^%s*(.-)%s*$")
+
+	if Value == "" then return nil end
+	if Value:match("^%d+$") then return "rbxassetid://" .. Value end
+
+	return Value
+end
+
 --// ============================================================
 --// Blur (built in)
 --// Real backdrop blur: DepthOfField + near-camera glass quad that follows a GUI region
@@ -411,6 +427,27 @@ local DrawTriangle = function(V1, V2, V3, Slot0, Slot1)
 	Slot1.Part.CFrame = Cf1
 end
 
+local MakeLens = function()
+	local Part = Instance.new("Part")
+	Part.Anchored = true
+	Part.CanCollide = false
+	Part.CanQuery = false
+	Part.CanTouch = false
+	Part.CastShadow = false
+	Part.Massless = true
+	Part.Material = Enum.Material.Glass
+	Part.BrickColor = BrickColor.new("Institutional white")
+	Part.Reflectance = 0
+	Part.Transparency = 0.96
+	Part.Size = Vector3.new(0.5, 0.3, 0.1)
+
+	local Mesh = Instance.new("SpecialMesh")
+	Mesh.MeshType = Enum.MeshType.Sphere --// A flattened ellipsoid acts as a lens: its curved surface bends the world behind it
+	Mesh.Parent = Part
+
+	return Part
+end
+
 function Blur.new(Owner, Intensity, Inset)
 	BlurCounter += 1
 
@@ -425,6 +462,8 @@ function Blur.new(Owner, Intensity, Inset)
 		Bound = false,
 		Version = 0,
 		Tween = nil,
+		LensEnabled = false,
+		Lens = nil,
 	}, Blur)
 
 	self.Effect = Instance.new("DepthOfFieldEffect")
@@ -487,6 +526,32 @@ function Blur:_step()
 
 	DrawTriangle(V1, V2, V3, self.Slots[1], self.Slots[2])
 	DrawTriangle(V3, V2, V4, self.Slots[3], self.Slots[4])
+
+	--// Lens: sized and placed over the same screen region
+	if self.LensEnabled and self.Lens then
+		local Width, Height = (V2 - V1).Magnitude, (V3 - V1).Magnitude
+
+		if Width > 1e-4 and Height > 1e-4 then
+			self.Lens.Size = Vector3.new(Width, Height, math.clamp(math.min(Width, Height) * 0.3, 0.02, 0.3))
+			self.Lens.CFrame = CFrame.new((V1 + V4) / 2) * Camera.CFrame.Rotation
+		end
+	end
+end
+
+--// Real refraction of the 3D world (Roblox Glass material: PC only, graphics quality 8+)
+function Blur:SetLens(Value)
+	if self.Destroyed then return end
+
+	Value = not not Value
+	self.LensEnabled = Value
+
+	if Value and not self.Lens then
+		self.Lens = MakeLens()
+	end
+
+	if self.Lens then
+		self.Lens.Parent = Value and self.Folder or nil
+	end
 end
 
 function Blur:_bind()
@@ -684,7 +749,6 @@ function LiquidGlass:_applyTint()
 
 	self.LipGradient.Color = ColorSequence.new(Light, Tint)
 	self.Caustic.BackgroundColor3 = Light
-	self.DotB.BackgroundColor3 = Light
 
 	for _, Disc in ipairs(self.Discs) do
 		Disc.BackgroundColor3 = White:Lerp(Tint, 0.35)
@@ -730,6 +794,15 @@ function LiquidGlass:_build()
 	self.DispB = self:_ring("LG_DispB", 5, 1, 45, { { 0, 0.85 }, { 0.3, 1 }, { 0.7, 1 }, { 1, 0.45 } })
 	self.DispB.Color = ColorSequence.new(Color3.fromRGB(255, 140, 210))
 
+	--// Inner arc highlight (bright at top-left, faint at bottom-right) and inner shade (gives the glass thickness)
+	self.ArcGradient = self:_ring("LG_Arc", 8, 1.5, 45, {
+		{ 0, 0.3 }, { 0.2, 0.8 }, { 0.35, 1 }, { 0.65, 1 }, { 0.8, 0.85 }, { 1, 0.5 },
+	})
+	self.ShadeGradient = self:_ring("LG_Shade", 10, 2, 45, {
+		{ 0, 1 }, { 0.45, 1 }, { 0.7, 0.9 }, { 1, 0.78 },
+	})
+	self.ShadeGradient.Color = ColorSequence.new(Color3.fromRGB(10, 25, 60))
+
 	--// Top sheen (curvature of the droplet)
 	local Sheen = self:_frame("LG_Sheen", Front, {
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -749,23 +822,6 @@ function LiquidGlass:_build()
 	})
 	NewObject("UICorner", { CornerRadius = UDim.new(1, 0) }, self.Spec)
 	self:_gradient(self.Spec, 0, { { 0, 1 }, { 0.5, 0.55 }, { 1, 1 } })
-
-	--// Small water-bead glints
-	local DotA = self:_frame("LG_DotA", Front, { Position = UDim2.fromOffset(18, 14), Size = UDim2.fromOffset(7, 7) })
-	NewObject("UICorner", { CornerRadius = UDim.new(1, 0) }, DotA)
-	self:_fade(DotA, 0.35)
-
-	local DotC = self:_frame("LG_DotC", Front, { Position = UDim2.fromOffset(31, 11), Size = UDim2.fromOffset(3, 3) })
-	NewObject("UICorner", { CornerRadius = UDim.new(1, 0) }, DotC)
-	self:_fade(DotC, 0.5)
-
-	self.DotB = self:_frame("LG_DotB", Front, {
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -20, 1, -14),
-		Size = UDim2.fromOffset(5, 5),
-	})
-	NewObject("UICorner", { CornerRadius = UDim.new(1, 0) }, self.DotB)
-	self:_fade(self.DotB, 0.55)
 
 	--// Bottom caustic (focused light)
 	self.Caustic = self:_frame("LG_Caustic", Front, {
@@ -816,10 +872,6 @@ function LiquidGlass:_build()
 	})
 	self:_gradient(self.Sweep, 0, { { 0, 1 }, { 0.5, 0.9 }, { 1, 1 } })
 
-	if self.Compact then
-		DotA.Visible, DotC.Visible, self.DotB.Visible = false, false, false
-	end
-
 	self:_applyTint()
 end
 
@@ -836,6 +888,8 @@ function LiquidGlass.new(Window, Config)
 		Radius = (Corner and Corner.CornerRadius) or UDim.new(0, 12),
 		GetPointer = Config.GetPointer,
 		Compact = Config.Compact == true,
+		UIScale = Window:FindFirstChildOfClass("UIScale"),
+		ImageTransparency = Config.ImageTransparency or 0,
 
 		Enabled = false,
 		Destroyed = false,
@@ -858,7 +912,125 @@ function LiquidGlass.new(Window, Config)
 	end
 
 	self:_build()
+
+	if Config.Image then
+		self:SetImage(Config.Image, Config.ImageTransparency)
+	end
+
 	return self
+end
+
+--// ------------------------------------------------------------
+--// Wallpaper refraction
+--// When the window has a background image, the glass edge bends it like a water droplet:
+--// several layers of the same image are magnified more and more towards the rim,
+--// each one faded out towards the inside, so straight lines curve near the edge.
+--// ------------------------------------------------------------
+function LiquidGlass:_buildRefraction()
+	self.Refract = self:_frame("LG_Refract", self.Window, { Size = UDim2.fromScale(1, 1), ZIndex = -9, Visible = false })
+	self.Bands = {}
+
+	--// { zoom, thickness factor } - the outer layer is thin and strong, the inner one wide and gentle
+	local Layers = { { 1.05, 1.6 }, { 1.11, 1.0 }, { 1.19, 0.55 } }
+	local Sides = { { "Top", 90 }, { "Bottom", 270 }, { "Left", 0 }, { "Right", 180 } }
+
+	for _, Layer in ipairs(Layers) do
+		for _, Side in ipairs(Sides) do
+			local Container = self:_frame("LG_Band", self.Refract, { ClipsDescendants = true })
+
+			local Image = NewObject("ImageLabel", {
+				Name = "LG_Image",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ScaleType = Enum.ScaleType.Crop,
+				Image = self.ImageContent or "",
+				ImageTransparency = self.ImageTransparency,
+			}, Container)
+
+			local Gradient = NewObject("UIGradient", { Rotation = Side[2] }, Image)
+
+			table.insert(self.Bands, {
+				Container = Container, Image = Image, Gradient = Gradient,
+				Side = Side[1], Zoom = Layer[1], Factor = Layer[2],
+			})
+		end
+	end
+end
+
+function LiquidGlass:_layoutRefraction(W, H)
+	if not self.Bands then return end
+
+	local Base = math.clamp(math.min(W, H) * 0.16, 18, 46)
+	local Edge = FadeValue(0.1, math.min(self.Intensity, 1.2))
+
+	for _, Band in ipairs(self.Bands) do
+		local Zoom = Band.Zoom
+		local Thick = Base * Band.Factor
+		local IW, IH = W * Zoom, H * Zoom
+		local Horizontal = Band.Side == "Top" or Band.Side == "Bottom"
+
+		--// Where the window edge / inner band border fall along the image (0 - 1)
+		local Length = Horizontal and IH or IW
+		local Inner = Horizontal and H or W
+		local Start = math.max((Length - Inner) / 2 / Length, 0.0001)
+		local Stop = math.min(Start + Thick / Length, 0.999)
+
+		Band.Gradient.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, Edge),
+			NumberSequenceKeypoint.new(Start, Edge),
+			NumberSequenceKeypoint.new(Stop, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+
+		Band.Image.Size = UDim2.fromOffset(IW, IH)
+
+		if Band.Side == "Top" then
+			Band.Container.Position = UDim2.fromOffset(0, 0)
+			Band.Container.Size = UDim2.fromOffset(W, Thick)
+			Band.Image.Position = UDim2.fromOffset(W / 2, H / 2)
+		elseif Band.Side == "Bottom" then
+			Band.Container.Position = UDim2.fromOffset(0, H - Thick)
+			Band.Container.Size = UDim2.fromOffset(W, Thick)
+			Band.Image.Position = UDim2.fromOffset(W / 2, H / 2 - (H - Thick))
+		elseif Band.Side == "Left" then
+			Band.Container.Position = UDim2.fromOffset(0, 0)
+			Band.Container.Size = UDim2.fromOffset(Thick, H)
+			Band.Image.Position = UDim2.fromOffset(W / 2, H / 2)
+		else
+			Band.Container.Position = UDim2.fromOffset(W - Thick, 0)
+			Band.Container.Size = UDim2.fromOffset(Thick, H)
+			Band.Image.Position = UDim2.fromOffset(W / 2 - (W - Thick), H / 2)
+		end
+	end
+end
+
+function LiquidGlass:_updateRefract()
+	if self.Refract then
+		self.Refract.Visible = self.Enabled and self.ImageContent ~= nil
+	end
+end
+
+--// Content: image id / url (nil removes it), Transparency: image transparency
+function LiquidGlass:SetImage(Content, Transparency)
+	if self.Destroyed then return end
+
+	self.ImageContent = Content
+	self.ImageTransparency = Transparency or self.ImageTransparency or 0
+
+	if Content and not self.Bands and not self.Compact then
+		self:_buildRefraction()
+	end
+
+	if self.Bands then
+		for _, Band in ipairs(self.Bands) do
+			Band.Image.Image = Content or ""
+			Band.Image.ImageTransparency = self.ImageTransparency
+		end
+	end
+
+	self._lastSize = nil
+	self:_updateRefract()
 end
 
 function LiquidGlass:_applyPanels(On)
@@ -882,6 +1054,8 @@ function LiquidGlass:_applyPanels(On)
 end
 
 function LiquidGlass:_refresh()
+	self._lastSize = nil
+
 	for _, Info in ipairs(self.Gradients) do
 		Info[1].Transparency = BuildSequence(Info[2], self.Intensity)
 	end
@@ -909,15 +1083,24 @@ function LiquidGlass:_step(Delta)
 
 	if not Window.Visible then return end
 
-	local Size, Position = Window.AbsoluteSize, Window.AbsolutePosition
+	--// Work in the window's own (unscaled) coordinates so the minimize animation doesn't break the layout
+	local Factor = (self.UIScale and self.UIScale.Scale) or 1
+	if Factor <= 0 then return end
+
+	local Size, Position = Window.AbsoluteSize / Factor, Window.AbsolutePosition
 	if Size.X < 1 or Size.Y < 1 then return end
+
+	if self.Bands and (not self._lastSize or (self._lastSize - Size).Magnitude > 0.5) then
+		self._lastSize = Size
+		self:_layoutRefraction(Size.X, Size.Y)
+	end
 
 	local Time = os.clock() + self._phase
 	local Pointer = self.GetPointer and self.GetPointer()
 	local RelX, RelY = Size.X / 2, Size.Y / 2
 
 	if Pointer then
-		RelX, RelY = Pointer.X - Position.X, Pointer.Y - Position.Y
+		RelX, RelY = (Pointer.X - Position.X) / Factor, (Pointer.Y - Position.Y) / Factor
 	end
 
 	local Inside = Pointer ~= nil and RelX >= 0 and RelY >= 0 and RelX <= Size.X and RelY <= Size.Y
@@ -932,6 +1115,8 @@ function LiquidGlass:_step(Delta)
 	local Angle = 45 + (self._nx - self._ny) * 70
 	self.RimGradient.Rotation = Angle
 	self.LipGradient.Rotation = Angle
+	self.ArcGradient.Rotation = Angle
+	self.ShadeGradient.Rotation = Angle
 	self.DispA.Rotation = Angle + 8
 	self.DispB.Rotation = Angle - 8
 	self.BodyGradient.Rotation = 135 + self._nx * 20
@@ -1006,6 +1191,7 @@ function LiquidGlass:SetEnabled(Value)
 	self.Front.Visible = Value
 
 	self:_applyPanels(Value)
+	self:_updateRefract()
 
 	if Value then
 		self:_bind()
@@ -1047,6 +1233,10 @@ function LiquidGlass:Destroy()
 	pcall(function()
 		self.Back:Destroy()
 		self.Front:Destroy()
+
+		if self.Refract then
+			self.Refract:Destroy()
+		end
 	end)
 end
 
@@ -1375,7 +1565,7 @@ end
 --// ============================================================
 --// Library [Window]
 --// ============================================================
-function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparency: number, MinimizeKeybind: Enum.KeyCode?, Blurring: boolean, BlurIntensity: number, LiquidGlass: boolean, LiquidGlassIntensity: number, LiquidGlassTint: Color3, ShowButton: boolean, Theme: string })
+function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparency: number, MinimizeKeybind: Enum.KeyCode?, Blurring: boolean, BlurIntensity: number, Refraction: boolean, Background: any, BackgroundDim: number, BackgroundTransparency: number, LiquidGlass: boolean, LiquidGlassIntensity: number, LiquidGlassTint: Color3, ShowButton: boolean, Theme: string })
 	local Window = Clone(Screen:WaitForChild("Main"));
 	local Sidebar = Window:FindFirstChild("Sidebar");
 	local Holder = Window:FindFirstChild("Main");
@@ -1420,19 +1610,114 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		Setup.Keybind = Settings.MinimizeKeybind
 	end
 
-	--// Blur
-	local SetBlur = function(Value)
-		Value = not not Value
+	--// Background image + window surfaces
+	local BackgroundImage, BackgroundDimmer = nil, nil
+	local BackgroundValue = nil
+	local BackgroundDim = math.clamp(Settings.BackgroundDim or 0.45, 0, 1)
+	local BackgroundAlpha = math.clamp(Settings.BackgroundTransparency or 0, 0, 1)
+	local OriginalWindow, OriginalHolder = Window.BackgroundTransparency, Holder.BackgroundTransparency
 
-		if Value and not BlurObject then
-			BlurObject = Blur.new(Window, Settings.BlurIntensity or 1)
+	local Toward = function(From, To, Amount)
+		if To > From then
+			return From + (To - From) * math.clamp(Amount, 0, 1)
 		end
 
-		BlurEnabled = Value
+		return From
+	end
+
+	--// One place decides how translucent the window panels are (glass + background image)
+	local ApplySurfaces = function()
+		local WindowT, HolderT = OriginalWindow, OriginalHolder
+
+		if GlassEnabled then
+			local Amount = Settings.LiquidGlassIntensity or 1
+			WindowT = Toward(WindowT, 0.45, Amount)
+			HolderT = Toward(HolderT, 0.5, Amount)
+		end
+
+		if BackgroundValue then
+			HolderT = Toward(HolderT, 0.3, 1)
+		end
+
+		Window.BackgroundTransparency = WindowT
+		Holder.BackgroundTransparency = HolderT
+
+		if BackgroundDimmer then
+			BackgroundDimmer.BackgroundTransparency = BackgroundDim
+		end
+	end
+
+	local SetBackground = function(Value)
+		BackgroundValue = NormalizeImage(Value)
+
+		if BackgroundValue and not BackgroundImage then
+			BackgroundImage = Instance.new("ImageLabel")
+			SetProperty(BackgroundImage, {
+				Name = "BackgroundImage",
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				Size = UDim2.fromScale(1, 1),
+				ScaleType = Enum.ScaleType.Crop,
+				ZIndex = -10,
+				Visible = false,
+			})
+			pcall(function() BackgroundImage.Interactable = false end)
+			BackgroundImage.Parent = Window
+
+			BackgroundDimmer = Instance.new("Frame")
+			SetProperty(BackgroundDimmer, {
+				Name = "BackgroundDimmer",
+				BackgroundColor3 = Theme.Primary,
+				BorderSizePixel = 0,
+				Size = UDim2.fromScale(1, 1),
+				ZIndex = -8,
+				Visible = false,
+			})
+			pcall(function() BackgroundDimmer.Interactable = false end)
+			BackgroundDimmer.Parent = Window
+		end
+
+		if BackgroundImage then
+			BackgroundImage.Image = BackgroundValue or ""
+			BackgroundImage.ImageTransparency = BackgroundAlpha
+			BackgroundImage.Visible = BackgroundValue ~= nil
+			BackgroundDimmer.Visible = BackgroundValue ~= nil
+		end
+
+		if Glass then
+			Glass:SetImage(BackgroundValue, BackgroundAlpha)
+		end
+
+		ApplySurfaces()
+	end
+
+	--// Blur
+	local RefractionEnabled = Settings.Refraction ~= false
+	local RefractionSupported = not (Services.Input.TouchEnabled and not Services.Input.MouseEnabled) --// Roblox does not support Glass refraction on mobile
+
+	local WorldWanted = function()
+		return BlurEnabled or (GlassEnabled and RefractionEnabled and RefractionSupported)
+	end
+
+	--// Keeps the blur / lens object in sync with the Blur, Liquid Glass and Refraction settings
+	local UpdateWorld = function()
+		local Lens = GlassEnabled and RefractionEnabled and RefractionSupported
+		local Need = BlurEnabled or Lens
+
+		if Need and not BlurObject then
+			BlurObject = Blur.new(Window, 1)
+		end
 
 		if BlurObject then
-			BlurObject:SetVisible(Value and Opened, 0.4)
+			BlurObject:SetIntensity(BlurEnabled and (Settings.BlurIntensity or 1) or 0)
+			BlurObject:SetLens(Lens)
+			BlurObject:SetVisible(Need and Opened, 0.4)
 		end
+	end
+
+	local SetBlur = function(Value)
+		BlurEnabled = not not Value
+		UpdateWorld()
 
 		if SyncPrompt then SyncPrompt() end
 	end
@@ -1445,8 +1730,9 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			local Created, Result = pcall(LiquidGlass.new, Window, {
 				Intensity = Settings.LiquidGlassIntensity,
 				Tint = Settings.LiquidGlassTint,
-				GetPointer = GetPointer,
-				Panels = { { Window, 0.45 }, { Holder, 0.5 } },
+				GetPointer = GetHoverPointer,
+				Image = BackgroundValue,
+				ImageTransparency = BackgroundAlpha,
 			})
 
 			if not Created then
@@ -1464,7 +1750,14 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			Glass:SetEnabled(Value)
 		end
 
+		ApplySurfaces()
+		UpdateWorld()
+
 		if SyncPrompt then SyncPrompt() end
+	end
+
+	if Settings.Background ~= nil then
+		SetBackground(Settings.Background)
 	end
 
 	if Settings.Blurring then
@@ -1545,6 +1838,13 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 				Window.Visible = false
 				Scale.Scale = BaseScale
 				Window.Position = SavedPosition
+
+				--// A hidden window never receives InputEnded, so clear any stuck hover highlight on the control buttons
+				for _, Control in next, Sidebar.Top.Buttons:GetChildren() do
+					if Control:IsA("TextButton") then
+						Control.BackgroundTransparency = 1
+					end
+				end
 			end
 
 			Finish()
@@ -1572,7 +1872,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		end
 
 		if BlurObject then
-			BlurObject:SetVisible(BlurEnabled, 0.45)
+			BlurObject:SetVisible(WorldWanted(), 0.45)
 		end
 
 		Tween(Window, .5, { Position = Target }, Ease.Out)
@@ -2066,6 +2366,16 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			end,
 		})
 
+		Options:AddToggle({
+			Title = "Glass Refraction",
+			Description = "Bends the 3D world behind the window like real glass. PC only, graphics quality 8 or higher.",
+			Default = RefractionEnabled and RefractionSupported,
+			Tab = Info.Tab,
+			Callback = function(Value)
+				Options:SetSetting("Refraction", Value)
+			end,
+		})
+
 		Options:AddSlider({
 			Title = "Glass Intensity",
 			Description = "Adjust the strength of the Liquid Glass effect.",
@@ -2086,6 +2396,27 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			Tab = Info.Tab,
 			Callback = function(Value)
 				Options:SetSetting("Transparency", Value)
+			end,
+		})
+
+		Options:AddInput({
+			Title = "Background Image",
+			Description = "Paste a Roblox image ID (not a decal ID). Leave empty for no background.",
+			Tab = Info.Tab,
+			Callback = function(Text)
+				Options:SetSetting("Background", Text)
+			end,
+		})
+
+		Options:AddSlider({
+			Title = "Background Dim",
+			Description = "How much the theme color covers the background image.",
+			MaxValue = 1,
+			AllowDecimals = true,
+			Default = BackgroundDim,
+			Tab = Info.Tab,
+			Callback = function(Value)
+				Options:SetSetting("BackgroundDim", Value)
 			end,
 		})
 	end
@@ -2221,6 +2552,8 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 		Classes = {
 			["ImageLabel"] = function(Label)
+				if Label.Name == "BackgroundImage" or Label.Name == "LG_Image" then return end
+
 				if Label.Image ~= "rbxassetid://6644618143" then
 					Label.ImageColor3 = Theme.Icon
 				end
@@ -2254,6 +2587,10 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		Holder.BackgroundColor3 = Theme.Secondary
 		Window.UIStroke.Color = Theme.Shadow
 
+		if BackgroundDimmer then
+			BackgroundDimmer.BackgroundColor3 = Theme.Primary
+		end
+
 		for Index, Descendant in next, Screen:GetDescendants() do
 			local Name, Class =  Themes.Names[Descendant.Name],  Themes.Classes[Descendant.ClassName]
 
@@ -2273,7 +2610,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 	--// Changing Settings
 
-	function Options:SetSetting(Setting, Value) --// Available settings - Size, Transparency, Blur, BlurIntensity, LiquidGlass, LiquidGlassIntensity, LiquidGlassTint, ShowButton, Theme, Keybind
+	function Options:SetSetting(Setting, Value) --// Available settings - Size, Transparency, Blur, BlurIntensity, Refraction, LiquidGlass, LiquidGlassIntensity, LiquidGlassTint, ShowButton, Theme, Keybind
 		if Setting == "Size" then
 
 			Setup.Size = FitSize(Value)
@@ -2298,8 +2635,13 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		elseif Setting == "BlurIntensity" then
 
 			Settings.BlurIntensity = Value
-			if BlurObject then BlurObject:SetIntensity(Value) end
+			UpdateWorld()
 			SyncPrompt()
+
+		elseif Setting == "Refraction" then
+
+			RefractionEnabled = not not Value
+			UpdateWorld()
 
 		elseif Setting == "LiquidGlass" then
 
@@ -2309,6 +2651,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 			Settings.LiquidGlassIntensity = Value
 			if Glass then Glass:SetIntensity(Value) end
+			ApplySurfaces()
 			SyncPrompt()
 
 		elseif Setting == "LiquidGlassTint" then
@@ -2316,6 +2659,21 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 			Settings.LiquidGlassTint = Value
 			if Glass then Glass:SetTint(Value) end
 			SyncPrompt()
+
+		elseif Setting == "Background" then
+
+			SetBackground(Value)
+
+		elseif Setting == "BackgroundDim" then
+
+			BackgroundDim = math.clamp(tonumber(Value) or BackgroundDim, 0, 1)
+			ApplySurfaces()
+
+		elseif Setting == "BackgroundTransparency" then
+
+			BackgroundAlpha = math.clamp(tonumber(Value) or BackgroundAlpha, 0, 1)
+			if BackgroundImage then BackgroundImage.ImageTransparency = BackgroundAlpha end
+			if Glass then Glass:SetImage(BackgroundValue, BackgroundAlpha) end
 
 		elseif Setting == "ShowButton" then
 
