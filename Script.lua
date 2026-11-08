@@ -13,6 +13,14 @@ local Window = Library:CreateWindow({
 	LiquidGlass = true,
 	LiquidGlassIntensity = 1,
 	ShowButton = true, -- floating "Show UI" button (default: mobile only)
+
+	--// Background image (optional - default is no background)
+	--// Put a Roblox IMAGE id here (not a Decal id), for example:
+	--// Background = "rbxassetid://1234567890",
+	--// With a background, Liquid Glass bends the image along the window edges like a water droplet.
+	Background = nil,
+	BackgroundDim = 0.45,        -- 0 = image fully visible, 1 = fully covered by the theme color
+	BackgroundTransparency = 0,  -- transparency of the image itself
 	MinimizeKeybind = Enum.KeyCode.LeftAlt,
 })
 
@@ -208,7 +216,8 @@ Window:AddDropdown({
 	end,
 }) 
 
---// Blur, Liquid Glass and Transparency controls
+--// Blur, Liquid Glass, Transparency and Background Image controls
+--// (you can also change the background at any time with Window:SetSetting("Background", "rbxassetid://ID"))
 Window:AddAppearanceSettings({
 	Tab = Settings,
 })
