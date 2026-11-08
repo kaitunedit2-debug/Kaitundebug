@@ -113,10 +113,18 @@ end
 
 --// Pointer (works for mouse and touch)
 local TouchPointer = nil
+local TouchDown = false
 
 Connect(Services.Input.InputBegan, function(Input)
 	if Input.UserInputType == Enum.UserInputType.Touch then
 		TouchPointer = Vector2.new(Input.Position.X, Input.Position.Y)
+		TouchDown = true
+	end
+end)
+
+Connect(Services.Input.InputEnded, function(Input)
+	if Input.UserInputType == Enum.UserInputType.Touch then
+		TouchDown = false
 	end
 end)
 
@@ -126,12 +134,26 @@ Connect(Services.Input.InputChanged, function(Input)
 	end
 end)
 
+--// Last known pointer position (never nil)
 local GetPointer = function()
 	if Services.Input.MouseEnabled or not TouchPointer then
 		return Services.Input:GetMouseLocation()
 	end
 
 	return TouchPointer
+end
+
+--// Pointer used for glow effects: mouse hover on desktop, finger only while it is touching on mobile
+local GetHoverPointer = function()
+	if Services.Input.MouseEnabled then
+		return Services.Input:GetMouseLocation()
+	end
+
+	if TouchDown and TouchPointer then
+		return TouchPointer
+	end
+
+	return nil
 end
 
 --// Drag & Resize
@@ -389,7 +411,7 @@ local DrawTriangle = function(V1, V2, V3, Slot0, Slot1)
 	Slot1.Part.CFrame = Cf1
 end
 
-function Blur.new(Owner, Intensity)
+function Blur.new(Owner, Intensity, Inset)
 	BlurCounter += 1
 
 	local self = setmetatable({
@@ -428,7 +450,8 @@ function Blur.new(Owner, Intensity)
 	self.Region.Name = "BlurRegion"
 	self.Region.AnchorPoint = Vector2.new(0.5, 0.5)
 	self.Region.Position = UDim2.fromScale(0.5, 0.5)
-	self.Region.Size = UDim2.new(1, -16, 1, -16)
+	Inset = Inset or 8
+	self.Region.Size = UDim2.new(1, -Inset * 2, 1, -Inset * 2)
 	self.Region.BackgroundTransparency = 1
 	self.Region.BorderSizePixel = 0
 	pcall(function() self.Region.Interactable = false end)
@@ -662,6 +685,10 @@ function LiquidGlass:_applyTint()
 	self.LipGradient.Color = ColorSequence.new(Light, Tint)
 	self.Caustic.BackgroundColor3 = Light
 	self.DotB.BackgroundColor3 = Light
+
+	for _, Disc in ipairs(self.Discs) do
+		Disc.BackgroundColor3 = White:Lerp(Tint, 0.35)
+	end
 end
 
 function LiquidGlass:_build()
@@ -750,14 +777,33 @@ function LiquidGlass:_build()
 	NewObject("UICorner", { CornerRadius = UDim.new(1, 0) }, self.Caustic)
 	self:_gradient(self.Caustic, 0, { { 0, 1 }, { 0.5, 0.55 }, { 1, 1 } })
 
-	--// Pointer light
-	self.Glow = self:_frame("LG_Glow", Front, { Size = UDim2.fromScale(1, 1), Visible = false })
-	self.Orbs = {}
+	--// Pointer light: a soft radial glow built from many faint concentric discs,
+	--// rendered inside one CanvasGroup so a single property controls its fade
+	self.Glow = NewObject("CanvasGroup", {
+		Name = "LG_Glow",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		GroupTransparency = 1,
+		Size = UDim2.fromOffset(200, 200),
+		Visible = false,
+	}, Front)
 
-	for _, Info in ipairs({ { 1, 0.97 }, { 0.72, 0.95 }, { 0.46, 0.93 }, { 0.24, 0.9 } }) do
-		local Orb = self:_frame("LG_Orb", self.Glow, { AnchorPoint = Vector2.new(0.5, 0.5) })
-		NewObject("UICorner", { CornerRadius = UDim.new(1, 0) }, Orb)
-		table.insert(self.Orbs, { Orb, Info[1], Info[2] })
+	self.Discs = {}
+
+	local Steps = 18
+	for Index = 1, Steps do
+		local Ratio = 1 - ((Index - 1) / Steps) * 0.96
+		local Amount = 0.010 + 0.026 * (Index / Steps) ^ 2
+
+		local Disc = self:_frame("LG_Disc", self.Glow, {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(Ratio, Ratio),
+			BackgroundTransparency = 1 - Amount,
+		})
+		NewObject("UICorner", { CornerRadius = UDim.new(1, 0) }, Disc)
+		table.insert(self.Discs, Disc)
 	end
 
 	--// Periodic light sweep
@@ -769,6 +815,10 @@ function LiquidGlass:_build()
 		Visible = false,
 	})
 	self:_gradient(self.Sweep, 0, { { 0, 1 }, { 0.5, 0.9 }, { 1, 1 } })
+
+	if self.Compact then
+		DotA.Visible, DotC.Visible, self.DotB.Visible = false, false, false
+	end
 
 	self:_applyTint()
 end
@@ -785,6 +835,7 @@ function LiquidGlass.new(Window, Config)
 		Tint = Config.Tint or DefaultTint,
 		Radius = (Corner and Corner.CornerRadius) or UDim.new(0, 12),
 		GetPointer = Config.GetPointer,
+		Compact = Config.Compact == true,
 
 		Enabled = false,
 		Destroyed = false,
@@ -902,18 +953,16 @@ function LiquidGlass:_step(Delta)
 		self._gx += (math.clamp(RelX, 0, Size.X) - self._gx) * Follow
 		self._gy += (math.clamp(RelY, 0, Size.Y) - self._gy) * Follow
 
-		local Diameter = math.clamp(math.max(Size.X, Size.Y) * 0.5, 140, 320)
-		local Strength = self.Intensity * self._alpha
+		local Diameter = math.clamp(math.max(Size.X, Size.Y) * (self.Compact and 1.2 or 0.55), self.Compact and 40 or 150, 340)
 
-		for _, Orb in ipairs(self.Orbs) do
-			local Side = Diameter * Orb[2]
-			Orb[1].Size = UDim2.fromOffset(Side, Side)
-			Orb[1].Position = UDim2.fromOffset(self._gx, self._gy)
-			Orb[1].BackgroundTransparency = FadeValue(Orb[3], Strength)
-		end
+		self.Glow.Size = UDim2.fromOffset(Diameter, Diameter)
+		self.Glow.Position = UDim2.fromOffset(self._gx, self._gy)
+		self.Glow.GroupTransparency = 1 - math.clamp(self.Intensity * self._alpha, 0, 1)
 	elseif self.Glow.Visible then
 		self.Glow.Visible = false
 	end
+
+	if self.Compact then return end
 
 	--// Light sweep (once every 9 seconds)
 	local Phase = (Time % 9) / 9
@@ -1074,28 +1123,49 @@ end
 --// "Show UI" prompt (small floating pill, shown while the window is hidden)
 --// Tap it to bring the window back. It can be dragged anywhere on screen.
 --// ============================================================
-local CreatePrompt = function(OnClick)
+local CreatePrompt = function(OnClick, CornerRadius)
 	local Prompt = {}
 	local Shown = false
 	local Version = 0
 	local Home = UDim2.new(0.5, 0, 0, 28)
 	local Connections = {}
 
-	local Holder = Instance.new("Frame")
+	local PromptBlur, PromptGlass = nil, nil
+	local BlurWanted, GlassWanted = false, false
+	local BlurIntensity, GlassIntensity = 1, 1
+
+	--// Same translucency rules as the window
+	local Rest = function()
+		if GlassWanted and PromptGlass then
+			return 0.08 + (0.45 - 0.08) * math.clamp(GlassIntensity, 0, 1)
+		end
+
+		return 0.08
+	end
+
+	local Holder = Instance.new("CanvasGroup")
 	SetProperty(Holder, {
 		Name = "ShowPrompt",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Size = UDim2.fromOffset(92, 30),
-		Position = UDim2.new(0.5, 0, 0, -40),
+		Position = Home,
 		BackgroundColor3 = Theme.Primary,
-		BackgroundTransparency = 1,
+		BackgroundTransparency = Rest(),
+		GroupTransparency = 1,
 		BorderSizePixel = 0,
 		Visible = false,
 		ZIndex = 100,
 	})
 
+	local Pulse = Instance.new("UIScale")
+	Pulse.Scale = 0.85
+	Pulse.Parent = Holder
+
+	--// Corner radius follows the window (capped so it never exceeds a full pill)
+	local Radius = (CornerRadius and CornerRadius.Offset > 0) and CornerRadius.Offset or 8
+
 	local Corner = Instance.new("UICorner")
-	Corner.CornerRadius = UDim.new(0, 8)
+	Corner.CornerRadius = UDim.new(0, math.min(Radius, 15))
 	Corner.Parent = Holder
 
 	local Stroke = Instance.new("UIStroke")
@@ -1103,10 +1173,16 @@ local CreatePrompt = function(OnClick)
 		Name = "PromptStroke",
 		Color = Theme.Outline,
 		Thickness = 1,
-		Transparency = 1,
+		Transparency = 0.45,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	})
 	Stroke.Parent = Holder
+
+	--// Same font as the UI titles
+	local Face
+	pcall(function()
+		Face = Components["Button"]["Labels"]["Title"].FontFace
+	end)
 
 	local Label = Instance.new("TextLabel")
 	SetProperty(Label, {
@@ -1117,9 +1193,11 @@ local CreatePrompt = function(OnClick)
 		Text = "Show UI",
 		TextSize = 13,
 		TextColor3 = Theme.Title,
-		TextTransparency = 1,
 		ZIndex = 101,
 	})
+	if Face then
+		Label.FontFace = Face
+	end
 	Label.Parent = Holder
 
 	local Button = Instance.new("TextButton")
@@ -1134,14 +1212,18 @@ local CreatePrompt = function(OnClick)
 	Button.Parent = Holder
 	Holder.Parent = Screen
 
-	local HiddenPosition = function()
-		return UDim2.new(Home.X.Scale, Home.X.Offset, 0, -40)
-	end
-
 	function Prompt:Refresh()
 		Holder.BackgroundColor3 = Theme.Primary
 		Stroke.Color = Theme.Outline
 		Label.TextColor3 = Theme.Title
+
+		if PromptGlass then
+			PromptGlass:SetLight((Theme.Primary.R + Theme.Primary.G + Theme.Primary.B) / 3 > 0.6)
+		end
+
+		if Shown then
+			Holder.GroupTransparency = Setup.Transparency
+		end
 	end
 
 	function Prompt:GetCenter()
@@ -1149,16 +1231,65 @@ local CreatePrompt = function(OnClick)
 		return Vector2.new(View.X * Home.X.Scale + Home.X.Offset, View.Y * Home.Y.Scale + Home.Y.Offset)
 	end
 
+	function Prompt:SetBlur(Value, Intensity)
+		BlurWanted = not not Value
+		BlurIntensity = Intensity or BlurIntensity
+
+		if BlurWanted and not PromptBlur then
+			PromptBlur = Blur.new(Holder, BlurIntensity, 4)
+		end
+
+		if PromptBlur then
+			PromptBlur:SetIntensity(BlurIntensity)
+			PromptBlur:SetVisible(BlurWanted and Shown, 0.3)
+		end
+	end
+
+	function Prompt:SetGlass(Value, Intensity, Tint)
+		GlassWanted = not not Value
+		GlassIntensity = Intensity or GlassIntensity
+
+		if GlassWanted and not PromptGlass then
+			local Created, Result = pcall(LiquidGlass.new, Holder, {
+				Intensity = GlassIntensity,
+				Tint = Tint,
+				GetPointer = GetHoverPointer,
+				Compact = true,
+			})
+
+			if Created then
+				PromptGlass = Result
+			end
+		end
+
+		if PromptGlass then
+			PromptGlass:SetIntensity(GlassIntensity)
+
+			if Tint then
+				PromptGlass:SetTint(Tint)
+			end
+
+			PromptGlass:SetLight((Theme.Primary.R + Theme.Primary.G + Theme.Primary.B) / 3 > 0.6)
+			PromptGlass:SetEnabled(GlassWanted)
+		end
+
+		Tween(Holder, .25, { BackgroundTransparency = Rest() })
+	end
+
+	--// The window condenses into the pill, so the pill simply fades / pulses in place
 	function Prompt:Show()
 		Version += 1
 		Shown = true
 
-		Holder.Position = HiddenPosition()
-		Holder.Visible = true
+		SetProperty(Holder, { Position = Home, GroupTransparency = 1, Visible = true })
+		Pulse.Scale = 0.8
 
-		Tween(Holder, .5, { Position = Home, BackgroundTransparency = 0.08 }, Ease.Out)
-		Tween(Label, .35, { TextTransparency = 0 })
-		Tween(Stroke, .35, { Transparency = 0.45 })
+		Tween(Holder, .35, { GroupTransparency = Setup.Transparency }, Ease.SineOut)
+		Tween(Pulse, .5, { Scale = 1 }, Ease.Out)
+
+		if PromptBlur then
+			PromptBlur:SetVisible(BlurWanted, 0.45)
+		end
 	end
 
 	function Prompt:Hide()
@@ -1169,11 +1300,14 @@ local CreatePrompt = function(OnClick)
 
 		local Current = Version
 
-		Tween(Holder, .3, { Position = HiddenPosition(), BackgroundTransparency = 1 }, Ease.In)
-		Tween(Label, .2, { TextTransparency = 1 })
-		Tween(Stroke, .2, { Transparency = 1 })
+		Tween(Holder, .25, { GroupTransparency = 1 }, Ease.SineIn)
+		Tween(Pulse, .25, { Scale = 0.85 }, Ease.In)
 
-		task.delay(.32, function()
+		if PromptBlur then
+			PromptBlur:SetVisible(false, 0.25)
+		end
+
+		task.delay(.27, function()
 			if Version == Current then
 				Holder.Visible = false
 			end
@@ -1184,6 +1318,9 @@ local CreatePrompt = function(OnClick)
 		for _, Item in next, Connections do
 			Item:Disconnect()
 		end
+
+		if PromptGlass then PromptGlass:Destroy() end
+		if PromptBlur then PromptBlur:Destroy() end
 
 		Holder:Destroy()
 	end
@@ -1253,6 +1390,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 	local Pending = false;
 
 	local BlurObject, Glass = nil, nil
+	local Prompt, SyncPrompt
 	local BlurEnabled, GlassEnabled = false, false
 
 	local Scale = Window:FindFirstChildOfClass("UIScale")
@@ -1295,6 +1433,8 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		if BlurObject then
 			BlurObject:SetVisible(Value and Opened, 0.4)
 		end
+
+		if SyncPrompt then SyncPrompt() end
 	end
 
 	--// Liquid Glass
@@ -1323,6 +1463,8 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		if Glass then
 			Glass:SetEnabled(Value)
 		end
+
+		if SyncPrompt then SyncPrompt() end
 	end
 
 	if Settings.Blurring then
@@ -1341,9 +1483,19 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 	local Toggle
 
-	local Prompt = CreatePrompt(function()
+	local WindowCorner = Window:FindFirstChildOfClass("UICorner")
+
+	Prompt = CreatePrompt(function()
 		Toggle()
-	end)
+	end, WindowCorner and WindowCorner.CornerRadius)
+
+	--// Keeps the Show UI pill in sync with the window (blur, glass, tint)
+	SyncPrompt = function()
+		Prompt:SetBlur(BlurEnabled, Settings.BlurIntensity or 1)
+		Prompt:SetGlass(GlassEnabled, Settings.LiquidGlassIntensity or 1, Settings.LiquidGlassTint)
+	end
+
+	SyncPrompt()
 
 	local ShrunkPosition = function()
 		local Small = ResolveSize(Window.Size) * BaseScale * MinimizeScale
@@ -1381,7 +1533,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 		end
 
 		if ShowPrompt then
-			task.delay(.22, function()
+			task.delay(.28, function()
 				if not Opened then
 					Prompt:Show()
 				end
@@ -2131,6 +2283,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 			Window.GroupTransparency = Value
 			Setup.Transparency = Value
+			Prompt:Refresh()
 
 			for Index, Notification in next, Screen:GetDescendants() do
 				if Notification:IsA("CanvasGroup") and Notification.Name == "Notification" then
@@ -2146,6 +2299,7 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 			Settings.BlurIntensity = Value
 			if BlurObject then BlurObject:SetIntensity(Value) end
+			SyncPrompt()
 
 		elseif Setting == "LiquidGlass" then
 
@@ -2155,11 +2309,13 @@ function Library:CreateWindow(Settings: { Title: string, Size: UDim2, Transparen
 
 			Settings.LiquidGlassIntensity = Value
 			if Glass then Glass:SetIntensity(Value) end
+			SyncPrompt()
 
 		elseif Setting == "LiquidGlassTint" then
 
 			Settings.LiquidGlassTint = Value
 			if Glass then Glass:SetTint(Value) end
+			SyncPrompt()
 
 		elseif Setting == "ShowButton" then
 
